@@ -148,6 +148,68 @@ Full audit of `LiquidityVesting.sol` (Uniswap V3 liquidity vesting contract on B
 
 ---
 
+## Attribution & Thanks
+
+This skill suite stands entirely on the shoulders of researchers and auditors who published their knowledge openly. Every checklist item is sourced — if you want to go deeper on any topic, these are the primary sources:
+
+### 🙏 People & Teams
+
+**[Dacian](https://dacian.me)** — The single highest-signal source in this entire suite. Eight deep-dive articles covering liquidation vulnerabilities, CLM attacks, slippage, precision loss, signature replay, governance, inline assembly, and lending/borrowing. Essential reading for any serious auditor.
+- [DeFi Liquidation Vulnerabilities](https://dacian.me/defi-liquidation-vulnerabilities)
+- [Concentrated Liquidity Manager Vulnerabilities](https://dacian.me/concentrated-liquidity-manager-vulnerabilities)
+- [DeFi Slippage Attacks](https://dacian.me/defi-slippage-attacks)
+- [Precision Loss Errors](https://dacian.me/precision-loss-errors)
+- [Signature Replay Attacks](https://dacian.me/signature-replay-attacks)
+- [DAO Governance DeFi Attacks](https://dacian.me/dao-governance-defi-attacks)
+- [Solidity Inline Assembly Vulnerabilities](https://dacian.me/solidity-inline-assembly-vulnerabilities)
+- [Lending/Borrowing DeFi Attacks](https://dacian.me/lending-borrowing-defi-attacks)
+- [AI Auditor Primers](https://github.com/devdacian/ai-auditor-primers) (base.primer.md — 33KB of dense vulnerability patterns)
+
+**[beirao.xyz](https://beirao.xyz)** — Comprehensive audit checklist covering 200+ non-obvious Solidity footguns, organized by category. The backbone of `evm-audit-general`.
+
+**[Sigma Prime](https://blog.sigmaprime.io)** — Three excellent deep-dives on governance/DAOs, oracles/pricing, and liquid restaking security.
+- [Governance & DAOs](https://blog.sigmaprime.io/governance-dao.html)
+- [Oracles & Pricing](https://blog.sigmaprime.io/oracles-and-pricing.html)
+- [Liquid Restaking](https://blog.sigmaprime.io/liquid-restaking.html)
+
+**[RareSkills](https://www.rareskills.io)** — Detailed articles on smart contract security and UUPS proxy vulnerabilities.
+- [Smart Contract Security](https://www.rareskills.io/post/smart-contract-security)
+- [UUPS Proxy](https://www.rareskills.io/post/uups-proxy)
+
+**[Cyfrin](https://cyfrin.io)** — Chainlink oracle security deep-dive by Dacian, published via Cyfrin.
+- [Chainlink Oracle DeFi Attacks](https://medium.com/cyfrin/chainlink-oracle-defi-attacks-93b6cb6541bf)
+
+### 🔧 Checklists & Reference Repos
+
+**[d-xo/weird-erc20](https://github.com/d-xo/weird-erc20)** — The definitive catalog of non-standard ERC20 token behaviors. Essential for any protocol accepting arbitrary tokens.
+
+**[0xJuancito/multichain-auditor](https://github.com/0xJuancito/multichain-auditor)** — Cross-chain deployment pitfalls across Arbitrum, Optimism, zkSync, Polygon, and more.
+
+**[Decurity](https://decurity.io)** — Protocol-specific security checklists for AMMs, CDPs, and liquid staking derivatives.
+
+**[Hacken](https://hacken.io)** — Uniswap V4 hooks security guide.
+
+**[OpenZeppelin](https://blog.openzeppelin.com)** — Uniswap V4 hooks audit guide and proxy security research.
+
+**[Spearbit](https://spearbit.com)** — Bridge security checklist.
+
+**[MixBytes](https://mixbytes.io)** — CREATE2 security analysis.
+
+**[Tamjid Audit Checklist](https://github.com/tamjidahmed0/smart-contract-audit-checklist)** — Community checklist with many practical Solidity footguns.
+
+**[Nascent Audit Toolkit](https://github.com/nascentxyz/simple-security-toolkit)** — Practical security toolkit for DeFi protocols.
+
+### 📋 Standards
+
+**[EEA EthTrust Security Levels](https://entethalliance.org/specs/ethtrust-sl/)** — The current smart contract security standard (supersedes the SWC registry).
+
+**[SWC Registry](https://swcregistry.io)** — Smart Contract Weakness Classification (archived, incorporated into EEA EthTrust).
+
+### Protocol Documentation
+Uniswap V3/V4 docs, LayerZero V2 security checklist, Chainlink CCIP best practices, Wormhole integration security guide, Across Protocol integration guide, Arbitrum official documentation.
+
+---
+
 ## Contributing
 
 Found a new non-obvious vulnerability pattern? The bar for inclusion is high:
