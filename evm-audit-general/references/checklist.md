@@ -193,3 +193,122 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 - [ ] **Double debt subtraction during refinancing**: If refinancing subtracts the old debt from pool balance and also subtracts it again during loan transfer, the pool balance becomes understated, potentially blocking future operations. [Source: Devdacian — Base Primer]
 
 - [ ] **Griefing with dust loans below minLoanSize**: If `minLoanSize` is only checked at loan creation but not on refinancing/splitting, attackers can create compliant loans then split them into dust, forcing unwanted small positions onto lenders. [Source: Devdacian — Base Primer]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-001] Same-Block Deposit-Withdraw Exploiting Snapshot-Based Benefits**
+  - **D:** Protocol calculates yield, rewards, voting power, or insurance coverage based on balance at a single snapshot point. No minimum lock period between deposit and withdrawal. Attacker flash-loans tokens, deposits, triggers snapshot (or waits for same-block snapshot), claims benefit, withdraws — all in one tx/block.
+  - **FP:** `getPastVotes(block.number - 1)` or equivalent past-block snapshot. Minimum holding period enforced (`require(block.number > depositBlock)`). Reward accrual requires multi-block time passage.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-3/315
+
+- [ ] **[SAS-AV-002] Invariant or Cap Enforced on One Code Path But Not Another**
+  - **D:** A constraint (pool cap, max supply, position limit, collateral ratio) is enforced during normal operation (e.g., `deposit()`) but not during settlement, reward distribution, interest accrual, or emergency paths. Constraint violated through the unguarded path.
+  - **FP:** Invariant check applied in a shared modifier/internal function called by all relevant paths. Post-condition assertion validates invariant after every state change.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-8/206/339
+
+- [ ] **[SAS-AV-003] Immutable / Constructor Argument Misconfiguration**
+  - **D:** Constructor sets `immutable` values (admin, fee, oracle, token) that can't change post-deploy. Multiple same-type `address` params where order can be silently swapped. No post-deploy verification.
+  - **FP:** Deployment script reads back and asserts every configured value. Constructor validates: `require(admin != address(0))`, `require(feeBps <= 10000)`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-31
+
+- [ ] **[SAS-AV-005] Commit-Reveal Scheme Not Bound to msg.sender**
+  - **D:** Commitment hash does not include `msg.sender`: `commit = keccak256(abi.encodePacked(value, salt))`. Attacker copies a victim's commitment from the chain/mempool and submits their own reveal for the same hash from a different address. Affects auctions, governance votes, randomness.
+  - **FP:** Commitment includes sender: `keccak256(abi.encodePacked(msg.sender, value, salt))`. Reveal validates `msg.sender` matches stored committer.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-37
+
+- [ ] **[SAS-AV-006] Block Number as Timestamp Approximation**
+  - **D:** Time computed as `(block.number - startBlock) * 13` assuming fixed block times. Variable across chains/post-Merge. Wrong interest/vesting/rewards.
+  - **FP:** `block.timestamp` used for all time-sensitive calculations.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-56
+
+- [ ] **[SAS-AV-007] Nonce Gap from Reverted Transactions (CREATE Address Mismatch)**
+  - **D:** Deployment script uses `CREATE` and pre-computes addresses from deployer nonce. Reverted/extra tx advances nonce — subsequent deployments land at wrong addresses.
+  - **FP:** `CREATE2` used (nonce-independent). Script reads nonce from chain before computing. Addresses captured from deployment receipts.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-71
+
+- [ ] **[SAS-AV-008] Array `delete` Leaves Zero-Value Gap Instead of Removing Element**
+  - **D:** `delete array[index]` resets element to zero but does not shrink the array or shift subsequent elements. Iteration logic treats the zeroed slot as a valid entry.
+  - **FP:** Swap-and-pop pattern used. Iteration skips zero entries explicitly. EnumerableSet or similar library used.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-88
+
+- [ ] **[SAS-AV-011] Transient Storage Low-Gas Reentrancy (EIP-1153)**
+  - **D:** Contract uses `transfer()`/`send()` (2300-gas) as reentrancy guard + uses `TSTORE`/`TLOAD`. Post-Cancun, `TSTORE` succeeds under 2300 gas. Also: transient reentrancy lock not cleared at call end — persists for entire tx, DoS via multicall.
+  - **FP:** `nonReentrant` backed by regular storage slot (or transient mutex properly cleared). CEI followed unconditionally.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-97
+
+- [ ] **[SAS-AV-013] Non-Atomic Multi-Contract Deployment (Partial System Bootstrap)**
+  - **D:** Deployment script deploys interdependent contracts across separate transactions. Midway failure leaves half-deployed state.
+  - **FP:** Single `vm.startBroadcast()`/`vm.stopBroadcast()` block. Factory deploys+wires all in one tx. Script is idempotent.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-101
+
+- [ ] **[SAS-AV-015] Front-Running Zero Balance Check with Dust Transfer**
+  - **D:** `require(token.balanceOf(address(this)) == 0)` gates a state transition. Dust transfer makes balance non-zero, DoS-ing the function.
+  - **FP:** Threshold check (`<= DUST_THRESHOLD`) instead of `== 0`. Access-controlled function. Internal accounting ignores direct transfers.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-128
+
+- [ ] **[SAS-AV-016] Cross-Function Reentrancy**
+  - **D:** Two functions share state variable. Function A makes external call before updating shared state; Function B reads that state. `nonReentrant` on A but not B.
+  - **FP:** Both functions share same contract-level mutex. Shared state updated before any external call.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-151
+
+- [ ] **[SAS-AV-018] Calldata Input Malleability**
+  - **D:** Contract hashes raw calldata for uniqueness. Dynamic-type ABI encoding uses offset pointers — multiple distinct layouts decode to identical values. Attacker bypasses dedup.
+  - **FP:** Uniqueness check hashes decoded parameters: `keccak256(abi.encode(decodedParams))`. Nonce-based replay protection.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-167
+
+- [ ] **[SAS-AV-022] Sender Confusion Under Multicall / Forwarder Context**
+  - **D:** Code that should reason about the original signer uses raw `msg.sender` inside multicall, relayer, or trusted-forwarder flows. Hooks, accounting, authz, or recipient attribution then execute against the batching contract / forwarder instead of the real user. Common pattern: helper libraries like `_msgSender()` / `LibMulticaller.senderOrSigner()` exist, but one or more internal paths bypass them.
+  - **FP:** Every authorization- or attribution-sensitive path consistently uses the canonical sender abstraction for the architecture (`_msgSender()`, trusted forwarder context, multicaller helper). Tests cover direct call, multicall, and forwarded execution paths and assert identical authorization semantics.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-228
+
+- [ ] **[SAS-AV-024] False Existence Detection via Balance Check at Computed Address**
+  - **D:** Contract checks pool/pair existence via `balanceOf()` at computed CREATE2 address. Pre-sent tokens make `balanceOf > 0` before deployment — logic assumes pool exists, attempts swap, reverts.
+  - **FP:** Existence via factory: `factory.getPair(A, B) != address(0)`. `code.length > 0` checked. Pool verified by calling pool-specific function (`getReserves()`, `token0()`).
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-244
+
+- [ ] **[SAS-AV-025] State Record Overwrite Without Existence Check**
+  - **D:** Mapping entry (refund, withdrawal, order) written without checking if key occupied. Overwrites legitimate user's record — blocks claim, redirects funds, or poisons state. Pattern: `records[key] = newData` without `require(records[key].amount == 0)`.
+  - **FP:** Existence check before write. Nonce/hash-based keys prevent collision. Append-only structure. Old entry processed before overwrite.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-282
+
+- [ ] **[SAS-AV-026] Sentinel / Placeholder Address Operations**
+  - **D:** Code branches on sentinel (`address(0)`, `0xEeEe...`, `type(uint256).max`) for ETH/special cases. Special branch omits validations the normal branch performs. Also: ERC20 calls on sentinel — high-level reverts (no code), low-level succeeds silently.
+  - **FP:** Sentinel branch has equivalent validation. No ERC20 calls on sentinels. WETH wrapping instead of dual-path. Early detection routes to independent handler.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-295
+
+- [ ] **[SAS-AV-028] msg.value vs Computed Amount Mismatch**
+  - **D:** Payable function computes `netAmount` after fees but forwards full `msg.value` downstream. Or trusts user-supplied `amount` without `require(msg.value == amount)`.
+  - **FP:** `require(msg.value == expectedAmount)` at entry. Fee-adjusted amount used consistently. Excess refunded.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-307
+
+- [ ] **[SAS-AV-029] Namespace / ID Reuse Across Subsystems**
+  - **D:** Multiple subsystems populate the same identifier space (`positionId`, `vaultId`, `requestId`, `orderId`), but authorization and state transitions only validate the ID, not the originating subsystem. An ID created in subsystem A is accepted by subsystem B, bypassing assumptions about ownership or lifecycle.
+  - **FP:** IDs are namespaced per subsystem, or every call validates both `id` and subsystem/type discriminator. Cross-subsystem direction table reviewed and impossible states rejected.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-322
+
+- [ ] **[SAS-AV-030] Sentinel Collision on Exhausted Quota**
+  - **D:** `0` or another sentinel means "unset" / "unlimited", but the same value is also reachable through normal exhaustion (`remaining = 0`). Once a finite quota decrements to the sentinel value, the contract interprets the exhausted state as unlimited and re-enables access.
+  - **FP:** Exhausted state is represented separately from unset state (extra boolean, distinct enum, non-zero sentinel). Decrement path cannot transition into the meaning of "unlimited".
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-324
+
+- [ ] **[SAS-AV-031] Mapping Default Value State Ambiguity**
+  - **D:** Mapping default values (`0`, `false`, empty struct) are treated as "never initialized", but those same values are also valid initialized states. Attackers reset or route execution through the default state to re-trigger initialization, bypass one-time checks, or claim resources repeatedly.
+  - **FP:** Initialization tracked with an explicit boolean / version field. Default value is never used as the sole signal for state existence. Distinct-state collision tests cover `never set` vs `set to zero`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-325
+
+- [ ] **[SAS-AV-032] Swap-and-Pop Moved Index Stale Reference**
+  - **D:** List deletion uses swap-and-pop, but auxiliary state still points to the moved element's old index. Subsequent reads, deletes, or authorization checks operate on the wrong record, enabling corruption or unauthorized access to the moved item.
+  - **FP:** Every swap-and-pop updates both the removed item's metadata and the moved item's index mapping atomically. No external references depend on unstable indices, or stable IDs are used instead.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-328
+
+- [ ] **[SAS-AV-033] Tautology in Require (Self-Comparison Validation Bypass)**
+  - **D:** A `require()` statement compares a variable to itself (`require(sourceAddressesRoot == sourceAddressesRoot)`), which always evaluates to true. This is a copy-paste or typo error where the right-hand side should be a different variable (e.g., the computed/expected root). The validation is completely bypassed, allowing arbitrary inputs to pass proof verification.
+  - **FP:** The comparison is intentionally tautological as a placeholder. The function is not security-critical.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-331
+
+- [ ] **[SAS-AV-035] Override/Extension Mismatch (Inherited Security Property Loss)**
+  - **D:** When a contract overrides or wraps a base contract's function, the override may preserve explicit guards (`require`, `revert`, access control) but silently drop implicit structural properties (storage key schemes, ordering assumptions, aggregation granularity). For example, a base contract uses composite storage keys `keccak256(user, epoch)` for isolation, but the override switches to `mapping(user => value)`, losing epoch isolation. Explicit checks all pass but the structural security property is gone.
+  - **FP:** Override was intentionally designed to change the structural property (documented). The structural property is not security-relevant in the derived context.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-340

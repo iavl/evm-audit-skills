@@ -67,3 +67,92 @@ Non-obvious NFT edge cases that break protocols. Based on real-world token behav
 - [ ] **`transferFrom` doesn't check receiver**: Unlike `safeTransferFrom`, plain `transferFrom` doesn't call `onERC721Received`. NFTs sent to contracts without receiver support are permanently lost. Look for: protocol functions using `transferFrom` where the recipient could be a contract. [beirao NFT-01]
 
 - [ ] **Most `from` parameters should be `msg.sender`**: If `nft.transferFrom(from, to, id)` allows arbitrary `from`, attackers can steal from users who have set approvals on the contract. Look for: `transferFrom` where `from` comes from user input rather than being hardcoded to `msg.sender`. [beirao NFT-04]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-080] ERC721Consecutive Balance Corruption with Single-Token Batch**
+  - **D:** OZ `ERC721Consecutive` (< 4.8.2) + `_mintConsecutive(to, 1)` — size-1 batch fails to increment balance. `balanceOf` returns 0 despite ownership.
+  - **FP:** OZ >= 4.8.2 (patched). Batch size always >= 2. Standard `ERC721._mint` used.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-2
+
+- [ ] **[SAS-AV-081] ERC1155 safeBatchTransferFrom Unchecked Array Lengths**
+  - **D:** Custom `_safeBatchTransferFrom` iterates `ids`/`amounts` without `require(ids.length == amounts.length)`. Assembly-optimized paths may silently read uninitialized memory.
+  - **FP:** OZ ERC1155 base used unmodified. Custom override asserts equal lengths as first statement.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-11
+
+- [ ] **[SAS-AV-082] Missing onERC1155BatchReceived Causes Token Lock**
+  - **D:** Contract implements `onERC1155Received` but not `onERC1155BatchReceived` (or returns wrong selector). `safeBatchTransferFrom` reverts, blocking batch settlement/distribution.
+  - **FP:** Both callbacks implemented correctly, or inherits OZ `ERC1155Holder`. Protocol exclusively uses single-item `safeTransferFrom`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-14
+
+- [ ] **[SAS-AV-083] ERC1155 uri() Missing {id} Substitution**
+  - **D:** `uri(uint256 id)` returns fully resolved URL instead of template with literal `{id}` placeholder per EIP-1155. Clients expect to substitute zero-padded hex ID client-side. Static/empty return collapses all token metadata.
+  - **FP:** Returns string containing literal `{id}`. Or per-ID on-chain URI with documented deviation from substitution spec.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-19
+
+- [ ] **[SAS-AV-084] ERC1155 onERC1155Received Return Value Not Validated**
+  - **D:** Custom ERC1155 calls `onERC1155Received` but doesn't check returned `bytes4` equals `0xf23a6e61`. Non-compliant recipient silently accepts tokens it can't handle.
+  - **FP:** OZ ERC1155 base validates selector. Custom impl explicitly checks return value.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-40
+
+- [ ] **[SAS-AV-085] ERC721 onERC721Received Arbitrary Caller Spoofing**
+  - **D:** `onERC721Received` uses parameters (`from`, `tokenId`) to update state without verifying `msg.sender` is the expected NFT contract. Anyone calls directly with fabricated parameters.
+  - **FP:** `require(msg.sender == address(nft))` before state update. Function is view-only or reverts unconditionally.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-48
+
+- [ ] **[SAS-AV-086] ERC1155 totalSupply Inflation via Reentrancy Before Supply Update**
+  - **D:** `totalSupply[id]` incremented AFTER `_mint` callback. During `onERC1155Received`, `totalSupply` is stale-low, inflating caller's share in any supply-dependent formula. Ref: OZ GHSA-9c22-pwxw-p6hx (2021).
+  - **FP:** OZ >= 4.3.2 (patched ordering). `nonReentrant` on all mint functions. No supply-dependent logic callable from mint callback.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-49
+
+- [ ] **[SAS-AV-087] ERC1155 Custom Burn Without Caller Authorization**
+  - **D:** Public `burn(address from, uint256 id, uint256 amount)` callable by anyone without verifying `msg.sender == from` or operator approval. Any caller burns another user's tokens.
+  - **FP:** `require(from == msg.sender || isApprovedForAll(from, msg.sender))` before `_burn`. OZ `ERC1155Burnable` used.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-62
+
+- [ ] **[SAS-AV-088] ERC1155 Fungible / Non-Fungible Token ID Collision**
+  - **D:** ERC1155 represents both fungible and unique items with no enforcement: missing `require(totalSupply(id) == 0)` before NFT mint, or no cap preventing additional copies of supply-1 IDs.
+  - **FP:** `require(totalSupply(id) + amount <= maxSupply(id))` with `maxSupply=1` for NFTs. Fungible/NFT ID ranges disjoint and enforced.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-64
+
+- [ ] **[SAS-AV-089] ERC1155 Batch Transfer Partial-State Callback Window**
+  - **D:** Custom batch mint/transfer updates `_balances` and calls `onERC1155Received` per ID in loop, instead of committing all updates first then calling `onERC1155BatchReceived` once.
+  - **FP:** All balance updates committed before any callback (OZ pattern). `nonReentrant` on all transfer/mint entry points.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-67
+
+- [ ] **[SAS-AV-090] ERC721Enumerable Index Corruption on Burn or Transfer**
+  - **D:** Override of `_beforeTokenTransfer` (OZ v4) or `_update` (OZ v5) without calling `super`. Index structures become stale.
+  - **FP:** Override always calls `super` as first statement. Contract doesn't inherit `ERC721Enumerable`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-80
+
+- [ ] **[SAS-AV-091] EIP-2981 Royalty Signaled But Never Enforced**
+  - **D:** `royaltyInfo()` implemented and `supportsInterface(0x2a55205a)` returns true, but transfer/settlement logic never calls `royaltyInfo()` or routes payment.
+  - **FP:** Settlement contract reads `royaltyInfo()` and transfers royalty on-chain. Royalties intentionally zero and documented.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-106
+
+- [ ] **[SAS-AV-092] ERC721 Approval Not Cleared in Custom Transfer Override**
+  - **D:** Custom `transferFrom` override skips `super._transfer()`, missing the `delete _tokenApprovals[tokenId]` step. Previous approval persists under new owner.
+  - **FP:** Override calls `super.transferFrom` or `super._transfer` internally. Or explicitly deletes approval.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-108
+
+- [ ] **[SAS-AV-093] ERC721A Lazy Ownership — ownerOf Uninitialized in Batch Range**
+  - **D:** ERC721A batch mint: only first token has ownership written. `ownerOf(id)` for mid-batch IDs may return `address(0)` before any transfer.
+  - **FP:** Explicit transfer initializes packed slot before ownership check. Standard OZ `ERC721` writes per mint.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-115
+
+- [ ] **[SAS-AV-094] NFT Staking Records msg.sender Instead of ownerOf**
+  - **D:** `depositor[tokenId] = msg.sender` without checking `nft.ownerOf(tokenId)`. Approved operator credited as depositor.
+  - **FP:** Reads `nft.ownerOf(tokenId)` before transfer and records actual owner.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-125
+
+- [ ] **[SAS-AV-095] ERC1155 ID-Based Role Access Control With Publicly Mintable Role Tokens**
+  - **D:** Access control via `require(balanceOf(msg.sender, ROLE_ID) > 0)` where `mint` for those IDs is not separately gated. Role tokens transferable by default.
+  - **FP:** Minting role-token IDs gated behind separate access control. Role tokens non-transferable.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-133
+
+- [ ] **[SAS-AV-096] ERC1155 setApprovalForAll Grants All-Token-All-ID Access**
+  - **D:** Protocol requires `setApprovalForAll(protocol, true)` for deposits/staking. No per-ID or per-amount granularity.
+  - **FP:** Protocol uses direct `safeTransferFrom` with user as `msg.sender`. Operator is immutable contract with escrow-only logic.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-147

@@ -89,3 +89,37 @@ Every known ERC20 edge case that can break protocols. Not basic "use SafeERC20" 
 - [ ] **Phantom functions on tokens without permit**: Tokens that don't implement `permit()` won't revert on low-level calls — the call succeeds as a no-op (phantom function). Code that calls `permit()` then `transferFrom()` may silently skip the permit. Look for: `try token.permit(...)` patterns that don't verify the permit actually set allowance. [weird-erc20]
 
 - [ ] **Tokens that revert on transfer to self (address(token))**: LUSD and some tokens revert when you transfer to the token's own address. Look for: patterns where `token.transfer(address(token), amount)` could occur, e.g., when destination is derived from user input. [weird-erc20, beirao FT-15]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-097] Approval to Arbitrary User-Supplied Address (Aggregator/Router Pattern)**
+  - **D:** Router/aggregator calls `token.approve(userSuppliedPool, MAX_UINT)` where pool address comes from user calldata without allowlist validation. Attacker supplies malicious "pool" that calls `transferFrom` to drain all approved tokens.
+  - **FP:** Pool addresses validated against factory or hardcoded allowlist. Approval limited to exact amount per operation (`approve(pool, amountIn)` followed by `approve(pool, 0)`). No persistent approvals.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-201
+
+- [ ] **[SAS-AV-098] Blacklist and Whitelist Not Mutually Exclusive**
+  - **D:** Address holds both `BLACKLISTED` and `WHITELISTED` roles. Whitelist-gated paths don't check blacklist — blacklisted address bypasses restrictions via whitelist.
+  - **FP:** Adding to one auto-removes from other. Single enum role per address. Both checks applied on every restricted path.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-231
+
+- [ ] **[SAS-AV-099] Self-Transfer Accounting / Delegation Distortion**
+  - **D:** Code assumes `src != dst` during transfer or delegation accounting. When sender and receiver are the same address, before/after balance reconstruction, voting checkpoints, or fee logic updates both sides asymmetrically, minting phantom voting power or corrupting accounting.
+  - **FP:** Self-transfer is an explicit no-op or has dedicated logic. Tests cover `from == to` for token, staking, and delegation flows. Balance / checkpoint deltas collapse to zero in the self-transfer case.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-326
+
+- [ ] **[SAS-AV-100] Dual ETH/WETH Input Path Ambiguity**
+  - **D:** Function accepts native ETH (`msg.value > 0`) and also accepts WETH / wrapped-asset transfers on the same path. If both are provided simultaneously, accounting may credit both, wrap twice, or process inconsistent slippage / refund branches.
+  - **FP:** ETH and WETH paths are mutually exclusive (`require(msg.value == 0 || tokenIn != WETH)`, etc.). Native path wraps exactly once, ERC20 path rejects non-zero `msg.value`, and tests cover both-supplied input.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-327
+
+- [ ] **[SAS-AV-101] ERC-1363 transferAndCall Reentrancy**
+  - **D:** ERC-1363 tokens implement `transferAndCall`/`transferFromAndCall` which invoke `onTransferReceived` on the recipient. Protocols guarding only against ERC-777 hooks remain vulnerable to the same reentrancy surface via ERC-1363 callbacks, as the token standard is distinct and its hooks are not covered by ERC-777-specific guards.
+  - **FP:** Protocol does not accept arbitrary ERC-20 tokens. `nonReentrant` covers all state-changing paths regardless of callback source. CEI pattern followed throughout.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-329
+
+- [ ] **[SAS-AV-102] Zero-Value Token Transfer Phishing (Address Poisoning)**
+  - **D:** Attacker calls `transferFrom(victim, spoofedAddress, 0)` on an ERC-20 token, which succeeds without approval because the amount is zero. This injects a fake transaction into the victim's history showing a transfer to a vanity address that closely resembles a legitimate recipient (same first/last characters). Victims who copy-paste addresses from transaction history send funds to the attacker's lookalike address.
+  - **FP:** Token reverts on zero-amount transfers (see vector #10). Wallet/explorer filters zero-value `transferFrom` events from transaction history display.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-338

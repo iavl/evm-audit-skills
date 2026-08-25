@@ -123,3 +123,92 @@
 - [ ] **Double rounding loss in mint amount calculation**: Computing `inflationPercentage` and `newEzETHSupply` as two separate multiply-divide operations causes two rounding losses. Restructure as single calculation to minimize precision loss. [Source: Sigma Prime — Liquid Restaking]
 
 - [ ] **TVL manipulation via forced delegation share tracking flaw**: If share tracking after forced undelegations has accounting errors, attacker can manipulate TVL → manipulate token exchange rate → drain value via flash loan deposit/withdrawal. [Source: Sigma Prime — Liquid Restaking]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-142] Staking Reward Front-Run by New Depositor**
+  - **D:** Reward checkpoint (`rewardPerTokenStored`) updated AFTER new stake recorded: `_balances[user] += amount` before `updateReward()`. New staker earns rewards for unstaked period.
+  - **FP:** `updateReward(account)` executes before any balance update. `rewardPerTokenPaid[user]` tracks per-user checkpoint.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-143
+
+- [ ] **[SAS-AV-143] First Depositor Reward Stealing (Staking)**
+  - **D:** In staking/reward contracts, first depositor front-runs initial reward distribution with minimal (1-wei) deposit, capturing 100% of initial rewards intended for later legitimate stakers.
+  - **FP:** Minimum stake amount enforced. Admin-only initial deposit establishes baseline. Time-weighted reward calculation prevents instant claiming. Initial reward distribution delayed until minimum TVL reached.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-177
+
+- [ ] **[SAS-AV-144] Reward Dilution via Direct Token Transfer**
+  - **D:** Attacker transfers staking tokens directly to contract (bypassing `stake()` function), inflating `totalSupply` in balance-based calculations without earning tracked stake. Dilutes rewards for legitimate stakers.
+  - **FP:** Separate reward token tracking independent of raw balance. Internal `totalStaked` variable updated only via `stake()`/`unstake()`. Protocol explicitly handles direct transfer surplus.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-178
+
+- [ ] **[SAS-AV-145] Balance Caching Issues During Reward Claims**
+  - **D:** Claiming rewards reads user balance, performs external token transfer, then uses the cached balance for further calculations. Reentrant callback during transfer can manipulate state between read and use.
+  - **FP:** `nonReentrant` on all claim functions. Balance read after transfer completes. CEI pattern followed — state updates before external calls.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-181
+
+- [ ] **[SAS-AV-146] Restaking Cascading Slashing Risk (EigenLayer-style)**
+  - **D:** Same stake secures multiple AVSs (Actively Validated Services) via restaking. A slashing event in one AVS can cascade — the same ETH is slashed by AVS-A, then AVS-B detects reduced stake and triggers its own slashing condition. Total slashing across all registered AVSs can exceed 100% of the original stake, creating insolvency.
+  - **FP:** Maximum aggregate slash exposure capped across all AVSs. Slashing amounts deducted from future AVS registrations. Insurance or reserve fund for cascading scenarios. Per-AVS stake isolation. Slashing events rate-limited across AVSs.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-222
+
+- [ ] **[SAS-AV-147] Queue/List Poisoning via Dust Entries**
+  - **D:** Attacker fills a withdrawal queue, reward distribution list, or processing queue with thousands of dust-amount entries (1 wei each). Processing the queue requires iterating all entries, and the gas cost grows linearly. Eventually the queue becomes too expensive to process within block gas limits, permanently blocking legitimate withdrawals.
+  - **FP:** Minimum entry size enforced (`require(amount >= MIN_AMOUNT)`). Queue implements pagination/batch processing. Economic deterrent per queue entry (fee or deposit). Admin can prune dust entries. Max queue length enforced.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-223
+
+- [ ] **[SAS-AV-148] Deprecated Gauge Blocks Claiming Accrued Rewards**
+  - **D:** Killing/deprecating gauge blocks `claimReward()` for already-accrued, unclaimed rewards — users who earned before deprecation cannot retrieve.
+  - **FP:** Kill stops future accrual only — claim remains active for pre-kill balances. Emergency claim bypasses active check.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-234
+
+- [ ] **[SAS-AV-149] Withdrawal Queue Bricked by Zero-Amount Entry**
+  - **D:** FIFO withdrawal queue hits cancelled/zeroed entry that causes `break` or revert instead of skip, permanently blocking all subsequent withdrawals.
+  - **FP:** Queue skips zero-amount entries. Cancellation removes or marks entry processed. Linked list allows removal.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-258
+
+- [ ] **[SAS-AV-150] Withdrawal Queue Rate Lock-In Front-Run**
+  - **D:** `requestWithdraw()` locks exchange rate at request time, not claim time. Attacker front-runs pending loss event (slashing, depeg), locks pre-loss rate. Remaining depositors absorb full loss.
+  - **FP:** Conversion at claim time using worst of request/claim rate. Same-block deposit+request prevented. Loss realization atomic with share price update.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-259
+
+- [ ] **[SAS-AV-151] Reward Accrual During Zero-Depositor Period**
+  - **D:** Time-based reward distribution starts at vault deployment but no depositors exist yet. First depositor claims all rewards accumulated during the empty period regardless of deposit size or timing.
+  - **FP:** Rewards only accrue when `totalSupply > 0`. Reward start time set on first deposit. Unclaimed pre-deposit rewards sent to treasury or burned.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-262
+
+- [ ] **[SAS-AV-152] Lazy Epoch Advancement Skips Reward Periods**
+  - **D:** Epoch advances only on user interaction. No interaction = never advanced — rewards miscalculated or lost when next interaction retroactively applies to wrong epoch.
+  - **FP:** Keeper advances epochs independently. Catch-up loop processes skipped epochs. Continuous (non-epoch) reward accrual.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-272
+
+- [ ] **[SAS-AV-153] Minimum Lock Period Bypass via Position Modification**
+  - **D:** Lock enforced on creation/removal but not `increaseLiquidity`/`decreaseLiquidity`. Attacker maintains minimal position, increases massively before profitable swap, decreases after — bypassing lock.
+  - **FP:** Lock applies to any increase — `lastModifiedBlock` updated on every change. Fee accrual begins after lock for newly added liquidity.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-287
+
+- [ ] **[SAS-AV-154] FIFO Withdrawal Ordering Degrades Yield**
+  - **D:** Aggregator vault withdraws from sub-vaults in fixed FIFO order, depleting highest-APY vaults first. Remaining capital concentrates in lowest-yield positions, reducing overall returns for all depositors.
+  - **FP:** Withdrawal ordering sorted by APY ascending (lowest-yield first). Dynamic rebalancing after withdrawals. Single underlying vault (no ordering issue).
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-310
+
+- [ ] **[SAS-AV-155] Emission Distribution Before Period Update**
+  - **D:** `distribute()` reads token balance before `updatePeriod()` mints new emissions. Rewards arrive after distribution — idle until next cycle, underpaying current period.
+  - **FP:** `updatePeriod()` called before `distribute()`. Emissions pre-funded before distribution window.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-311
+
+- [ ] **[SAS-AV-156] Cached Reward Debt Not Reset After Claim**
+  - **D:** After `claimRewards()`, `pendingReward`/`rewardDebt` not zeroed. Next claim pays full cached amount again — double payout.
+  - **FP:** `pendingReward[user] = 0` after transfer. `rewardDebt` recalculated from current balance and accumulator.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-318
+
+- [ ] **[SAS-AV-157] Partial-Claim Timestamp Advance (Unclaimed Reward Forfeiture)**
+  - **D:** When a claim/harvest function caps the claimed amount (via allowance, balance, or rate limit), the timestamp/checkpoint for future claims advances to `block.timestamp` even when `claimed < owed`. The unclaimed portion is permanently forfeited because the protocol believes it was already distributed. This silently burns user entitlements whenever a rate limit is hit.
+  - **FP:** Protocol explicitly documents that unclaimed amounts above the cap are forfeited by design. The checkpoint only advances proportionally to the amount actually claimed.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-333
+
+- [ ] **[SAS-AV-158] Keeper Under-Incentivization (Maintenance Function Gas Economics)**
+  - **D:** Protocol depends on external keepers calling maintenance functions (`accrueInterest()`, `updateRewards()`, `liquidate()`, `performUpkeep()`), but the gas cost of calling these functions exceeds the keeper's reward. When gas prices spike, keepers go offline, causing state to become stale. In lending protocols, this leads to bad debt accumulation from unliquidated positions during high-gas periods.
+  - **FP:** Protocol has its own subsidized keeper network. Keeper incentives dynamically scale with gas costs. The maintenance function is not time-critical.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-334

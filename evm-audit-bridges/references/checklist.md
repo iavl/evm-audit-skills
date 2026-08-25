@@ -109,3 +109,82 @@
 - [ ] **Unsupported chain whitelisting**: If a protocol accepts cross-chain messages from any chain, an attacker can deploy on an unsupported chain and send malicious messages. All compatible source chains must be whitelisted. Look for: cross-chain receivers without source chain validation. [beirao MC-10]
 
 - [ ] **Bridge contract upgradability differs across chains**: A bridge contract may be immutable on one chain but upgradeable on another. A compromised upgrade on one chain can affect the entire bridge. Look for: cross-chain systems where upgrade authority differs per chain. [multichain-auditor]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-045] Delegate Privilege Escalation**
+  - **D:** `setDelegate()` appoints an address that can manage OApp configurations including DVNs, Executors, message libraries, and can skip/clear payloads. If delegate is set to an insecure address (EOA, unrelated contract) or differs from owner without governance controls, the delegate can silently reconfigure the OApp's entire security stack.
+  - **FP:** Delegate == owner. Delegate is a governance timelock or multisig. `setDelegate` protected by the same access controls as `setPeer`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-38
+
+- [ ] **[SAS-AV-046] Cross-Chain Supply Accounting Invariant Violation**
+  - **D:** The fundamental invariant `total_locked_source >= total_minted_destination` is violated. Can occur through: decimal conversion errors between chains, `_credit` callable without corresponding `_debit`, race conditions in multi-chain deployments, or any bug that allows minting without locking. Minted tokens become partially or fully unbacked.
+  - **FP:** Invariant verified via monitoring/alerting. `_credit` only callable from verified `lzReceive` path. Decimal conversion tested across all supported chains. Rate limits cap maximum exposure per time window.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-39
+
+- [ ] **[SAS-AV-047] State-Time Lag Exploitation (lzRead Stale State)**
+  - **D:** `lzRead` queries state on a remote chain, but there is a latency window between query and delivery of the result via `lzReceive`. During this window, the queried state may change (token transferred, position closed, price moved). Protocol makes irreversible decisions based on the stale read result.
+  - **FP:** Read targets immutable or slowly-changing state (contract code, historical data). Read result treated as a hint with on-chain re-validation. Time-sensitive operations require fresh on-chain state, not cross-chain reads.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-44
+
+- [ ] **[SAS-AV-048] Cross-Chain Address Ownership Variance**
+  - **D:** Same address has different owners on different chains (EOA private key not used on all chains, or `CREATE`-deployed contract at same nonce but different deployer). Cross-chain logic that assumes `address(X) on Chain A == address(X) on Chain B` implies same owner enables impersonation.
+  - **FP:** `CREATE2`-deployed contracts with same factory + salt are safe. Peer mapping explicitly binds (chainId, address) pairs. Authorization uses cross-chain messaging (not address equality) to prove ownership.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-58
+
+- [ ] **[SAS-AV-049] Insufficient Block Confirmations / Reorg Double-Spend**
+  - **D:** DVN relays cross-chain message before source chain reaches finality. Attacker deposits on source, gets minted on destination, then reorg reverses the deposit.
+  - **FP:** Confirmation count matches chain-specific finality guarantees. Chain has fast finality. DVN waits for finalized blocks.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-113
+
+- [ ] **[SAS-AV-050] Cross-Chain Message Spoofing (Missing Endpoint/Peer Validation)**
+  - **D:** Receiver contract accepts cross-chain messages without verifying `msg.sender == endpoint` and `_origin.sender == registeredPeer[srcChainId]`. Ref: CrossCurve bridge exploit (Jan 2026).
+  - **FP:** `onlyPeer` modifier checks both endpoint and peer. Standard `OAppReceiver._acceptNonce` validates origin.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-116
+
+- [ ] **[SAS-AV-051] Unauthorized Peer Initialization (Fake Peer Attack)**
+  - **D:** `setPeer()` sets the remote peer address that a cross-chain contract trusts. If `setPeer` lacks proper access control, attacker registers fraudulent peer. Ref: GAIN token exploit (Sep 2025).
+  - **FP:** `setPeer` protected by multisig + timelock. `allowInitializePath()` properly implemented.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-118
+
+- [ ] **[SAS-AV-052] DVN Collusion or Insufficient DVN Diversity**
+  - **D:** OApp configured with a single DVN (`1/1/1` security stack) or multiple DVNs controlled by the same entity. Compromising one entity approves fraudulent messages.
+  - **FP:** Diverse DVN set with `2/3+` threshold. DVNs use independent verification methods. Protocol runs its own required DVN.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-141
+
+- [ ] **[SAS-AV-053] Missing Cross-Chain Rate Limits / Circuit Breakers**
+  - **D:** Bridge or OFT contract has no per-transaction or time-window transfer caps. A single exploit can drain the entire locked asset pool. Ref: Ronin hack.
+  - **FP:** Per-tx and per-window rate limits. `whenNotPaused` modifier. Guardian/emergency multisig can freeze.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-142
+
+- [ ] **[SAS-AV-054] Cross-Chain Reentrancy via Safe Transfer Callbacks**
+  - **D:** Cross-chain receive function calls `_safeMint`/`_safeTransfer` before updating supply/ownership counters. Callback re-enters to initiate another cross-chain send.
+  - **FP:** State updates committed before any safe transfer. `nonReentrant` on receive path. `_mint` used instead of `_safeMint`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-154
+
+- [ ] **[SAS-AV-055] Missing `_debit` / `_debitFrom` Authorization in OFT**
+  - **D:** Custom OFT override of `_debit` omits authorization check. Anyone can bridge tokens from any holder's balance.
+  - **FP:** Standard LayerZero OFT implementation used without override. Custom `_debit` includes proper authorization.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-157
+
+- [ ] **[SAS-AV-056] Cross-Chain Sandwich via Bridge Parameter Exposure**
+  - **D:** Bridge tx on source chain exposes destination swap params (`amountOutMin`, token, amount) in plaintext. Attacker frontruns on destination L2 to manipulate pool, backruns after bridge tx executes.
+  - **FP:** Encrypted/committed bridge payloads. Destination swap recalculates slippage via oracle. Intent-based bridge (solver fills off-chain).
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-232
+
+- [ ] **[SAS-AV-057] Bridge Global Rate Limit Griefing**
+  - **D:** Bridge enforces global throughput cap not segmented by user. Attacker fills limit bridging cheap tokens back and forth, blocking all legitimate users during cooldown.
+  - **FP:** Per-user rate limits. Segmented by token/route. Whitelist for high-value transfers.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-269
+
+- [ ] **[SAS-AV-058] Cross-Message Token Identity Mismatch**
+  - **D:** Multi-hop/cross-chain flow uses user-controlled token fields per leg without cross-validation. Attacker deposits token A but encodes token B — destination withdraws contract's balance of B. Pattern: `depositedToken`, `swapFromToken`, `swapToToken`, `withdrawalToken` specified independently.
+  - **FP:** `require(depositedToken == message.fromToken)` at deposit. Swap output validated against withdrawal token. Stateless relay holds no funds. Fields derived from on-chain state.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-290
+
+- [ ] **[SAS-AV-059] Pending Async Callback with Dependency Swap**
+  - **D:** Contract requests async operation (randomness, oracle, cross-chain message) fulfilled via callback. Dependency swapped before callback arrives — new provider can't fulfill old request, old rejected as unregistered. Request stuck permanently. Pattern: `setProvider(new)` while `pendingRequestId != 0`.
+  - **FP:** Swap blocked while requests pending. Callback validates request ID, not sender. Transition fulfills/cancels pending before registering new provider. Timeout for stuck requests.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-313

@@ -39,3 +39,12 @@ Non-obvious flash loan attack vectors. Flash loans give unlimited capital for on
 - [ ] **Cross-protocol reentrancy via flash loan callbacks**: Flash loan callbacks execute arbitrary code. An attacker can use the callback to interact with other protocols that reference the flash-loaned asset's balance. Look for: protocols that use `balanceOf` for accounting where the token supports flash loans. [Tamjid D10]
 
 - [ ] **Flash loan to bypass rate limits**: Some protocols have per-transaction or per-block limits on actions. Flash loans can bypass these by executing all actions atomically. Look for: rate-limiting mechanisms that check per-tx rather than cumulative. [general]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-113] Circular Flash Loan Amplification Across Protocols**
+  - **D:** Attacker uses flash-loaned assets to deposit in Protocol A, borrows from A, deposits borrowed assets in Protocol B, borrows from B, and repeats. Creates leveraged positions across multiple protocols in a single transaction with zero initial capital, amplifying any exploit (oracle manipulation, governance attack) by orders of magnitude.
+  - **FP:** Flash loan detection via `require(block.number > depositBlock)` or same-block withdrawal restriction. Cross-protocol exposure limits. Deposit cooldown periods. Conservative LTV ratios that make circular amplification unprofitable after fees.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-219

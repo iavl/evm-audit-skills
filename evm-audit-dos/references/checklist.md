@@ -49,3 +49,17 @@ Non-obvious denial-of-service and griefing attack patterns.
 - [ ] **Chainlink multisig can block price feed access**: Chainlink price feeds are controlled by a multisig. In theory, access could be revoked. Wrap Chainlink calls in try/catch with fallback oracle. Look for: direct `latestRoundData()` calls without try/catch. [Decurity CDP, beirao CL-12]
 
 - [ ] **`balanceOf()` reverting causes DoS**: If a token's `balanceOf()` function reverts (e.g., paused token), any function that calls it also reverts. Look for: `balanceOf()` in critical paths without try/catch. [Tamjid X2, S3]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-020] Storage Bloat Attack (Unbounded Mapping/Array Growth)**
+  - **D:** Attacker fills user-controlled mappings/arrays without economic limits (e.g., `userTokens[user].push(attacker_token)` for each of thousands of fake tokens). Functions iterating over this array hit block gas limit.
+  - **FP:** Array size bounded (`require(arr.length < MAX)`). Economic deterrent (cost per entry). Pagination for iteration. EnumerableSet with bounded operations.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-203
+
+- [ ] **[SAS-AV-023] Algorithmic Complexity Gas DoS**
+  - **D:** Nested loops, combinatorial matching, or recursive computation with superlinear gas cost (O(n²), O(2ⁿ)). At production scale, execution exceeds block gas limit, bricking the function.
+  - **FP:** O(n) or O(n log n) algorithm. Input capped (`require(n <= MAX)` gas-tested). Computation paginated/batched. Off-chain compute with on-chain verification.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-230

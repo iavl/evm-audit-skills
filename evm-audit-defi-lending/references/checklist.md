@@ -181,3 +181,87 @@
 - [ ] **Borrow interest accumulates while protocol is paused**: If users can't repay during pause but interest keeps accruing, they can be instantly liquidated when unpaused due to interest buildup. [Source: Dacian — DeFi Liquidation Vulnerabilities, Code4rena BendDAO]
 
 - [ ] **isLiquidatable doesn't refresh interest/funding fees before check**: View functions checking liquidation eligibility must first calculate latest accrued fees. Stale fee data means positions appear healthier than they are. [Source: Dacian — DeFi Liquidation Vulnerabilities]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-125] Accrued Interest Omitted from Health Factor or LTV Calculation**
+  - **D:** Health factor or LTV computed from principal debt without adding accrued interest. Understates actual debt, delays necessary liquidations.
+  - **FP:** `getDebt()` includes accrued interest. Interest accrual function called before health check.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-146
+
+- [ ] **[SAS-AV-126] Unfair Liquidation via Cherry-Picked Collateral**
+  - **D:** Liquidator selects which collateral asset to seize, choosing the most liquid/stable asset while leaving volatile collateral. Borrower's position becomes unhealthier post-liquidation despite liquidator profiting.
+  - **FP:** Collateral seizure follows defined priority ordering. Liquidation enforces health improvement post-seizure (`healthFactorAfter > healthFactorBefore`). Single-collateral system.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-172
+
+- [ ] **[SAS-AV-127] No LTV Gap Between Borrow and Liquidation Threshold**
+  - **D:** Liquidation threshold equals max borrow LTV. Positions become immediately liquidatable after borrowing with zero buffer for normal price volatility. Users have no margin to avoid liquidation.
+  - **FP:** Explicit gap between max borrow LTV and liquidation threshold (e.g., borrow at 75%, liquidate at 80%). Documentation explains chosen parameters. Per-asset configurable thresholds.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-176
+
+- [ ] **[SAS-AV-128] Interest Accrual During Liquidation Auction**
+  - **D:** While collateral is being auctioned (Dutch auction, English auction), borrower's debt continues accruing interest. Long auctions make the position progressively worse, potentially causing auction proceeds to be insufficient.
+  - **FP:** Interest frozen at auction start timestamp. Auction duration bounded. Instant liquidation (no auction). Interest-inclusive reserve price.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-184
+
+- [ ] **[SAS-AV-129] No Liquidation Slippage Protection**
+  - **D:** Liquidator calls `liquidate()` but received collateral amount has no minimum parameter. MEV bot sandwiches the liquidation tx, extracting value via collateral price manipulation.
+  - **FP:** `minCollateralReceived` parameter in liquidation function. Private mempool for liquidation txs. Protocol-operated liquidation bot with MEV protection.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-185
+
+- [ ] **[SAS-AV-131] Permissionless accrueInterest Griefing**
+  - **D:** Permissionless `accrueInterest()` called at short intervals — each computes zero interest (rounding) but advances timestamp, systematically suppressing accumulation.
+  - **FP:** Minimum accrual interval enforced. Precision ensures per-block interest > 0. Access-restricted accrual.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-251
+
+- [ ] **[SAS-AV-132] Profit Tracking Underflow Blocks Withdrawals**
+  - **D:** Vault tracks cumulative profit. Strategy loss exceeding recorded profit causes `totalProfit -= loss` to underflow (revert on 0.8+), bricking all withdrawals.
+  - **FP:** Loss capped: `totalProfit -= min(loss, totalProfit)`. Signed integer for profit/loss. Per-strategy tracking.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-252
+
+- [ ] **[SAS-AV-133] Liquidated Position Continues Accruing Rewards**
+  - **D:** Position liquidated (balance zeroed) but not removed from reward distribution. `rewardDebt` not reset — phantom rewards accrue or are locked permanently.
+  - **FP:** Liquidation calls `_withdrawRewards()` before zeroing. Reward system checks `balance > 0` before accruing.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-273
+
+- [ ] **[SAS-AV-134] Liquidation Blocked by External Pool Illiquidity**
+  - **D:** Liquidation swaps collateral for debt token via external DEX. Drained pool reverts swap, making liquidation impossible. Bad debt accumulates.
+  - **FP:** Liquidation accepts collateral directly. Fallback path uses different DEX. Liquidator provides debt token.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-275
+
+- [ ] **[SAS-AV-135] Liquidation Discount Applied Inconsistently Across Code Paths**
+  - **D:** One path calculates debt at face value, another applies discount. Mismatch causes underflow or leaves residual bad debt unaccounted.
+  - **FP:** Discount applied consistently across all liquidation paths. Single source of truth for discounted value.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-276
+
+- [ ] **[SAS-AV-136] No-Bid Auction Fails to Clear State**
+  - **D:** Auction expires with no bids but finalization doesn't clear lien/escrow data — collateral locked with no return path or re-auction mechanism.
+  - **FP:** No-bid finalization returns collateral and clears state. Auto re-auction. Timeout-based release.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-278
+
+- [ ] **[SAS-AV-137] Repeated Liquidation of Same Position**
+  - **D:** Liquidation doesn't flag position as processed. After partial liquidation, position still appears undercollateralized — second liquidator seizes collateral beyond intent.
+  - **FP:** Position marked `liquidated` or deleted. `require(status != Liquidated)`. Post-liquidation health check.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-280
+
+- [ ] **[SAS-AV-138] MEV Withdrawal Before Bad Debt Socialization**
+  - **D:** External event (liquidation, exploit, depeg) causes vault loss. MEV actor observes pending loss-causing tx in mempool and front-runs a withdrawal at pre-loss share price, leaving remaining depositors to absorb the full loss.
+  - **FP:** Withdrawals require time-delayed request queue (epoch-based or cooldown). Loss realization and share price update are atomic. Private mempool used for liquidation txs.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-293
+
+- [ ] **[SAS-AV-139] Open Interest Tracked with Pre-Fee Position Size**
+  - **D:** OI incremented by full position size before fee deduction. Actual exposure < recorded OI. Permanently inflated OI hits caps, blocking new positions.
+  - **FP:** OI incremented by post-fee size. OI decremented on close by same amount used at open.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-297
+
+- [ ] **[SAS-AV-140] Interest Accrual Rounds to Zero but Timestamp Advances**
+  - **D:** `interest = rate * timeDelta / SECONDS_PER_YEAR` rounds to zero for small `timeDelta`, but `lastAccrualTime` still advances — fractional interest permanently lost.
+  - **FP:** Accumulator uses sufficient precision (RAY = 1e27). `lastAccrualTime` only advances when interest > 0.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-299
+
+- [ ] **[SAS-AV-141] Position Reduction Triggers Liquidation**
+  - **D:** Partial repay/withdrawal creates intermediate state below liquidation threshold — bot liquidates before atomic completion. Health check applied to intermediate, not final state.
+  - **FP:** Repay and collateral changes atomic. Health check on final state only. Grace period after modification.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-305

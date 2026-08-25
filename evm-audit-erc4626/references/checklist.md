@@ -108,3 +108,47 @@
 - [ ] **ERC4626 external swap slippage in withdrawals**: If vault strategies require swaps to liquidate positions for withdrawals, high slippage means users get fewer assets than expected. Vaults should have TVL limits so liquidation slippage stays manageable. Look for: vaults with illiquid strategies that don't cap deposits based on liquidation capacity. [ERC4626 Checklist E5, E6]
 
 - [ ] **Inherited ERC4626 with overridden functions must override ALL dependent functions**: If you inherit from OZ's ERC4626 and modify deposit logic, you may also need to override `previewDeposit`, `maxDeposit`, `convertToShares`, etc. Missing overrides causes inconsistency. Look for: ERC4626 subclasses that override some but not all related functions. [ERC4626 Checklist IC1]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-103] ERC4626 convertToAssets Used Instead of previewWithdraw**
+  - **D:** Integration calls `convertToAssets(shares)` to estimate withdrawal proceeds — excludes fees/slippage per spec. Downstream logic (health checks, rebalancing) operates on inflated values.
+  - **FP:** `previewWithdraw()`/`previewRedeem()` used for estimates. No withdrawal fees. Fee delta accounted separately.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-240
+
+- [ ] **[SAS-AV-104] Vault Insolvency via Accumulated Rounding Dust**
+  - **D:** Vault tracks `totalAssets` as a storage variable separate from `token.balanceOf(vault)`. Solidity's floor rounding on each deposit/withdrawal creates tiny overages — user receives 1 wei more than burned shares represent. Over many operations `totalAssets` exceeds actual balance, causing last withdrawers to revert.
+  - **FP:** Rounding consistently favors the vault (round shares up on deposit, round assets down on withdrawal). OZ Math with `Rounding.Ceil`/`Rounding.Floor` applied correctly.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-264
+
+- [ ] **[SAS-AV-105] Idle Asset Dilution from Sub-Vault Deposit Caps**
+  - **D:** Aggregator vault accepts deposits without checking sub-vault capacity. Excess assets sit idle earning zero yield but dilute share price for all depositors.
+  - **FP:** `maxDeposit()` reflects combined sub-vault remaining capacity. Deposits revert when no capacity remains. Idle assets auto-routed to fallback yield.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-271
+
+- [ ] **[SAS-AV-106] Partial Redemption Fails to Reduce Tracked Total**
+  - **D:** Partial redemption fill doesn't reduce `totalQueuedShares`/`totalPendingAssets` proportionally. Inflated total skews share price.
+  - **FP:** Partial fill reduces tracked totals proportionally. Per-request tracking. Atomic full-or-nothing redemptions.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-279
+
+- [ ] **[SAS-AV-107] Share Redemption at Optimistic Rate**
+  - **D:** Shares redeemed at projected end-of-term rate rather than current realized rate. Early redeemers take more than proportional share — late redeemers find vault depleted.
+  - **FP:** Redemption uses current realized rate (`totalAssets() / totalSupply()`). Withdrawal queue enforces proportional access. Early redemption penalty applied.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-281
+
+- [ ] **[SAS-AV-108] Withdrawal Rate Limit Bypassed via Share Transfer**
+  - **D:** Per-address withdrawal limit bypassed by transferring shares to fresh addresses — each gets a fresh limit.
+  - **FP:** Limit tracks underlying position, not address. Shares non-transferable or transfer resets allowance.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-283
+
+- [ ] **[SAS-AV-109] Missing Slippage Protection on Vault Withdraw/Redeem**
+  - **D:** ERC4626 `withdraw`/`redeem` accept no slippage parameter. Exchange rate changes between submission and execution (yield, donations, losses). Users receive fewer assets or burn more shares than expected.
+  - **FP:** Fixed 1:1 exchange rate. Custom `withdrawWithSlippage` wrapper. Frontend simulation with revert. Loss-proof yield source.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-285
+
+- [ ] **[SAS-AV-110] ERC4626 maxDeposit vs Actual Deposit Method Mismatch**
+  - **D:** Vault queries `maxDeposit()` but deposits via `mint()` (or vice versa). Per ERC4626, `maxDeposit` governs `deposit()` and `maxMint` governs `mint()` — limits may differ. Same for withdrawal: `convertToAssets(maxRedeem(...))` instead of `maxWithdraw(...)` overstates amount (excludes fees/slippage).
+  - **FP:** Method-matched queries (`maxMint` for `mint`, `maxDeposit` for `deposit`). `previewWithdraw`/`previewRedeem` for estimates. Underlying `max*` verified consistent.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-308

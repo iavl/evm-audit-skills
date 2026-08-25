@@ -145,3 +145,57 @@
 - [ ] **Minting functions are swaps without slippage**: When protocol mints native tokens based on pool reserves (effectively a swap), users must be able to specify slippage. Without it, the mint is sandwichable. [Source: Dacian — DeFi Slippage Attacks, Code4rena Vader]
 
 - [ ] **Mismatched slippage precision across token decimals**: If `minTokenOut` is calculated in 6 decimals but the output token has 18 decimals, the slippage check is ineffective (off by 12 orders of magnitude). Must scale slippage to output token's precision. [Source: Dacian — DeFi Slippage Attacks, Sherlock RageTrade]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-111] Uniswap V4 Cached State Desynchronization**
+  - **D:** Hook caches pool state (`sqrtPriceX96`, `liquidity`, `tick`) in `beforeSwap` but state changes during the swap. `afterSwap` reads stale cached values for fee calculations or rebalancing decisions.
+  - **FP:** State re-read from pool in `afterSwap`. Cache explicitly invalidated between hooks. No cross-hook state dependency.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-197
+
+- [ ] **[SAS-AV-112] Uniswap V4 Hook Data Manipulation**
+  - **D:** Hook reads parameters from `hookData` bytes passed through the swap path. Attacker crafts `hookData` to manipulate hook behavior — bypassing fee calculations, altering routing decisions, or triggering unintended state changes in the hook contract.
+  - **FP:** `hookData` validated against expected schema (length, types). Critical parameters derived from pool state, not `hookData`. Hook ignores or doesn't use `hookData`. Authenticated `hookData` (signed by trusted relayer).
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-214
+
+- [ ] **[SAS-AV-116] Loss-Versus-Rebalancing (LVR) in Constant-Function AMMs**
+  - **D:** AMM with constant-function pricing and static fees. Searchers continuously arbitrage stale pool price against external markets, extracting from LPs on every price movement. Concentrated liquidity amplifies extraction.
+  - **FP:** Dynamic fee adjusting for volatility (Uniswap V4 hooks). MEV-aware design (batch auctions, CoW AMM). Fee tier covers expected LVR for pair volatility.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-249
+
+- [ ] **[SAS-AV-117] TWAP Accumulator Not Updated During Sync or Skim**
+  - **D:** `sync()`/`skim()` updates reserves but doesn't call `_update()` to advance TWAP accumulator. Stale TWAP enables manipulation via sync-then-trade.
+  - **FP:** `sync()` calls `_update()` before overwriting reserves. TWAP from external oracle. Uniswap V3 `observe()` used.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-256
+
+- [ ] **[SAS-AV-118] Adverse Selection — Passive LP Value Extraction via Selective JIT**
+  - **D:** No time-weighting or lock on fee distribution. JIT providers enter only during high-fee moments and exit during adverse moves. Passive LPs bear 100% IL but share fees with JIT providers bearing zero IL.
+  - **FP:** Fee share time-weighted by duration. Dynamic fee increases during volatility. Withdrawal cooldown makes selective entry costly.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-265
+
+- [ ] **[SAS-AV-119] Tick Crossing Fee Accounting Manipulation via JIT**
+  - **D:** On tick crossing, `feesPerLiquidityOutside` flips (`global - outside`). JIT provider adds at tick boundary after fees accumulate but before crossing — flip credits position with pre-existing fees it didn't earn.
+  - **FP:** `feesPerLiquidityInsideLast` set at creation; crossing correctly partitions pre/post fees. Same-block creation and crossing yield zero claimable.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-266
+
+- [ ] **[SAS-AV-120] Fee Accumulation Rounding Extraction via Large JIT Position**
+  - **D:** `feesPerLiquidity += (feeAmount << 128) / totalLiquidity`. Large JIT position inflates `totalLiquidity` — per-unit increment rounds to zero for existing LPs while JIT provider captures truncated amount.
+  - **FP:** Sufficient precision (Q128+) ensures rounding loss < 1 wei at realistic ratios. Protocol minimum fee increment.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-267
+
+- [ ] **[SAS-AV-121] Atomic JIT Liquidity via Flash Accounting**
+  - **D:** Flash accounting / lock-callback allows add-liquidity + swap + remove-liquidity atomically with zero capital. No minimum hold duration or fee decay. Attacker adds concentrated liquidity at current tick, swap executes through it, liquidity removed — all in one callback.
+  - **FP:** Minimum hold duration enforced. Fee share weighted by time-in-pool. Withdrawal fee on short-lived positions. Flash callback restricted from `updatePosition`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-268
+
+- [ ] **[SAS-AV-122] First-Swap Extraction on Newly Created Pools**
+  - **D:** New pool with minimal liquidity — first significant swap is extremely fee-rich. Attacker front-runs by adding concentrated liquidity, captures outsized fees, removes. Extreme: initializes at skewed price, profits from arb correction.
+  - **FP:** Minimum locked seed liquidity (Uniswap V2 `MINIMUM_LIQUIDITY`). Fee ramp-up for new pools. Anti-sniping delay on creation.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-291
+
+- [ ] **[SAS-AV-123] Empty Swap Path Bypasses Token Validation**
+  - **D:** Empty swap data/zero-length path returns input amount without swapping — and without validating input == output token. Attacker skips swap, receives output token from contract's balance. Pattern: `if (swapData.length == 0) return amount;` without `require(fromToken == toToken)`.
+  - **FP:** Empty path enforces `require(fromToken == toToken)`. Swap mandatory. Reverts on empty data. Post-swap balance delta check.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-294

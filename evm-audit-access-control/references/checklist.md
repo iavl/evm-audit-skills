@@ -41,3 +41,22 @@ Non-obvious access control vulnerabilities beyond basic missing modifiers.
 ## Multi-Agent Access
 
 - [ ] **When all agents are the same person**: In multi-role systems (liquidator, borrower, LP), consider what happens if one entity controls all roles simultaneously. Self-liquidation, self-arbitrage, circular collateral. Look for: cross-role interactions where same-address scenarios aren't tested. [beirao G-22]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-010] Deployment Transaction Front-Running (Ownership Hijack)**
+  - **D:** Deployment tx sent to public mempool. Attacker extracts bytecode and deploys first or front-runs initialization. Pattern: constructor sets `owner = msg.sender`.
+  - **FP:** Private relay used. Owner passed as constructor arg, not `msg.sender`. CREATE2 salt tied to deployer.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-95
+
+- [ ] **[SAS-AV-012] Deployer Privilege Retention Post-Deployment**
+  - **D:** Deployer EOA retains owner/admin/minter/pauser/upgrader after deployment script completes. Pattern: `Ownable` sets `owner = msg.sender` with no `transferOwnership()`.
+  - **FP:** Script includes `transferOwnership(multisig)`. Admin role granted to timelock/governance, deployer renounces. `Ownable2Step` with pending owner set to multisig.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-100
+
+- [ ] **[SAS-AV-034] Existence Check Misused as Ownership Check**
+  - **D:** A function calls `_requireOwned(tokenId)` or similar to validate authorization, but the internal function only checks whether the token exists (has a non-zero owner), not whether `msg.sender` is that owner. Any user can call the function for any existing token, enabling unauthorized operations like splitting, burning, or transferring other users' positions.
+  - **FP:** The existence check is intentional (function is meant to be callable by anyone for any token). A separate ownership check exists elsewhere in the call path.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-332

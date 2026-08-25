@@ -61,3 +61,57 @@
 - [ ] **Overriding upgradeToAndCall breaks upgrade functionality**: If a developer overrides `upgradeToAndCall()` in a new implementation and introduces bugs (wrong access control, missing UUPS check), the upgrade mechanism itself is compromised. Be extremely careful with any override. [Source: RareSkills — UUPS Proxy]
 
 - [ ] **Authorization schema change loses access during upgrade**: Switching from simple owner to multi-sig/voting in new implementation, but the multi-sig hasn't been properly initialized or the previous admin already renounced privileges → permanent lock. Verify authorization continuity across upgrades. [Source: RareSkills — UUPS Proxy]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-009] Upgrade Race Condition / Front-Running**
+  - **D:** `upgradeTo(V2)` and post-upgrade config calls are separate txs in public mempool. Window for front-running or sandwiching.
+  - **FP:** `upgradeToAndCall()` bundles upgrade + init. Private mempool. V2 safe with V1 state from block 0.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-93
+
+- [ ] **[SAS-AV-036] Beacon Proxy Single-Point-of-Failure Upgrade**
+  - **D:** Multiple proxies read implementation from single Beacon. Compromising Beacon owner upgrades all proxies at once. `UpgradeableBeacon.owner()` returns single EOA.
+  - **FP:** Beacon owner is multisig + timelock. `Upgraded` events monitored. Per-proxy upgrade authority where isolation required.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-6
+
+- [ ] **[SAS-AV-037] Re-initialization Attack**
+  - **D:** V2 uses `initializer` instead of `reinitializer(2)`. Or upgrade resets initialized counter / storage-collides bool to false. Ref: AllianceBlock (2024).
+  - **FP:** `reinitializer(version)` with correctly incrementing versions for V2+. Tests verify `initialize()` reverts after first call.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-18
+
+- [ ] **[SAS-AV-038] Immutable Variable Context Mismatch**
+  - **D:** Implementation uses `immutable` variables (embedded in bytecode, not storage). Proxy `delegatecall` gets implementation's hardcoded values regardless of per-proxy needs. E.g., `immutable WETH` — every proxy gets same address.
+  - **FP:** Immutable values intentionally identical across all proxies. Per-proxy config uses storage via `initialize()`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-20
+
+- [ ] **[SAS-AV-039] Cross-Chain Deployment Replay**
+  - **D:** Deployment tx replayed on another chain. Same deployer nonce on both chains produces same CREATE address under different control. No EIP-155 chain ID protection. Ref: Wintermute.
+  - **FP:** EIP-155 signatures. `CREATE2` via deterministic factory at same address on all chains. Per-chain deployer EOAs.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-24
+
+- [ ] **[SAS-AV-040] CREATE2 Address Squatting (Counterfactual Front-Running)**
+  - **D:** CREATE2 salt not bound to `msg.sender`. Attacker precomputes address and deploys first. For AA wallets: attacker deploys wallet to user's counterfactual address with attacker as owner.
+  - **FP:** Salt incorporates `msg.sender`: `keccak256(abi.encodePacked(msg.sender, userSalt))`. Factory restricts deployer. Different owner in constructor produces different address.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-29
+
+- [ ] **[SAS-AV-041] Diamond Proxy Cross-Facet Storage Collision**
+  - **D:** EIP-2535 Diamond facets declare storage variables without EIP-7201 namespaced storage. Multiple facets independently start at slot 0, writing to same slots.
+  - **FP:** All facets use single `DiamondStorage` struct at namespaced position (EIP-7201). No top-level state variables in facets.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-52
+
+- [ ] **[SAS-AV-042] Minimal Proxy (EIP-1167) Implementation Destruction**
+  - **D:** EIP-1167 clones `delegatecall` a fixed implementation. If implementation is destroyed, all clones become no-ops with locked funds.
+  - **FP:** No `selfdestruct` in implementation. `_disableInitializers()` in constructor. Post-Dencun: code not destroyed.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-122
+
+- [ ] **[SAS-AV-043] Diamond Proxy Facet Selector Collision**
+  - **D:** EIP-2535 Diamond where two facets register same 4-byte selector. Malicious facet via `diamondCut` hijacks calls to critical functions.
+  - **FP:** `diamondCut` validates no selector collisions. `DiamondLoupeFacet` enumerates/verifies selectors post-cut.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-129
+
+- [ ] **[SAS-AV-044] OpenZeppelin Version Confusion (v4 vs v5)**
+  - **D:** Contract overrides `_beforeTokenTransfer` (OZ v4 hook) while importing OZ v5, where the hook was replaced with `_update`. Override silently never executes — access control, transfer restrictions, or enumerable tracking bypassed.
+  - **FP:** Confirmed OZ version consistency. Contract uses `_update` override for v5. No OZ token base inherited.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-200

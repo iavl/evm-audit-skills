@@ -141,3 +141,22 @@
 - [ ] **TWAP mean can be skewed by single extreme reading**: With readings [10, 9999, 12, 11], mean TWAP = 2508 despite 75% of prices being ~10-12. Especially dangerous for illiquid pools. Consider median or trimmed mean. [Source: Sigma Prime — Oracles & Pricing]
 
 - [ ] **Wrong decimal conversion factor in lending pool setup**: Morpho user deployed PAXG lending pool with incorrect decimal conversion between collateral and loan tokens. $230K drained. Test deployments with small amounts first. [Source: Sigma Prime — Oracles & Pricing]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-114] Funding Rate Derived from Single Trade Price**
+  - **D:** Perp funding rate uses last trade price as mark. Single self-trade at extreme price skews funding — attacker profits on opposing position.
+  - **FP:** Mark from TWAP or external oracle. Funding rate capped per period. VWAP used.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-246
+
+- [ ] **[SAS-AV-115] LST Redemption-Rate vs Market-Price Divergence**
+  - **D:** LST collateral valued at protocol redemption rate (`stETH.getPooledEthByShares()`) while market trades at discount. Borrower posts overvalued collateral, borrows against inflated value. During stress, redemption rate stays high while market drops — bad debt.
+  - **FP:** Market price feed (Chainlink stETH/ETH) used. `min(redemptionRate, marketPrice)` for valuation. LTV haircut for historical deviation. Circuit breaker on divergence.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-248
+
+- [ ] **[SAS-AV-124] Oracle Extractable Value (OEV) Liquidation Leakage**
+  - **D:** Liquidation callable by anyone with full `liquidationBonus` going to `msg.sender`. Oracle price update → MEV race to liquidate → value leaks from protocol to searchers with no recapture.
+  - **FP:** OEV-aware oracle (API3 OEV Network, Chainlink SVR). Liquidation bonus auctioned with proceeds to protocol. Dutch auction liquidation. Keeper priority window.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-300

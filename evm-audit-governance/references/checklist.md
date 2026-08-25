@@ -109,3 +109,47 @@
 - [ ] **Abandoned project governance takeover**: Attacker buys cheap governance tokens of abandoned project, creates vote to redirect accrued fees and liquidity to their address. Monitor token accumulation, restrict vote power over user funds, use timelocks. [Source: Sigma Prime — Governance & DAOs, Swerve Finance]
 
 - [ ] **Timelock prevents emergency response to buggy proposals**: Compound's `>` vs `>=` bug caused $147M in erroneous COMP distribution, but the timelock prevented any swift fix. Consider multiple governance speeds — instant pause mechanisms with shorter timelocks for emergencies. [Source: Sigma Prime — Governance & DAOs, Compound Finance]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-159] Governance Spam Proposals via Low Deposit Threshold**
+  - **D:** Governance proposal creation requires a deposit or token threshold too low relative to token supply. Attacker floods governance with spam proposals, overwhelming voters and hiding malicious proposals among noise. Legitimate governance activity becomes impractical. Combined with voter apathy, a malicious proposal may pass unnoticed.
+  - **FP:** Proposal deposit proportional to token supply (e.g., 1% of total supply). Proposal rate limiting per address. Quorum requirements filter out low-engagement proposals. Proposal screening by guardians/council before on-chain vote. Deposit forfeited if proposal doesn't reach quorum.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-224
+
+- [ ] **[SAS-AV-160] Quorum Computed from Live Supply, Not Snapshot**
+  - **D:** `quorum = totalSupply() * quorumBps / 10000` reads current supply. Attacker inflates supply after proposal creation, lowering effective quorum percentage.
+  - **FP:** Quorum snapshotted at proposal creation. Fixed absolute quorum. Supply changes don't affect active proposals.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-253
+
+- [ ] **[SAS-AV-161] Timelock Anchored to Deployment, Not Action**
+  - **D:** Timelock measured from deployment, not action queue time. Once initial delay elapses, all future actions execute instantly — permanent bypass.
+  - **FP:** `executeAfter = block.timestamp + delay` set at queue time. OZ TimelockController.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-255
+
+- [ ] **[SAS-AV-162] Governance Proposal Executable Before Voting Period Ends**
+  - **D:** `execute()` checks quorum/majority but not `block.timestamp >= proposal.endTime`. Once quorum met, proposal executable immediately — cuts voting window short.
+  - **FP:** `require(block.timestamp >= proposal.endTime)`. OZ Governor enforces `ProposalState.Succeeded`.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-270
+
+- [ ] **[SAS-AV-163] Governance Precondition Manipulation**
+  - **D:** Parameter updates have preconditions based on manipulable state (TVL, liquidity). Adversary inflates/deflates state to block updates — DoS on governance prevents critical changes (fee adjustments, security patches, oracle swaps).
+  - **FP:** Preconditions use time-weighted/snapshot values. No state-dependent preconditions. Admin emergency override. Absolute thresholds, not relative to manipulable state.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-288
+
+- [ ] **[SAS-AV-164] Self-Delegation Doubles Voting Power**
+  - **D:** Self-delegation adds votes to delegate (self) without subtracting undelegated balance — power counted twice: held tokens + delegated votes.
+  - **FP:** Delegation subtracts from holder's direct balance. Self-delegation is no-op or explicitly handled. OZ Votes used.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-292
+
+- [ ] **[SAS-AV-165] Checkpoint Overwrite on Same-Block Operations**
+  - **D:** Multiple delegate/transfer operations in same block overwrite `_writeCheckpoint()` at same key — binary search returns incomplete checkpoint, losing intermediate state.
+  - **FP:** Same-block operations accumulate into existing checkpoint. Off-chain indexer used.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-306
+
+- [ ] **[SAS-AV-166] Timelock Queue Observation Exploit Window**
+  - **D:** When a governance proposal to change a parameter (interest rate, collateral factor, oracle source, fee rate) is queued in a timelock, the window between queuing and execution is exploitable. Attackers monitor the timelock queue and front-run the parameter change — borrowing at the old collateral factor before it tightens, or depositing before a fee increase. Timelock queue flooding can also delay legitimate governance actions.
+  - **FP:** The timelock delay is shorter than practical front-running opportunity. The parameter change has no user-exploitable arbitrage. Affected positions are automatically settled at new parameters upon execution.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-335

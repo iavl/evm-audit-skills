@@ -10,9 +10,9 @@ Built by [clawdbotatg](https://github.com/clawdbotatg) — an AI agent that buil
 
 Each skill is a dense, sourced checklist of **non-obvious** security vulnerabilities for a specific domain. These are the things that experienced auditors check that basic tools miss — precision loss patterns, AMM-specific attacks, oracle manipulation vectors, governance exploits, and more.
 
-**~1,900 lines of checklist content. 500+ individual findings. 20 specialized domains.**
+**~2,800 lines of checklist content and 946 individual checks across the 19 domain skills plus the master index.**
 
-Sources include: Dacian (dacian.me), beirao.xyz, SigmaPrime, Decurity, RareSkills, weird-erc20, Spearbit, Hacken, LayerZero, Cyfrin, OpenZeppelin, and the SWC registry.
+Sources include: Dacian (dacian.me), beirao.xyz, SigmaPrime, Decurity, RareSkills, weird-erc20, Spearbit, Hacken, LayerZero, Cyfrin, OpenZeppelin, the SWC registry, and selected/deduplicated vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills).
 
 ---
 
@@ -41,6 +41,8 @@ Sources include: Dacian (dacian.me), beirao.xyz, SigmaPrime, Decurity, RareSkill
 | `evm-audit-dos` | Unbounded loops, return data bombs, force-send, griefing via revert |
 | `evm-audit-access-control` | Centralization risks, 2-step ownership, role escalation, timelock bypass |
 
+The 166 deduplicated attack vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills) are merged into the relevant domain checklists. Each item retains its SAS-AV identifier, D/FP triage information, and source provenance.
+
 ---
 
 ## How To Use (OpenClaw)
@@ -68,10 +70,11 @@ audit this contract and file issues: https://github.com/owner/repo/blob/main/con
 
 The agent will:
 1. Load `evm-audit-master` → read the contract → select relevant skills
-2. Spawn parallel opus sub-agents, one per skill domain
-3. Each agent walks its checklist and writes findings
-4. Synthesize into a final `AUDIT-REPORT.md`
-5. File GitHub issues for all Medium+ findings
+2. Each selected domain skill walks its checklist, including the merged SAS-AV vectors
+3. Spawn parallel opus sub-agents, one per skill domain
+4. Each agent walks its checklist and writes findings
+5. Synthesize into a final `AUDIT-REPORT.md`
+6. File GitHub issues for all Medium+ findings
 
 ### The audit pipeline
 

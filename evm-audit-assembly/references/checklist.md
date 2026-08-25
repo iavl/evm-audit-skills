@@ -103,3 +103,22 @@
 - [ ] **Overflow/underflow in inline assembly — no automatic checks**: Assembly `add`, `sub`, `mul` have no overflow protection. `add(type(uint256).max, 1)` silently returns 0. Manual overflow check: `if lt(result, input) { revert(0,0) }`. [Source: Dacian — Inline Assembly Vulnerabilities]
 
 - [ ] **uint128 overflow evades detection because assembly uses 256-bit words**: For `uint128` parameters, `add(type(uint128).max, 1)` in assembly returns a 256-bit value that's > input (passing the `lt` check), but when returned as `uint128` it silently overflows to 0. Fix: use `addmod` with N=type(uint128).max, or add Solidity-level `require()` after the assembly block. [Source: Dacian — Inline Assembly Vulnerabilities, Trail of Bits Primitive Hyper]
+
+## Supplemental Attack Vectors (SAS-AV)
+
+These vectors are merged from sanbir/solidity-auditor-skills; each item retains a detection condition (D), false-positive gate (FP), and source provenance.
+
+- [ ] **[SAS-AV-014] CREATE / CREATE2 Deployment Failure Silently Returns Zero**
+  - **D:** Assembly `create(v, offset, size)` or `create2(v, offset, size, salt)` returns `address(0)` on failure but code does not check for zero.
+  - **FP:** Immediate check: `if iszero(addr) { revert(0, 0) }` after create/create2. Address validated downstream.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-102
+
+- [ ] **[SAS-AV-017] Hardcoded Calldataload Offset Bypass via Non-Canonical ABI Encoding**
+  - **D:** Assembly reads a field at hardcoded calldata offset assuming standard ABI layout. Attacker crafts non-canonical encoding so a different value sits at the expected position.
+  - **FP:** Field decoded via `abi.decode()`. No hardcoded `calldataload` offsets. `calldatasize() >= expected` validated.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-166
+
+- [ ] **[SAS-AV-021] Unsafe ABI Decoding of Untrusted Calldata**
+  - **D:** Raw `abi.decode(data, (...))` called on user-supplied or cross-contract calldata without length or schema validation. Truncated, malformed, or oversized payloads cause unexpected reverts, type confusion, or silent misinterpretation of parameters. In assembly-based decoders, out-of-bounds reads return zero.
+  - **FP:** `data.length >= expectedMinLength` checked before decoding. `try/catch` wrapping untrusted decode. Assembly decoders validate bounds. Only trusted internal calldata decoded without checks.
+  - **Origin:** `sanbir/solidity-auditor-skills` AV-216
