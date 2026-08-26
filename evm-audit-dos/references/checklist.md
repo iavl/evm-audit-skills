@@ -63,3 +63,20 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
   - **D:** Nested loops, combinatorial matching, or recursive computation with superlinear gas cost (O(n²), O(2ⁿ)). At production scale, execution exceeds block gas limit, bricking the function.
   - **FP:** O(n) or O(n log n) algorithm. Input capped (`require(n <= MAX)` gas-tested). Computation paginated/batched. Off-chain compute with on-chain verification.
   - **Origin:** `sanbir/solidity-auditor-skills` AV-230
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
+
+- `DROZER-UNI-12` **Unbounded Loops** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-14` **Loop External-Call Fragility** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-44` **Bounded Iteration** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-45` **Array Growth Limits** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-46` **External Calls in Loops** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-47` **Bounded Cleanup on Delete** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-107` **Nested Loop Depth Exceeds Gas Budget** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539

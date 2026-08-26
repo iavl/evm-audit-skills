@@ -81,3 +81,19 @@
 - [ ] **Unchecked ecrecover() return of address(0)**: `ecrecover()` returns address(0) for invalid signatures. If `require(o.maker == ecrecover(...))` is used and attacker passes `o.maker = address(0)`, the check passes for an invalid signature. Always verify recovered address != address(0). [Source: Dacian — Signature Replay Attacks, Code4rena Swivel]
 
 - [ ] **Signature malleability — dual valid [v,r,s]**: Due to elliptic curve symmetry, for every valid [v,r,s] there exists another valid [v',r',s'] that passes `ecrecover()`. Use OpenZeppelin's ECDSA library (v4.7.3+) which restricts s to lower half-order. [Source: Dacian — Signature Replay Attacks]
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
+
+- `DROZER-SIG-1` **Digest Coverage Inventory (Unsigned Execution-Affecting Fields)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/signature.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-SIG-2` **Domain Separation (Cross-Chain / Cross-Contract Replay)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/signature.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-SIG-3` **Recipient / Target Binding (Metadata & Beneficiary)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/signature.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-SIG-4` **Nonce & Replay Prevention Atomicity** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/signature.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-58` **Signed Data Completeness** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-59` **Nonce / Replay Protection** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539

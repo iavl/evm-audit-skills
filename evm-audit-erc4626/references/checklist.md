@@ -152,3 +152,61 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
   - **D:** Vault queries `maxDeposit()` but deposits via `mint()` (or vice versa). Per ERC4626, `maxDeposit` governs `deposit()` and `maxMint` governs `mint()` — limits may differ. Same for withdrawal: `convertToAssets(maxRedeem(...))` instead of `maxWithdraw(...)` overstates amount (excludes fees/slippage).
   - **FP:** Method-matched queries (`maxMint` for `mint`, `maxDeposit` for `deposit`). `previewWithdraw`/`previewRedeem` for estimates. Underlying `max*` verified consistent.
   - **Origin:** `sanbir/solidity-auditor-skills` AV-308
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+- [ ] **[DROZER-UNI-89] Skip/Disable Flag Consistency**
+  - **D:** A `skipForWithdrawal` flag is applied inconsistently across functions (correct for withdraw, wrong for deposit).
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** Build a function × flag × checked? table.
+  - **Look for:** No source-specific red flags listed; trace the invariant and caller-controlled inputs described above.
+  - **Origin:** [gdroz3r/drozer-lite — checklists/universal.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-UNI-93] Emergency Function Input Validation**
+  - **D:** `emergencyWithdrawFromYieldSources(address[])` accepts arbitrary addresses; accounting can be corrupted by a rogue address.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** Verify input validation against registered sources.
+  - **Look for:** No source-specific red flags listed; trace the invariant and caller-controlled inputs described above.
+  - **Origin:** [gdroz3r/drozer-lite — checklists/universal.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-UNI-95] Irreversible Yield-Source Configuration**
+  - **D:** `underlyingToVToken[token]` is set once with no unset; a wrong or deprecated mapping is permanent.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** Verify every configuration mapping has both set and unset admin paths.
+  - **Look for:** No source-specific red flags listed; trace the invariant and caller-controlled inputs described above.
+  - **Origin:** [gdroz3r/drozer-lite — checklists/universal.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-VAULT-4] Return-Value Semantics on Deploy/Undeploy**
+  - **D:** `deploy()` / `undeploy()` returns the ACTUAL amount (post-slippage, post-fees), but callers use the REQUESTED amount for downstream accounting.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** For each deploy/undeploy call, check whether the return value or the input parameter is used for `_deployedAmount` bookkeeping, for pro-rata allocation, and for return-to-user amounts. Verify `_deployedAmount` is decremented on undeploy.
+  - **Look for:** `strategy.undeploy(amountRequested); _deployedAmount -= amountRequested;` instead of using the return value Multi-strategy withdrawal using requested-amount math Leverage undeploy returning 90% with 10% silently lost
+  - **Origin:** [gdroz3r/drozer-lite — checklists/vault.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/vault.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-VAULT-5] Strategy Migration & Constructor Validation**
+  - **D:** Strategies are added without validating the underlying protocol's expected asset, and migration does not fully unwind the old strategy before activating the new one.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** For each strategy constructor, verify it checks that the configured asset matches the underlying protocol's expected token. Verify `addStrategy` rejects duplicates and grants the token approval. Verify `removeStrategy` revokes the approval. Verify `migrateStrategy` fully unwinds before activating the replacement and has a timelock / user exit window.
+  - **Look for:** No `require(market.loanToken() == asset)` in constructor Migration path that leaves old strategy still approved Removed strategy retains unlimited allowance
+  - **Origin:** [gdroz3r/drozer-lite — checklists/vault.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/vault.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-VAULT-6] Access Control Principal (Receiver vs Caller)**
+  - **D:** `deposit(assets, receiver)` checks `msg.sender` against a whitelist instead of checking `receiver`, allowing a whitelisted user to deposit on behalf of any non-whitelisted address.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** For every function accepting `receiver`/`owner`/`beneficiary`, check which principal is validated against whitelists/limits. `maxDeposit(address)` must accept `receiver` as the limit target.
+  - **Look for:** `require(isWhitelisted[msg.sender])` on a function that credits shares to `receiver` `maxDeposit` read against `msg.sender` when `deposit` credits to `receiver`
+  - **Origin:** [gdroz3r/drozer-lite — checklists/vault.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/vault.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
+
+- `DROZER-UNI-49` **Donation / Direct Transfer Corruption** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-50` **First-Depositor Share Inflation** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-54` **Fee Bounds Enforcement** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-70` **Cross-Function Consistency of Parameter Reads** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-81` **Compound-Fork Share Rounding Subadditivity** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-85` **Empty-Market First-Depositor Amplification** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-87` **Partial vs Full Redemption DoS** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-91` **Negative-Yield Accounting** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-92` **Yield-Leakage via Return-Value Mismatch** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-VAULT-1` **First-Depositor Share Inflation** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/vault.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-VAULT-2` **ERC-4626 Preview / Max Consistency** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/vault.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-VAULT-3` **Pause Completeness** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/vault.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539

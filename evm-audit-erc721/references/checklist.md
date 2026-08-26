@@ -156,3 +156,18 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
   - **D:** Protocol requires `setApprovalForAll(protocol, true)` for deposits/staking. No per-ID or per-amount granularity.
   - **FP:** Protocol uses direct `safeTransferFrom` with user as `msg.sender`. Operator is immutable contract with escrow-only logic.
   - **Origin:** `sanbir/solidity-auditor-skills` AV-147
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+- [ ] **[DROZER-UNI-96] ERC-165 Inherited Interface Coverage**
+  - **D:** A contract's `supportsInterface(bytes4)` only reports the interface it was explicitly registered for, not every interface its parent contracts implement. Downstream integrators who check `supportsInterface(ParentInterface.selector)` get false and refuse integration.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** For every `supportsInterface` override, enumerate every ancestor contract's interface (including upgradeable/proxy libraries). Verify the override returns true for each. Prefer `return super.supportsInterface(interfaceId) || interfaceId == type(IThis).interfaceId` to the fully-enumerated OR chain to avoid drift on future inheritance changes.
+  - **Look for:** `supportsInterface` returns `interfaceId == type(IThis).interfaceId` only, not OR'd with `super` New interface added to the contract but supportsInterface not updated AccessControl + Enumerable + custom interface but only one is reported Interface-detection-based integration docs (e.g., marketplaces) not tested against actual supportsInterface
+  - **Origin:** [gdroz3r/drozer-lite — checklists/universal.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.

@@ -160,3 +160,28 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
   - **D:** Liquidation callable by anyone with full `liquidationBonus` going to `msg.sender`. Oracle price update → MEV race to liquidate → value leaks from protocol to searchers with no recapture.
   - **FP:** OEV-aware oracle (API3 OEV Network, Chainlink SVR). Liquidation bonus auctioned with proceeds to protocol. Dutch auction liquidation. Keeper priority window.
   - **Origin:** `sanbir/solidity-auditor-skills` AV-300
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+- [ ] **[DROZER-GAME-3] Time-Gated Actions with Observable Default Outcomes / Selective Callback Revert**
+  - **D:** A time-gated action has a default outcome if the user does not act within the window; the attacker observes the would-be outcome and acts only if unfavorable (letting the default apply otherwise). Or: a callback (RNG consumer, settlement callback) can selectively revert on unfavorable outcomes, forcing a re-roll.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** For every time-gated mechanism, identify the default outcome and whether attackers can observe the alternative before acting. For every callback that consumes a random result, verify the callback cannot revert on unfavorable outcomes (use try/catch to absorb reverts, or require the callback to be made by the protocol not the user).
+  - **Look for:** `if (block.timestamp > deadline) { applyDefault(); } else { requireUserAction(); }` where the user knows both outcomes RNG consumer contract that reverts in `fulfillRandomWords` when result is unfavorable Settlement callback callable by the winning party who can choose to revert
+  - **Origin:** [gdroz3r/drozer-lite — checklists/gaming.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/gaming.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
+
+- `DROZER-GAME-1` **On-Chain Randomness Predictability** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/gaming.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-ORACLE-1` **Staleness Protection (Per-Asset Heartbeat)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/oracle.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-ORACLE-2` **Manipulation Resistance & Graceful Degradation** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/oracle.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-ORACLE-3` **Feed Consistency Across Readers (Decimal & Threshold Uniformity)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/oracle.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-61` **Oracle Staleness Protection** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-62` **Manipulation-Resistant Pricing** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-63` **Oracle Graceful Degradation** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-64` **Multi-Source Oracle Validation** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-65` **Feed Consistency Across Readers** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539

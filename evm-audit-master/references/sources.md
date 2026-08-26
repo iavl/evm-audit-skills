@@ -46,6 +46,12 @@ Date fetched: 2026-02-27
 |--------|-----|--------|
 | README | https://raw.githubusercontent.com/SmartContractSecurity/SWC-registry/master/README.md | ✅ (registry no longer maintained since 2020, superseded by EEA EthTrust Security Levels) |
 
+### gdroz3r/drozer-lite
+| Source | URL | Status |
+|--------|-----|--------|
+| EVM profile checklists (177 checks) | https://github.com/gdroz3r/drozer-lite/tree/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists | ✅ pinned to commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`; Solana and ICP profiles excluded |
+| MIT license | https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/LICENSE | ✅ included in `THIRD_PARTY_NOTICES.md` |
+
 ## Failed Sources
 
 | Source | URL | Reason |

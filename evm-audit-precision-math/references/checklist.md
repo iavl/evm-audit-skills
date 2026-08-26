@@ -108,3 +108,41 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
   - **D:** Multiple accounting variables (user shares, fee shares, rewards) share a common cap. One can fill the cap, making another permanently unfulfillable. Pattern: `maxDeposit = supplyCap - totalSupply` ignores pending fee shares — deposits fill cap, fees can never mint.
   - **FP:** `maxDeposit` accounts for all future obligations. Fee shares minted eagerly. Separate caps for user/protocol shares.
   - **Origin:** `sanbir/solidity-auditor-skills` AV-304
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+- [ ] **[DROZER-MATH-3] Multi-Step Normalization Ordering**
+  - **D:** Non-commutative adjustments (normalize, halve, round, scale) are applied in different orders across branches of the same function.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** For each multi-step adjustment sequence, list the steps in order for every branch. For each adjacent pair (A, B), ask whether swapping changes the result. If yes, verify the order is consistent across all branches.
+  - **Look for:** Large-value branch: halve-then-adjust; small-value branch: adjust-then-halve Pre-halving modification that should have been post-halving
+  - **Origin:** [gdroz3r/drozer-lite — checklists/math.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/math.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-MATH-4] Format / Precision Selection Consistency**
+  - **D:** A library supports multiple formats (small/large, compressed/full) but the format selector differs across paths — encoding uses more criteria than arithmetic output, for example, so values that qualify for the large format via encoding are downcast by arithmetic.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** Build a FORMAT SELECTION RULE TABLE per path. Verify all rows are identical. Construct boundary values that expose the asymmetry and trace them through each path. Verify `encode(decode(encode(x))) == encode(x)`.
+  - **Look for:** Encoding uses [digit count, exponent]; arithmetic output uses [exponent] only Boundary values where decode loses information
+  - **Origin:** [gdroz3r/drozer-lite — checklists/math.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/math.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-MATH-5] Representation Gap Integrity**
+  - **D:** Values "in the gap" between small and large representations are silently truncated beyond stated tolerance; the loss compounds when two gap values are multiplied.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** Identify the gap range from the format selector's criteria. Measure precision loss for values in the gap. Verify it stays within any stated tolerance (e.g., "1 ULP accuracy"). Test that `gap_value * gap_value` does not exceed acceptable error.
+  - **Look for:** Selector checks exponent only, precision depends on digit count No explicit tolerance specification in code or spec Gap-value multiplication in a hot path
+  - **Origin:** [gdroz3r/drozer-lite — checklists/math.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/math.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
+
+- `DROZER-MATH-1` **Rounding Direction (Protocol-Favorable)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/math.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-MATH-2` **Divide-Before-Multiply Precision Loss** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/math.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-MATH-6` **Aggregate Removal & Stale Snapshot** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/math.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-6` **Integer Overflow / Underflow in Unchecked Blocks** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-26` **Multi-Step Normalization Ordering** -> the MATH-3 addition in this checklist; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-27` **Format/Precision Selection Consistency** -> the MATH-4 addition in this checklist; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-28` **Representation Gap Integrity** -> the MATH-5 addition in this checklist; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-48` **Arithmetic Rounding Direction** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-97` **Precision Loss in Decimal Conversion** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-104` **Numeric Type Width Insufficient for Token Decimals** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539

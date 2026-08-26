@@ -265,3 +265,30 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
   - **D:** Partial repay/withdrawal creates intermediate state below liquidation threshold — bot liquidates before atomic completion. Health check applied to intermediate, not final state.
   - **FP:** Repay and collateral changes atomic. Health check on final state only. Grace period after modification.
   - **Origin:** `sanbir/solidity-auditor-skills` AV-305
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+- [ ] **[DROZER-UNI-82] Compound Treasury Fee Activation Risk**
+  - **D:** Governance of an external Compound fork enables a treasury fee; the integrating protocol reverts or silently loses amount.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** Check whether the adapter reads `treasuryPercent` and how it handles non-zero results.
+  - **Look for:** No source-specific red flags listed; trace the invariant and caller-controlled inputs described above.
+  - **Origin:** [gdroz3r/drozer-lite — checklists/universal.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
+
+- `DROZER-LEND-1` **Collateralization / Health Factor Bracket** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/lending.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-LEND-2` **Interest Accrual Monotonicity & Precision** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/lending.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-LEND-3` **Liquidation Fairness & Bad Debt Prevention** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/lending.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-LEND-4` **Oracle Integration (Staleness, Decimals, Failure Modes)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/lending.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-LEND-5` **Flash-Loan + Price Manipulation on Borrow** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/lending.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-52` **Solvency Invariant (contractBalance >= sum(userOwed))** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-83` **Supply-Cap / Borrow-Cap DoS** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-84` **High-Utilization Redemption DoS** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-86` **External Reward Capture from Yield Sources** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-88` **Bad-Debt Cascade / Idle-Balance Drainage** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-UNI-90` **FCFS on Insolvency** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539

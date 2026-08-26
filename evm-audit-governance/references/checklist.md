@@ -153,3 +153,34 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
   - **D:** When a governance proposal to change a parameter (interest rate, collateral factor, oracle source, fee rate) is queued in a timelock, the window between queuing and execution is exploitable. Attackers monitor the timelock queue and front-run the parameter change — borrowing at the old collateral factor before it tightens, or depositing before a fee increase. Timelock queue flooding can also delay legitimate governance actions.
   - **FP:** The timelock delay is shorter than practical front-running opportunity. The parameter change has no user-exploitable arbitrage. Affected positions are automatically settled at new parameters upon execution.
   - **Origin:** `sanbir/solidity-auditor-skills` AV-335
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+- [ ] **[DROZER-GOV-4] Aggregate State Consistency on Removal**
+  - **D:** When a nominee/voter/delegate/lock is removed, some aggregates are updated (bias, totalWeight) but not others (slope, changesSum), so future time-weighted extrapolation returns corrupted values.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** For each add/remove function, enumerate every aggregate variable. Verify every aggregate is decremented on removal. For time-weighted aggregates (bias -= slope * time), verify the slope is also corrected. For two-step removal flows (admin + user cleanup), verify the aggregate updates in at least one step, ideally the admin step. Test the zero-aggregate edge case.
+  - **Look for:** `remove()` updates `totalBias` but not `totalSlope` Two-step removal where users never complete step 2, leaving inflated aggregate Division by zero when all participants removed
+  - **Origin:** [gdroz3r/drozer-lite — checklists/governance.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/governance.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-GOV-5] Checkpoint MAX_WEEKS / Loop Coverage**
+  - **D:** A checkpoint loop bounded by `MAX_NUM_WEEKS` is smaller than the maximum lock period divided by `WEEK`, so inactive nominees beyond the window return zero weight (loss of voting power) or the loop exits early with stale state.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** Verify `MAX_NUM_WEEKS >= maxLockPeriod / WEEK` (e.g., 4-year lock needs >= 209 weeks). Verify nominees inactive for > `MAX_NUM_WEEKS` still return correct weight or explicitly return zero with a migration path. Verify permissionless nominee creation cannot spam entries that become stale and waste gas.
+  - **Look for:** `uint256 public constant MAX_NUM_WEEKS = 52;` with 4-year lock support `if (weeksPassed > MAX_NUM_WEEKS) return 0` in critical weight calculation
+  - **Origin:** [gdroz3r/drozer-lite — checklists/governance.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/governance.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- [ ] **[DROZER-GOV-6] Exit-Function Balance Manipulation (AC-12 / AC-13)**
+  - **D:** `ragequit`/`withdraw` reads `balanceOf(treasury)` as the payout source; MEV searchers sandwich the exit with treasury-draining proposals. Also covers access-control gaps on exit: anyone can trigger another member's exit, or exit is callable outside the member's expected lifecycle window.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** Verify exits use internal accounting, not `balanceOf` live reads. Verify exit-access control restricts callers to the owning member (or an approved delegate). Check whether proposals spending treasury can be timed against exit windows.
+  - **Look for:** `payout = treasury.balanceOf() * shares / totalShares` `ragequit(address member)` permissionless and caller unrelated to member Time delay between exit request and execution creates a sandwich window
+  - **Origin:** [gdroz3r/drozer-lite — checklists/governance.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/governance.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
+
+- `DROZER-GOV-1` **Voting Power Integrity (Snapshot vs Live)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/governance.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-GOV-2` **Proposal Lifecycle & Execution Guard** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/governance.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-GOV-3` **Timelock Security** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/governance.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539

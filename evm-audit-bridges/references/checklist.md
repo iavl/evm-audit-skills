@@ -188,3 +188,31 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
   - **D:** Contract requests async operation (randomness, oracle, cross-chain message) fulfilled via callback. Dependency swapped before callback arrives — new provider can't fulfill old request, old rejected as unregistered. Request stuck permanently. Pattern: `setProvider(new)` while `pendingRequestId != 0`.
   - **FP:** Swap blocked while requests pending. Callback validates request ID, not sender. Transition fulfills/cancels pending before registering new provider. Timeout for stuck requests.
   - **Origin:** `sanbir/solidity-auditor-skills` AV-313
+
+## drozer-lite Additions
+
+The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
+
+- [ ] **[DROZER-XCHAIN-9] LP Protection (Liquidity-Network Bridges)**
+  - **D:** A liquidity-network bridge allows LPs to be drained via fake claims or sandwich attacks on deposits.
+  - **FP:** No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.
+  - **Methodology:** For each LP deposit and withdrawal path, check for delay mechanisms and sandwich protection. Verify fee distribution is pro-rata and cannot be gamed.
+  - **Look for:** No source-specific red flags listed; trace the invariant and caller-controlled inputs described above.
+  - **Origin:** [gdroz3r/drozer-lite — checklists/cross-chain.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## drozer-lite Provenance (deduplicated)
+
+The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
+
+- `DROZER-XCHAIN-1` **Token Supply Conservation** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-2` **Message Verification Integrity** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-3` **Replay Attack Prevention** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-4` **Finality & Reorg Handling** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-5` **Validator / Relayer Threshold Integrity** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-6` **Token Mapping Integrity** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-7` **Rate Limiting & Caps** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-8` **Emergency Pause & Recovery** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-10` **Upgrade Safety for Bridges** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-11` **Bridge Callback Source Verification** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-12` **Bridge API Parameter Correctness (Chain IDs, Refund Addresses)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+- `DROZER-XCHAIN-13` **Bridge Value Handling (msg.value Surplus & Requirements)** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/cross-chain.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
