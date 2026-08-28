@@ -4,5 +4,8 @@ description: CDP, lending market, liquidation, and borrowing vulnerabilities. Co
 ---
 # EVM Audit — Lending & Liquidation Vulnerabilities
 Load when auditing CDPs, lending markets, liquidation mechanisms, or AAVE/Compound forks.
+
+For every oracle-backed collateral or debt valuation, do not stop at verifying that the feed call, decimals, and staleness checks are correct. Build the economic bound in `references/checklist.md`: `C_manipulation > V_extractable_borrow`, using liquidity depth, TWAP window, deviation threshold, borrow/supply caps, available liquidity, LTV, and liquidation threshold. Load `evm-audit-oracles` for feed behavior and `evm-audit-defi-amm` when the price source depends on AMM liquidity.
+
 ## Reference Files
 - `references/checklist.md` — Full lending/liquidation checklist

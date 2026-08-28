@@ -32,7 +32,7 @@
 
 ## TWAP Oracles
 
-- [ ] **TWAP manipulation via low liquidity**: A TWAP oracle averages price over a window, but in low-liquidity pools, even the TWAP can be cheaply manipulated by holding a price position across multiple blocks. Cost: `(manipulation_amount × blocks × block_time) / pool_depth`. Look for: TWAP windows < 30 minutes on pools with < $10M TVL. [SigmaPrime oracle, beirao O-08]
+- [ ] **TWAP manipulation via low liquidity**: A TWAP oracle averages price over a window, but in low-liquidity pools, even the TWAP can be cheaply manipulated by holding a price position across multiple blocks. Estimate the minimum cost to move and maintain the target price from effective liquidity depth, price impact, trading fees, and the full TWAP window; aggregate TVL is not a substitute for executable depth. For lending uses, pass this result into the `C_manipulation > V_extractable_borrow` check and include the relevant borrow cap, supply cap, and LTV. Look for: TWAP windows shorter than the attacker's affordable holding horizon or price sources with shallow/withdrawable liquidity. [SigmaPrime oracle, beirao O-08]
 
 - [ ] **Uniswap V3 TWAP uses geometric mean**: Unlike V2's arithmetic mean, V3 TWAP is geometric. The geometric mean is ALWAYS ≤ arithmetic mean for non-constant prices. This systematically underprices volatile assets. Look for: protocols using V3 TWAP without understanding it returns geometric mean. [SigmaPrime oracle]
 
@@ -100,7 +100,7 @@
 
 - [ ] **Same heartbeat used for multiple feeds with different update frequencies**: If both BTC/USD (1hr heartbeat) and USDC/USD (24hr heartbeat) use the same staleness threshold, one will be too strict (false stale) or too lenient (actually stale). Each feed needs its own heartbeat constant. [Source: Cyfrin — Chainlink Oracle Security, Sherlock JOJO]
 
-- [ ] **Oracle price feed not updated frequently — high deviation threshold**: Similar feeds can have different heartbeat & deviation thresholds. A feed with 1% deviation and 1hr heartbeat will be more accurate than one with 5% deviation and 24hr heartbeat. Use the most responsive feed available. [Source: Cyfrin — Chainlink Oracle Security]
+- [ ] **Oracle price feed not updated frequently — high deviation threshold**: Similar feeds can have different heartbeat & deviation thresholds. A feed with 1% deviation and 1hr heartbeat will be more accurate than one with 5% deviation and 24hr heartbeat. A deviation threshold only controls when an update is triggered; it is not an economic safety proof. For lending, test both the pre-update stale-price path and the post-threshold updated-price path, include the delay in the manipulation horizon, and compare the resulting manipulation cost with maximum extractable borrow value. [Source: Cyfrin — Chainlink Oracle Security]
 
 - [ ] **Wrong price feed address in constructor vs comments**: Developers copy the correct address in comments but hardcode the wrong address in the constructor (e.g., ETH/USD instead of BTC/USD). Verify all hardcoded addresses against Chainlink's official feed list. [Source: Cyfrin — Chainlink Oracle Security, Sherlock USSD]
 

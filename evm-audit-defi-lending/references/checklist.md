@@ -66,6 +66,15 @@
 
 - [ ] **AAVE/Compound reward claims**: If the protocol deposits user funds in AAVE/Compound, reward token claims (COMP, stkAAVE) must be properly distributed to users. Look for: missing reward claim functionality or rewards stuck in contract. [beirao AC-06]
 
+## Oracle-to-Borrow Economic Safety
+
+- [ ] **Oracle manipulation cost must exceed maximum extractable borrow value**
+  - **D:** An oracle-backed lending market can be profitable to attack even when the feed call, decimals, and staleness checks are correct. For a price move of `ΔP` held over horizon `H`, require `C_manipulation(ΔP, H) > V_extractable_borrow(ΔP)`. `C_manipulation` is the minimum cost to move and maintain the reported price, including effective liquidity depth, price impact, swap fees, flash-loan or funding fees, gas, MEV, and the cost of unwinding. `V_extractable_borrow` is the maximum net value that can be borrowed while the manipulated price is accepted.
+  - **FP:** No finding when a conservative stress model covers both overvalued-collateral and undervalued-debt directions across every reachable market, and the inequality remains strict after fees, oracle latency, available liquidity, borrow cap, supply cap, LTV, liquidation threshold, and liquidation costs are applied. A circuit breaker that prevents borrowing or collateral changes at the affected price may also close the path.
+  - **Methodology:** Build one matrix per collateral/debt asset and market with: price source; effective liquidity depth (not aggregate TVL); target `ΔP`; TWAP window or feed heartbeat; deviation threshold; remaining borrow cap; remaining supply cap; available borrow liquidity; LTV; liquidation threshold; and the resulting manipulation cost and maximum extractable borrow value. Model a one-transaction spot attack and the capital/time required to hold a TWAP distortion for the full window. Test both increasing collateral value and decreasing debt value, then recurse through cross-market, isolated/eMode, and collateral-supply routes to find the maximum extraction. Record the safety margin rather than treating any single parameter as a proof of safety.
+  - **Look for:** Raw spot or shallow AMM liquidity used for collateral/debt pricing; a TWAP window shorter than the attacker's affordable holding horizon; a deviation threshold that only delays updates or is derived from the same manipulable source; borrow cap or supply cap checks performed for only one route or market; available borrow liquidity larger than the modeled cap; LTV set close to the liquidation threshold with no buffer for oracle latency and liquidation costs; or a model that uses a fixed TVL heuristic instead of executable depth and price impact.
+  - **Origin:** Cross-domain economic invariant synthesizing the existing Oracle, Lending, and liquidation checks.
+
 ## LP Token Collateral
 
 - [ ] **LP token valuation via `pool.getReserves()` is manipulable**: Flash loans can manipulate reserves to inflate LP token value, allowing over-borrowing. Must use fair pricing formulas (e.g., Alpha Homora's formula). Look for: LP token price calculations using raw reserve amounts. [Decurity CDP]

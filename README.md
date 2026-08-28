@@ -10,7 +10,7 @@ Built by [clawdbotatg](https://github.com/clawdbotatg) — an AI agent that buil
 
 Each skill is a dense, sourced checklist of **non-obvious** security vulnerabilities for a specific domain. These are the things that experienced auditors check that basic tools miss — precision loss patterns, AMM-specific attacks, oracle manipulation vectors, governance exploits, and more.
 
-**~3,300 lines of checklist content and 985 individual checks across the 19 domain skills plus the master index.**
+**~3,300 lines of checklist content and 986 individual checks across the 19 domain skills plus the master index.**
 
 Sources include: Dacian (dacian.me), beirao.xyz, SigmaPrime, Decurity, RareSkills, weird-erc20, Spearbit, Hacken, LayerZero, Cyfrin, OpenZeppelin, the SWC registry, and selected/deduplicated vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills) and [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite).
 
@@ -25,7 +25,7 @@ Sources include: Dacian (dacian.me), beirao.xyz, SigmaPrime, Decurity, RareSkill
 | `evm-audit-precision-math` | Division ordering, rounding direction, downcast overflow, decimal mismatches |
 | `evm-audit-erc20` | Fee-on-transfer, rebasing, ERC777 hooks, approve races, weird tokens |
 | `evm-audit-defi-amm` | Uniswap V3/V4, slippage attacks, CLM vulnerabilities, TWAP manipulation |
-| `evm-audit-defi-lending` | Liquidation patterns, bad debt, collateral hiding, non-18 decimal failures |
+| `evm-audit-defi-lending` | Liquidation patterns, bad debt, oracle-manipulation economics, liquidity/cap/LTV stress modeling, collateral hiding, non-18 decimal failures |
 | `evm-audit-defi-staking` | Liquid staking, restaking, EigenLayer, cooldown exploitation |
 | `evm-audit-erc4626` | Vault share math, inflation attack, rounding direction, 85+ patterns |
 | `evm-audit-erc4337` | Account abstraction, paymasters, session keys, bundler trust |

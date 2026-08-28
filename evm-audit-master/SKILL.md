@@ -19,7 +19,7 @@ description: Master index for EVM smart contract security audit skills. Load thi
 | 3 | **evm-audit-precision-math** | Division-before-multiplication, rounding to zero, precision scaling mismatches, downcast overflow, rounding direction (protocol vs user), decimal assumption errors | 42 |
 | 4 | **evm-audit-erc20** | Fee-on-transfer, rebasing, ERC777 hooks, approve race conditions, zero-transfer reverts, pausable tokens, deny lists (USDC), deflationary/inflationary tokens, multiple-address tokens | 42 |
 | 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 82 |
-| 6 | **evm-audit-defi-lending** | Liquidation vulnerabilities (20+ patterns), lending/borrowing attacks, bad debt handling, partial liquidation bypasses, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 97 |
+| 6 | **evm-audit-defi-lending** | Liquidation vulnerabilities (20+ patterns), lending/borrowing attacks, bad debt handling, oracle-manipulation economics, liquidity/cap/LTV stress modeling, partial liquidation bypasses, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 98 |
 | 7 | **evm-audit-defi-staking** | Liquid staking, restaking, EigenLayer integration, stakedButUnverified accounting, Beacon Chain proof verification (Deneb), validator front-running, cooldown exploitation, reward calculation precision | 70 |
 | 8 | **evm-audit-erc4626** | Share/asset conversion, inflation attack, virtual shares, deposit/withdraw rounding, first depositor attack, multi-step operations, 85+ patterns from Dacian's ERC4626 primer | 68 |
 | 9 | **evm-audit-erc4337** | Account abstraction, smart wallet security, paymaster attacks, session key exploits, UserOperation validation, bundler trust assumptions, gas griefing | 38 |
@@ -35,7 +35,7 @@ description: Master index for EVM smart contract security audit skills. Load thi
 | 19 | **evm-audit-dos** | Denial of service patterns: unbounded loops, block gas limit, self-destruct force-send, storage deletion costs, griefing via revert, return data bombs | 19 |
 | 20 | **evm-audit-access-control** | Access control patterns: missing modifiers, 2-step ownership, role-based permissions, emergency pause, time delays, admin overpowers | 19 |
 
-**Total: 985 checklist items across 19 specialized skills + 1 master index**
+**Total: 986 checklist items across 19 specialized skills + 1 master index**
 
 ## Checklist Organization
 
@@ -75,7 +75,7 @@ The 166 deduplicated attack vectors adapted from sanbir/solidity-auditor-skills 
 5. Note the target deployment chain(s)
 
 ### Phase 2: Skill Selection
-Load `evm-audit-general` + `evm-audit-precision-math` (always), then add skills based on the routing table above. The selected checklists already contain the merged SAS-AV and DROZER vectors. For a typical DeFi protocol, expect to load 6-8 domain skills.
+Load `evm-audit-general` + `evm-audit-precision-math` (always), then add skills based on the routing table above. For oracle-backed lending, load `evm-audit-oracles` as well, and load `evm-audit-defi-amm` when the price source depends on AMM liquidity. The selected checklists already contain the merged SAS-AV and DROZER vectors. For a typical DeFi protocol, expect to load 6-8 domain skills.
 
 ### Phase 3: Spawn Parallel Sub-Agents
 **Spawn one opus sub-agent per selected skill.** Do not run skills sequentially in the main session — parallel agents produce dramatically better results by keeping each agent's context focused.
@@ -91,6 +91,7 @@ Wait for all agents to complete, then proceed to Phase 4.
 ### Phase 4: Synthesis
 Read all `findings-*.md` files. Deduplicate findings that multiple agents flagged. Check for cross-cutting concerns:
 - [ ] Interactions between finding categories (e.g., oracle manipulation + liquidation)
+- [ ] Oracle-backed lending: prove `C_manipulation > V_extractable_borrow` using effective liquidity depth, TWAP window, deviation threshold, borrow cap, supply cap, LTV, and liquidation threshold.
 - [ ] State machine consistency across all state transitions
 - [ ] Economic attack vectors combining multiple findings
 Write final `AUDIT-REPORT.md` with all findings ranked by severity.
