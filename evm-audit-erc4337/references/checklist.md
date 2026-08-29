@@ -16,6 +16,10 @@
 
 - [ ] **Direct execution bypasses EntryPoint**: If the wallet can execute transactions directly (not through EntryPoint), it must re-implement all validation (signature, nonce, gas). Missing any check enables arbitrary execution. Look for: `execute()` functions callable without going through EntryPoint that lack full signature validation. [Code4rena/Biconomy H-04]
 
+- [ ] **UserOperation hash must bind every execution-affecting field**: Custom hashing that omits sender, nonce, chain ID, calldata, gas limits, paymaster data, or uses ambiguous packing can make different operations share a digest. Look for: hand-rolled `getHash()` implementations instead of the EntryPoint-defined hash, `abi.encodePacked` over dynamic fields, or fields used during execution but absent from the signed digest. [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337)
+
+- [ ] **Bundler ordering, censorship, and liveness are adversarial**: Bundlers can delay, reorder, or omit UserOperations and may expose profitable operations to MEV. Protocol correctness must not rely on a particular bundler, FIFO ordering, or guaranteed inclusion. Look for: state transitions keyed only by arrival order, timing assumptions tied to one bundler, or no nonce/expiry/replay handling for delayed operations. [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337)
+
 - [ ] **`validateUserOp` must return SIG_VALIDATION_FAILED, not revert**: Per spec, signature mismatches should return the sentinel value `SIG_VALIDATION_FAILED`. Reverting breaks bundler behavior and wastes gas. Look for: `revert` in `validateUserOp` for invalid signatures. [ERC4337 checklist]
 
 - [ ] **ERC-1271 cross-account signature replay**: If `isValidSignature()` checks that "any owner has signed the hash" without binding to the specific account (via EIP-712 with `verifyingContract = address(this)`), signatures can be replayed across accounts that share owners. Look for: `isValidSignature` that doesn't alter the hash with the account address. [ERC4337 checklist]

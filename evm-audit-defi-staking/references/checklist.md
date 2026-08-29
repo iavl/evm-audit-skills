@@ -34,7 +34,6 @@
 
 - [ ] **Slashing penalty exceeds operator balance**: If the slashing penalty is larger than the operator's staked balance, the excess comes from user funds. Look for: slashing math that doesn't cap at operator balance. [Decurity LSD]
 
-- [ ] **Operator withdraws collateral while still validating**: If an operator can withdraw their bonded collateral before exiting as a validator, there's no slashing protection. Look for: operator withdrawal functions without exit verification. [Decurity LSD]
 
 ## Staking Rewards
 

@@ -58,6 +58,20 @@ Date fetched: 2026-02-27
 | Attack-vector reference patterns and slippage skill extras | https://github.com/auditmos/skills/tree/c9583babb0ce189d9f39a05caf94b5a5da655010/skills | ✅ pinned to commit `c9583babb0ce189d9f39a05caf94b5a5da655010`; 112 `reference.md` patterns plus 4 slippage patterns listed in `SKILL.md` |
 | MIT license | https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/LICENSE | ✅ included in `THIRD_PARTY_NOTICES.md` |
 
+### alt-research2/SolidityGuard (coverage comparison only; reviewed 2026-08-29)
+| Source | URL | Status |
+|--------|-----|--------|
+| 104-pattern index | https://github.com/alt-research2/SolidityGuard/tree/35645e8ba76cdacbeec40f347c758de2077e2ecd/.claude/skills/solidity-guard/skills/vulnerability-scanner/resources | ✅ used only to identify coverage gaps; no source text, code, identifiers, or directory structure imported |
+| License | https://github.com/alt-research2/SolidityGuard/blob/35645e8ba76cdacbeec40f347c758de2077e2ecd/LICENSE | ⚠️ proprietary, non-commercial license reviewed; not incorporated because all resulting checks are independently authored |
+
+### Public references for independently authored gap checks
+| Source | URL | Status |
+|--------|-----|--------|
+| EIP-1153: Transient Storage Opcodes | https://eips.ethereum.org/EIPS/eip-1153 | ✅ used for transient-storage isolation checks |
+| ERC-4337: Account Abstraction Using Alt Mempool | https://eips.ethereum.org/EIPS/eip-4337 | ✅ used for UserOperation hash and bundler trust checks |
+| SWC Registry | https://swcregistry.io/ | ✅ used for SWC-109, SWC-115, SWC-120, SWC-124, SWC-125, SWC-130, and SWC-136 checks |
+| OWASP Smart Contract Top 10 | https://scs.owasp.org/sctop10/ | ✅ used for the off-chain signer/frontend operational-boundary check |
+
 ## Failed Sources
 
 | Source | URL | Reason |

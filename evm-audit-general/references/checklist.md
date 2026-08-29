@@ -46,10 +46,6 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 
 ## Reentrancy (Non-Obvious)
 
-- [ ] **Read-only reentrancy**: During a callback (e.g., ERC777 `tokensReceived`, ERC721 `onERC721Received`), the attacked contract's state is stale. OTHER contracts that read state from the attacked contract via view functions will get stale data. Example: a lending protocol reads a vault's share price during a vault callback. Look for: protocols that read state from external contracts that have callback mechanisms. [beirao G-21]
-
-- [ ] **Cross-contract reentrancy**: Contract A has a `nonReentrant` modifier, but during an external call from A, the attacker enters Contract B which shares state with A (e.g., same storage via proxy, or reads A's state). A's reentrancy guard doesn't protect B. Look for: multiple contracts sharing state where any one of them makes external calls. [beirao G-20]
-
 - [ ] **ERC721 `safeMint`/`safeTransferFrom` callbacks**: These call `onERC721Received()` on the recipient, creating reentrancy vectors. Same for ERC1155's `_safeTransferFrom` with `onERC1155Received`. Look for: `_safeMint()`, `safeTransferFrom()` without reentrancy guards or CEI pattern. [beirao NFT-02, NFT-03]
 
 - [ ] **ERC777 pre/post transfer hooks**: ERC777 tokens call `tokensToSend()` (before transfer) and `tokensReceived()` (after transfer). Both are reentrancy vectors that bypass `nonReentrant` if the modifier is only on the outer function. Look for: any protocol that accepts arbitrary ERC20 tokens — it might receive an ERC777. [beirao FT-08]
@@ -71,8 +67,6 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 ## Code Structure Issues
 
 - [ ] **Withdraw should undo ALL deposit state changes**: For every state variable modified during `deposit()`, there should be a symmetric reversal in `withdraw()`. Asymmetries cause accounting drift. Look for: compare `deposit` and `withdraw` functions line by line for state variable coverage. [beirao G-26]
-
-- [ ] **Semantic overloading**: Using the same return value (e.g., `0`, `-1`, `type(uint256).max`) to mean different things in different contexts. Look for: magic numbers used in return values, especially in functions that return success/failure/amount. [beirao G-11]
 
 - [ ] **Inconsistent logic across duplicated implementations**: When the same logic is implemented in multiple places (e.g., calculating fees in both `deposit` and `withdraw`), they may diverge over time. Look for: duplicated business logic that should be a shared internal function. [beirao G-01]
 
@@ -112,8 +106,6 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 
 ## Solidity Compiler
 
-- [ ] **Solidity version-specific bugs**: Each Solidity release has known bugs. Check the [changelog](https://github.com/ethereum/solidity/blob/develop/Changelog.md) for the version used. Look for: compiler version in `pragma`. [beirao G-16]
-
 - [ ] **PUSH0 opcode (Solidity ≥0.8.20)**: The `push0` opcode emitted by default in ≥0.8.20 isn't supported on many L2s and alt-chains. Look for: `pragma solidity ^0.8.20` or higher in multichain deployments. [multichain-auditor, beirao MC-03]
 
 - [ ] **Unchecked blocks need validation**: Code in `unchecked { }` bypasses overflow/underflow checks. Every unchecked block must be manually verified for safety. Look for: `unchecked` blocks, especially around user-influenced values. [beirao M-10]
@@ -150,11 +142,19 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 
 - [ ] **Reorgs change CREATE-deployed addresses**: On chains with reorgs (Polygon, rollup chains), a CREATE deployment may end up at a different address post-reorg if the nonce changes. Users who sent funds to the pre-reorg address lose them. Look for: `new Contract()` (CREATE) where the address is pre-computed and funds are sent to it. [beirao G-19]
 
-- [ ] **Solidity version-specific compiler bugs**: Each Solidity version has known bugs. Check the [Solidity changelog](https://github.com/ethereum/solidity/blob/develop/Changelog.md) for bugs affecting the specific version used. Look for: the exact `pragma solidity` version and cross-reference with known bugs. [beirao G-16]
+- [ ] **Compiler version, pragma, and known-bug risk**: Floating or overly broad pragmas can produce different bytecode across builds, while outdated compiler versions may contain security-relevant bugs. Check the exact compiler version and its known-bug list, then verify the deployed artifact was built from that version. Look for: `pragma solidity ^...`/`>=...`, unpinned compiler settings, or a compiler release with a relevant known bug. [beirao G-16, SWC-102, SWC-103]
 
 - [ ] **Updating memory struct/array doesn't update storage**: Copying a storage struct/array to memory creates a local copy. Modifying the memory copy doesn't persist. Look for: struct assignments like `MyStruct memory s = storageStruct; s.field = newValue;` without writing back. [Tamjid C17]
 
 - [ ] **State variable shadowing**: A child contract declares a variable with the same name as a parent's. The child's variable shadows the parent's, leading to two different storage slots for what appears to be the same variable. Look for: variables in child contracts with the same name as parent contract variables. [Tamjid C18]
+
+- [ ] **Uninitialized local storage pointer in legacy Solidity**: In compiler versions that accept an uninitialized local `storage` reference, it can alias an unintended storage slot and overwrite unrelated state. Look for: local storage variables declared without an assignment, and confirm whether the compiler version is vulnerable. [SWC-109]
+
+- [ ] **Bidirectional Unicode control characters can disguise source logic**: RTL/LTR override and isolate characters can make reviewed source appear to execute in a different order than the compiler sees. Look for: hidden bidirectional control characters in Solidity source, comments, identifiers, or generated diffs. [SWC-130]
+
+- [ ] **C3 inheritance and override order changes security semantics**: Solidity linearization determines which base implementation, modifier, or `super` call executes; an unintended order can bypass a guard or select the wrong initialization/accounting logic. Look for: multiple inheritance with overlapping overrides or `super` calls whose linearization is not explicitly checked. [SWC-125]
+
+- [ ] **`private` state is not secret on-chain**: Solidity visibility only restricts source-level access; storage slots and historical values remain readable by anyone. Look for: private variables containing keys, passwords, salts, unrevealed bids, or other data whose secrecy is part of the security model. [SWC-136]
 
 - [ ] **`block.timestamp` should only be used for long intervals**: Miners/validators can manipulate timestamps by a few seconds. Using it for sub-minute precision is unreliable. Look for: `block.timestamp` in calculations where seconds matter (e.g., interest calculations per second). [Tamjid C4, beirao G-28]
 

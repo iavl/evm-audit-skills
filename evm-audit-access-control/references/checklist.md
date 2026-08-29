@@ -14,9 +14,13 @@ Non-obvious access control vulnerabilities beyond basic missing modifiers.
 
 - [ ] **Corrupted owner can destroy the protocol**: Evaluate what happens if the owner key is compromised. Can the attacker drain all funds? Can they brick the contract permanently? Look for: single-point-of-failure admin patterns without multisig or timelock. [beirao A-02]
 
+- [ ] **Off-chain signer, frontend, or multisig supply-chain compromise**: A compromised UI, RPC/relayer, build artifact, signer, or multisig module can present benign intent while submitting a malicious target, calldata, chain, or delegate. Look for: privileged workflows without independent transaction simulation, clear target/chain display, signer isolation, reproducible release checks, or an allowlist for multisig modules. [OWASP Smart Contract Security guidance, operational security]
+
 ## Privilege Escalation
 
-- [ ] **Missing access controls on sensitive functions**: Functions like `mint()`, `burn()`, `setOracle()`, `setFee()`, `pause()` without access modifiers are callable by anyone. Look for: public/external functions that modify critical state without any access check. [beirao A-03, A-06]
+- [ ] **Missing access controls on sensitive functions**: Functions like `mint()`, `burn()`, `setOracle()`, `setFee()`, `pause()`, `selfdestruct()`, or arbitrary withdrawal/upgrade entry points without access modifiers are callable by anyone. Look for: public/external functions that modify critical state, destroy code, or transfer value without an appropriate access check. [beirao A-03, A-06]
+
+- [ ] **`tx.origin` used for authorization**: Authorization based on `tx.origin` lets an attacker-controlled intermediary contract act with the user's authority after the user is induced to call it. Look for: `require(tx.origin == owner)`, `tx.origin` compared with a privileged address, or `tx.origin` used as the authenticated actor instead of `msg.sender` or a verified signature. [SWC-115]
 
 - [ ] **Two-step ownership transfer must validate the pending owner**: Single-step `transferOwnership` to a wrong address can permanently lock out the owner, while an incomplete two-step implementation may accept ownership without a pending transfer or allow an unintended `address(0)` owner. Look for: `Ownable.transferOwnership()` without `Ownable2Step`, or `acceptOwnership()` paths that do not validate the pending owner and non-zero target. [beirao A-05]
 

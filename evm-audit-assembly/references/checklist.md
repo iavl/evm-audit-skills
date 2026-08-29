@@ -40,6 +40,18 @@
 
 - [ ] **`calldataload` beyond calldata returns 0**: Reading past `calldatasize()` returns zero-padded data. This can mask missing parameters. Look for: `calldataload` without bounds checking against `calldatasize`. [SWC-101]
 
+## Storage Writes
+
+- [ ] **User-controlled `sstore` slot enables arbitrary state corruption**: If an input influences the storage slot or the slot computation without a fixed, reviewed namespace, an attacker can overwrite ownership, balances, configuration, or accounting state. Look for: `sstore(userInput, value)`, user-controlled slot offsets, or hash-based slots whose namespace is not fixed by the protocol. [SWC-124]
+
+## Transient Storage — EIP-1153
+
+- [ ] **Transient storage slot collision across modules**: Transient slots share a namespace for the active storage context. Reusing a slot between unrelated locks, callbacks, or accounting values—especially across `delegatecall`—lets one component overwrite another's state. Look for: generic numeric `tstore` slots or modules without namespaced transient keys. [EIP-1153](https://eips.ethereum.org/EIPS/eip-1153)
+
+- [ ] **`delegatecall` exposes the caller's transient storage**: Code reached through `delegatecall` executes with the caller's storage context, including EIP-1153 transient slots. Untrusted or insufficiently isolated delegatees can read or overwrite transient locks and in-flight accounting. Look for: `delegatecall` into code that uses `tload`/`tstore` without a reviewed slot contract. [EIP-1153](https://eips.ethereum.org/EIPS/eip-1153)
+
+- [ ] **Transient storage lacks type/domain safety**: `tload` returns an untyped 256-bit word; reusing a slot for values with different widths or meanings can turn stale flags, amounts, or addresses into valid-looking state. Look for: the same transient slot used by multiple value types, missing masks/range checks, or transient keys not namespaced by module and purpose. [EIP-1153](https://eips.ethereum.org/EIPS/eip-1153)
+
 ## Low-Level Calls
 
 - [ ] **`call()` to non-existent contract returns success**: A low-level `call` to an address with no code returns `success = true` with empty returndata. Solmate's `SafeTransferLib` has this vulnerability (doesn't check code existence). Look for: `.call()` without checking target has code, or Solmate SafeTransferLib with potentially-empty addresses. [beirao G-08, SWC-101]

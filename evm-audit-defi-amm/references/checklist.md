@@ -50,7 +50,6 @@
 
 - [ ] **Unbounded loops in hooks cause DoS**: A hook with a growing array that's iterated on every swap will eventually hit gas limits, making the pool unusable. Look for: loops over dynamic arrays in hook functions. [Hacken UniV4]
 
-- [ ] **lpFeeOverride can DoS swaps**: If a hook returns an excessive or invalid `lpFeeOverride`, swaps revert. Look for: unconstrained fee return values. [Hacken UniV4]
 
 ## TWAMM (Time-Weighted AMM)
 

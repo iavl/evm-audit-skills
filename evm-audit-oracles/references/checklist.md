@@ -68,6 +68,8 @@
 
 ## General Oracle Security
 
+- [ ] **Predictable block-derived randomness**: `block.timestamp`, `blockhash`, and `block.prevrandao` are observable or validator-influenced and must not be the sole entropy for valuable outcomes. Look for: randomness derived directly from block fields without a secure VRF, commit-reveal scheme, or equivalent unpredictability and bias resistance. [SWC-120]
+
 - [ ] **Single oracle dependency**: If the protocol relies on one oracle and it fails/is manipulated, everything breaks. Use multiple oracles with fallback logic (Chainlink primary, TWAP fallback, manual override emergency). Look for: single `priceFeed.latestRoundData()` without fallback. [SigmaPrime oracle]
 
 - [ ] **Oracle update frequency vs protocol tick frequency**: If the oracle updates every hour but the protocol checks prices every minute, 59 out of 60 checks use a "stale" price. This is expected behavior for Chainlink, but the protocol must design around it. Look for: high-frequency price checks on low-frequency oracle feeds. [SigmaPrime oracle]

@@ -15,31 +15,33 @@ description: Master index for EVM smart contract security audit skills. Load thi
 | # | Skill | Description | Items |
 |---|-------|-------------|-------|
 | 1 | **evm-audit-master** | This file. Routing table, methodology, source attribution. Load first. | — |
-| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID and array validation, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 118 |
+| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID/array validation, Unicode source review, inheritance semantics, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 118 |
 | 3 | **evm-audit-precision-math** | Division-before-multiplication, rounding to zero, precision scaling mismatches, downcast overflow, rounding direction (protocol vs user), decimal assumption errors | 42 |
 | 4 | **evm-audit-erc20** | Fee-on-transfer, rebasing, ERC777 hooks, approve race conditions, zero-transfer reverts, pausable tokens, deny lists (USDC), deflationary/inflationary tokens, multiple-address tokens | 42 |
-| 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, wrong slippage bases and token-vs-value bounds, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 85 |
-| 6 | **evm-audit-defi-lending** | Auction and liquidation vulnerabilities (self-bidding, incentives, bad debt, partial liquidation, reward ordering), lending/borrowing attacks, oracle-manipulation economics, liquidity/cap/LTV stress modeling, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 106 |
-| 7 | **evm-audit-defi-staking** | Liquid staking, restaking, EigenLayer integration, stakedButUnverified accounting, Beacon Chain proof verification (Deneb), validator front-running, cooldown exploitation, reward calculation precision | 70 |
+| 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, wrong slippage bases and token-vs-value bounds, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 84 |
+| 6 | **evm-audit-defi-lending** | Auction and liquidation vulnerabilities (self-bidding, incentives, bad debt, partial liquidation, reward ordering), lending/borrowing attacks, oracle-manipulation economics, liquidity/cap/LTV stress modeling, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 104 |
+| 7 | **evm-audit-defi-staking** | Liquid staking, restaking, EigenLayer integration, stakedButUnverified accounting, Beacon Chain proof verification (Deneb), validator front-running, cooldown exploitation, reward calculation precision | 69 |
 | 8 | **evm-audit-erc4626** | Share/asset conversion, inflation attack, virtual shares, deposit/withdraw rounding, first depositor attack, multi-step operations, 85+ patterns from Dacian's ERC4626 primer | 68 |
-| 9 | **evm-audit-erc4337** | Account abstraction, smart wallet security, paymaster attacks, session key exploits, UserOperation validation, bundler trust assumptions, gas griefing | 38 |
+| 9 | **evm-audit-erc4337** | Account abstraction, smart wallet security, UserOperation hash integrity, bundler ordering/censorship assumptions, paymaster attacks, session key exploits, gas griefing | 40 |
 | 10 | **evm-audit-bridges** | Cross-chain bridge security, LayerZero V2, CCIP, Wormhole, Across, message replay, finality assumptions, relayer trust, adapter pattern issues | 61 |
 | 11 | **evm-audit-proxies** | UUPS deep dive (uninitialized implementation, delegatecall to selfdestruct, broken upgrade chain, authorization schema changes), Transparent proxy, Beacon, Diamond, storage collision, immutable variable loss | 42 |
 | 12 | **evm-audit-signatures** | Signature replay (missing nonce, cross-chain, missing parameter, no expiration), ecrecover return check, signature malleability, EIP-712 conformance, ECDSA library version requirements | 32 |
 | 13 | **evm-audit-governance** | DAO attacks (flash-loan + delegation bypass, voting power destruction, totalPower manipulation, snapshot staleness, quorum impossibility, treasury delegation abuse, restriction bypass, token recycling, proposal deadlines, pre-mint exploitation), proposal execution ordering, fake proposals via CREATE2, multi-sig quorum failure | 55 |
-| 14 | **evm-audit-oracles** | Chainlink integration (stale prices, L2 sequencer, per-feed heartbeats, decimal assumptions, wrong addresses, front-running, unhandled reverts, depeg detection, minAnswer/maxAnswer), Sigma Prime patterns (spot price manipulation, homegrown oracle risks, gas congestion, hardcoded pegs, TWAP limitations) | 62 |
-| 15 | **evm-audit-assembly** | Inline assembly memory corruption (external call overwrites, stale FMPA assumptions, insufficient allocation), call to non-existent contracts, overflow/underflow without protection, uint128 overflow evading 256-bit detection | 44 |
+| 14 | **evm-audit-oracles** | Chainlink integration (stale prices, L2 sequencer, per-feed heartbeats, decimal assumptions, wrong addresses, front-running, unhandled reverts, depeg detection, minAnswer/maxAnswer), predictable randomness, Sigma Prime pricing patterns | 63 |
+| 15 | **evm-audit-assembly** | Inline assembly memory corruption, user-controlled storage writes, EIP-1153 transient storage isolation, call to non-existent contracts, overflow/underflow without protection, uint128 overflow evading 256-bit detection | 48 |
 | 16 | **evm-audit-chain-specific** | L2/alt-chain quirks — Arbitrum, Optimism, zkSync, Blast, BSC, Polygon. Sequencer downtime, different opcodes, gas pricing differences, precompile availability, block time assumptions | 43 |
 | 17 | **evm-audit-flashloans** | Flash loan attack patterns, oracle manipulation via flash loans, governance flash loan voting, flash mint issues, composability risks | 14 |
 | 18 | **evm-audit-erc721** | NFT-specific issues: onERC721Received callbacks, enumeration DoS, royalty enforcement, metadata manipulation, batch mint edge cases | 39 |
 | 19 | **evm-audit-dos** | Denial of service patterns: unbounded loops, block gas limit, self-destruct force-send, storage deletion costs, griefing via revert, return data bombs | 19 |
-| 20 | **evm-audit-access-control** | Access control patterns: missing modifiers, 2-step ownership, role-based permissions, emergency pause, time delays, admin overpowers | 19 |
+| 20 | **evm-audit-access-control** | Access control patterns: missing modifiers, `tx.origin` authorization, off-chain signer/frontend trust, 2-step ownership, role-based permissions, emergency pause, time delays, admin overpowers | 21 |
 
-**Total: 999 checklist items across 19 specialized skills + 1 master index**
+**Total: 1004 checklist items across 19 specialized skills + 1 master index**
 
 ## Checklist Organization
 
 The 166 deduplicated attack vectors adapted from sanbir/solidity-auditor-skills, 177 EVM-relevant checks adapted from gdroz3r/drozer-lite, and 116 attack-vector patterns adapted from auditmos/skills are merged into the relevant domain checklists. Unique items retain their source identifiers, D/FP triage, and pinned source references; covered items retain provenance-only records. The routed `references/checklist.md` files are now the single source of truth.
+
+SolidityGuard's 104-pattern index was used only for coverage comparison at commit `35645e8ba76cdacbeec40f347c758de2077e2ecd`; its proprietary content was not copied. New gap checks are independently authored and cite public standards.
 
 ## Routing Table — Which Skills To Load
 
@@ -149,3 +151,6 @@ Every sub-agent and the synthesis step MUST use this exact format. No deviations
 - `[SAS-AV]` — deduplicated attack vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills), retaining the source vector number for provenance
 - `[DROZER]` — EVM-relevant, deduplicated attack vectors adapted from [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite) at pinned commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`
 - `[AUDITMOS]` — attack-vector patterns adapted from [auditmos/skills](https://github.com/auditmos/skills) at pinned commit `c9583babb0ce189d9f39a05caf94b5a5da655010`
+- `[EIP-1153]` — Ethereum transient storage specification used for independently authored transient-storage checks
+- `[ERC-4337]` — Account abstraction specification used for independently authored UserOperation and bundler checks
+- `[OWASP]` — OWASP Smart Contract Top 10 used for independently authored operational-boundary checks

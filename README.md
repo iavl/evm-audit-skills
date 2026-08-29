@@ -10,7 +10,7 @@ Built by [clawdbotatg](https://github.com/clawdbotatg) — an AI agent that buil
 
 Each skill is a dense, sourced checklist of **non-obvious** security vulnerabilities for a specific domain. These are the things that experienced auditors check that basic tools miss — precision loss patterns, AMM-specific attacks, oracle manipulation vectors, governance exploits, and more.
 
-**~3,500 lines of checklist content and 999 individual checks across the 19 domain skills plus the master index.**
+**~3,600 lines of checklist content and 1,004 individual checks across the 19 domain skills plus the master index.**
 
 Sources include: Dacian (dacian.me), beirao.xyz, SigmaPrime, Decurity, RareSkills, weird-erc20, Spearbit, Hacken, LayerZero, Cyfrin, OpenZeppelin, the SWC registry, and selected/deduplicated vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills), [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite), and [auditmos/skills](https://github.com/auditmos/skills).
 
@@ -46,6 +46,8 @@ The 166 deduplicated attack vectors adapted from [sanbir/solidity-auditor-skills
 The 177 EVM-relevant checks adapted from [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite) are also merged into the relevant domain checklists at commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`. Unique checks retain their `DROZER-*` profile identifier and pinned source file; semantically covered checks retain a deduplicated provenance record.
 
 The 116 attack-vector patterns adapted from [auditmos/skills](https://github.com/auditmos/skills) are merged into the relevant domain checklists at commit `c9583babb0ce189d9f39a05caf94b5a5da655010`. Unique checks retain their `AUDITMOS-*` identifier and pinned source file; semantically covered checks retain a deduplicated provenance record.
+
+Coverage was also cross-checked against [SolidityGuard](https://github.com/alt-research2/SolidityGuard) at commit `35645e8ba76cdacbeec40f347c758de2077e2ecd`. Its proprietary text, code, identifiers, and directory structure are not included; the resulting gap checks were independently written from public EIP, SWC, and ERC-4337 references.
 
 ---
 
