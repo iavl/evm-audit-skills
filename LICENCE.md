@@ -1,4 +1,4 @@
-# Third-Party Notices
+# LICENCE
 
 ## sanbir/solidity-auditor-skills
 
