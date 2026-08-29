@@ -1,9 +1,5 @@
 # evm-audit-skills
 
-A suite of 20 OpenClaw agent skills for deep EVM smart contract security audits.
-
-Built by [clawdbotatg](https://github.com/clawdbotatg) — an AI agent that builds on Ethereum autonomously.
-
 ---
 
 ## What This Is
@@ -134,59 +130,6 @@ Full audit of `LiquidityVesting.sol` (Uniswap V3 liquidity vesting contract on B
 → [`audits/liquidity-vesting-2026-02-28/`](https://github.com/clawdbotatg/liquidity-vesting/issues)
 
 27 findings across 3 parallel agents. 12 issues filed. Runtime ~10 minutes.
-
----
-
-## Attribution & Thanks
-
-This skill suite stands entirely on the shoulders of researchers and auditors who published their knowledge openly. Every checklist item is sourced — if you want to go deeper on any topic, these are the primary sources:
-
-### 🙏 People & Teams
-
-**[Dacian](https://dacian.me)** — The single highest-signal source in this entire suite. Eight deep-dive articles covering liquidation vulnerabilities, CLM attacks, slippage, precision loss, signature replay, governance, inline assembly, and lending/borrowing. Essential reading for any serious auditor.
-- [DeFi Liquidation Vulnerabilities](https://dacian.me/defi-liquidation-vulnerabilities)
-- [Concentrated Liquidity Manager Vulnerabilities](https://dacian.me/concentrated-liquidity-manager-vulnerabilities)
-- [DeFi Slippage Attacks](https://dacian.me/defi-slippage-attacks)
-- [Precision Loss Errors](https://dacian.me/precision-loss-errors)
-- [Signature Replay Attacks](https://dacian.me/signature-replay-attacks)
-- [DAO Governance DeFi Attacks](https://dacian.me/dao-governance-defi-attacks)
-- [Solidity Inline Assembly Vulnerabilities](https://dacian.me/solidity-inline-assembly-vulnerabilities)
-- [Lending/Borrowing DeFi Attacks](https://dacian.me/lending-borrowing-defi-attacks)
-
-**[beirao.xyz](https://beirao.xyz)** — Comprehensive audit checklist covering 200+ non-obvious Solidity footguns, organized by category. The backbone of `evm-audit-general`.
-
-**[Sigma Prime](https://blog.sigmaprime.io)** — Three excellent deep-dives on governance/DAOs, oracles/pricing, and liquid restaking security.
-- [Governance & DAOs](https://blog.sigmaprime.io/governance-dao.html)
-- [Oracles & Pricing](https://blog.sigmaprime.io/oracles-and-pricing.html)
-- [Liquid Restaking](https://blog.sigmaprime.io/liquid-restaking.html)
-
-**[RareSkills](https://www.rareskills.io)** — Detailed articles on smart contract security and UUPS proxy vulnerabilities.
-- [Smart Contract Security](https://www.rareskills.io/post/smart-contract-security)
-- [UUPS Proxy](https://www.rareskills.io/post/uups-proxy)
-
-**[Cyfrin](https://cyfrin.io)** — Chainlink oracle security deep-dive by Dacian, published via Cyfrin.
-- [Chainlink Oracle DeFi Attacks](https://medium.com/cyfrin/chainlink-oracle-defi-attacks-93b6cb6541bf)
-
-### 🔧 Non-repository reference sources
-
-**[Decurity](https://decurity.io)** — Protocol-specific security checklists for AMMs, CDPs, and liquid staking derivatives.
-
-**[Hacken](https://hacken.io)** — Uniswap V4 hooks security guide.
-
-**[OpenZeppelin](https://blog.openzeppelin.com)** — Uniswap V4 hooks audit guide and proxy security research.
-
-**[Spearbit](https://spearbit.com)** — Bridge security checklist.
-
-**[MixBytes](https://mixbytes.io)** — CREATE2 security analysis.
-
-### 📋 Standards
-
-**[EEA EthTrust Security Levels](https://entethalliance.org/specs/ethtrust-sl/)** — The current smart contract security standard (supersedes the SWC registry).
-
-The archived SWC taxonomy is used for legacy weakness identifiers; its repository is listed in the Repository Sources and Lineage table above.
-
-### Protocol Documentation
-Uniswap V3/V4 docs, LayerZero V2 security checklist, Chainlink CCIP best practices, Wormhole integration security guide, Across Protocol integration guide, Arbitrum official documentation.
 
 ---
 
