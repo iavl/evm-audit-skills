@@ -18,7 +18,7 @@ Non-obvious access control vulnerabilities beyond basic missing modifiers.
 
 - [ ] **Missing access controls on sensitive functions**: Functions like `mint()`, `burn()`, `setOracle()`, `setFee()`, `pause()` without access modifiers are callable by anyone. Look for: public/external functions that modify critical state without any access check. [beirao A-03, A-06]
 
-- [ ] **Two-step ownership transfer not implemented**: Single-step `transferOwnership` to a wrong address permanently locks out the owner. Look for: `Ownable.transferOwnership()` without `Ownable2Step` pattern. [beirao A-05]
+- [ ] **Two-step ownership transfer must validate the pending owner**: Single-step `transferOwnership` to a wrong address can permanently lock out the owner, while an incomplete two-step implementation may accept ownership without a pending transfer or allow an unintended `address(0)` owner. Look for: `Ownable.transferOwnership()` without `Ownable2Step`, or `acceptOwnership()` paths that do not validate the pending owner and non-zero target. [beirao A-05]
 
 - [ ] **Functions operating on other users assume msg.sender is the user**: If a function allows specifying a target user, an attacker can operate on others' positions. Look for: functions with a `user` parameter where operations should only be callable by that user or approved operators. [Tamjid F-16]
 
@@ -91,3 +91,10 @@ The source checks below are already represented by canonical checks in this doma
 - `DROZER-UNI-73` **Operation Blocking Powers** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
 - `DROZER-UNI-74` **Irreversible Admin Actions** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
 - `DROZER-UNI-75` **Ownership Transfer Two-Step** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## Auditmos/skills Provenance (deduplicated)
+
+The source patterns below are already represented by canonical checks in this suite. These provenance records retain Auditmos coverage without adding duplicate checklist items.
+
+- `AUDITMOS-STATE-VALIDATION-1` **Unchecked 2-Step Ownership Transfer** -> existing ownership-transfer check; description strengthened; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-state-validation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-STATE-VALIDATION-6` **Missing Access Control** -> existing access-control checks; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-state-validation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010

@@ -10,7 +10,7 @@
 - [ ] **`block.basefee` returns L1 basefee on Arbitrum**: Use `ArbGasInfo.getL1BaseFeeEstimate()` for L1 fees, and `ArbGasInfo` precompile methods for L2 gas prices. Look for: `block.basefee` used for gas calculations on Arbitrum. [multichain-auditor]
 
 ### Sequencer & Retryable Tickets
-- [ ] **Sequencer downtime = stale oracle prices + delayed liquidations**: When the sequencer is down, no new transactions execute. When it resumes, oracle prices are stale and positions may have gone deeply underwater. Check the Chainlink sequencer uptime feed and apply grace periods. Look for: Chainlink usage on Arbitrum without sequencer uptime check. [multichain-auditor, beirao ARB-02]
+- [ ] **Sequencer downtime = stale oracle prices + delayed liquidations/auctions**: When the sequencer is down, no new transactions execute. When it resumes, oracle prices are stale, positions may have gone deeply underwater, and auctions started immediately after restart can give the first bidder an unfair catch-up window. Check the Chainlink sequencer uptime feed and apply grace periods before liquidation or auction start. Look for: L2 liquidation or auction paths without sequencer uptime and restart-grace checks. [multichain-auditor, beirao ARB-02]
 
 - [ ] **Retryable ticket auto-redeem failure**: If a retryable ticket's auto-redeem fails (insufficient gas), it must be manually redeemed within 7 days or funds are permanently lost. Look for: L1→L2 message passing that assumes auto-redemption always succeeds. [Arbitrum docs]
 
@@ -124,3 +124,9 @@ The checks below are the canonical runtime additions from the EVM-relevant droze
 The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
 
 - `DROZER-UNI-20` **Cross-Environment Resource Parity** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## Auditmos/skills Provenance (deduplicated)
+
+The source patterns below are already represented by canonical checks in this suite. These provenance records retain Auditmos coverage without adding duplicate checklist items.
+
+- `AUDITMOS-AUCTION-2` **Auction Start During Sequencer Downtime** -> existing L2 sequencer check; description strengthened for auctions; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-auction/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010

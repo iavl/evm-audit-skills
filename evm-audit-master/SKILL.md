@@ -15,11 +15,11 @@ description: Master index for EVM smart contract security audit skills. Load thi
 | # | Skill | Description | Items |
 |---|-------|-------------|-------|
 | 1 | **evm-audit-master** | This file. Routing table, methodology, source attribution. Load first. | — |
-| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 116 |
+| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID and array validation, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 118 |
 | 3 | **evm-audit-precision-math** | Division-before-multiplication, rounding to zero, precision scaling mismatches, downcast overflow, rounding direction (protocol vs user), decimal assumption errors | 42 |
 | 4 | **evm-audit-erc20** | Fee-on-transfer, rebasing, ERC777 hooks, approve race conditions, zero-transfer reverts, pausable tokens, deny lists (USDC), deflationary/inflationary tokens, multiple-address tokens | 42 |
-| 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 82 |
-| 6 | **evm-audit-defi-lending** | Liquidation vulnerabilities (20+ patterns), lending/borrowing attacks, bad debt handling, oracle-manipulation economics, liquidity/cap/LTV stress modeling, partial liquidation bypasses, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 98 |
+| 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, wrong slippage bases and token-vs-value bounds, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 85 |
+| 6 | **evm-audit-defi-lending** | Auction and liquidation vulnerabilities (self-bidding, incentives, bad debt, partial liquidation, reward ordering), lending/borrowing attacks, oracle-manipulation economics, liquidity/cap/LTV stress modeling, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 106 |
 | 7 | **evm-audit-defi-staking** | Liquid staking, restaking, EigenLayer integration, stakedButUnverified accounting, Beacon Chain proof verification (Deneb), validator front-running, cooldown exploitation, reward calculation precision | 70 |
 | 8 | **evm-audit-erc4626** | Share/asset conversion, inflation attack, virtual shares, deposit/withdraw rounding, first depositor attack, multi-step operations, 85+ patterns from Dacian's ERC4626 primer | 68 |
 | 9 | **evm-audit-erc4337** | Account abstraction, smart wallet security, paymaster attacks, session key exploits, UserOperation validation, bundler trust assumptions, gas griefing | 38 |
@@ -35,11 +35,11 @@ description: Master index for EVM smart contract security audit skills. Load thi
 | 19 | **evm-audit-dos** | Denial of service patterns: unbounded loops, block gas limit, self-destruct force-send, storage deletion costs, griefing via revert, return data bombs | 19 |
 | 20 | **evm-audit-access-control** | Access control patterns: missing modifiers, 2-step ownership, role-based permissions, emergency pause, time delays, admin overpowers | 19 |
 
-**Total: 986 checklist items across 19 specialized skills + 1 master index**
+**Total: 999 checklist items across 19 specialized skills + 1 master index**
 
 ## Checklist Organization
 
-The 166 deduplicated attack vectors adapted from sanbir/solidity-auditor-skills and 177 EVM-relevant checks adapted from gdroz3r/drozer-lite are merged into the relevant domain checklists. Unique items retain their source identifiers, D/FP triage, and pinned source references; covered items retain provenance-only records. The routed `references/checklist.md` files are now the single source of truth.
+The 166 deduplicated attack vectors adapted from sanbir/solidity-auditor-skills, 177 EVM-relevant checks adapted from gdroz3r/drozer-lite, and 116 attack-vector patterns adapted from auditmos/skills are merged into the relevant domain checklists. Unique items retain their source identifiers, D/FP triage, and pinned source references; covered items retain provenance-only records. The routed `references/checklist.md` files are now the single source of truth.
 
 ## Routing Table — Which Skills To Load
 
@@ -75,7 +75,7 @@ The 166 deduplicated attack vectors adapted from sanbir/solidity-auditor-skills 
 5. Note the target deployment chain(s)
 
 ### Phase 2: Skill Selection
-Load `evm-audit-general` + `evm-audit-precision-math` (always), then add skills based on the routing table above. For oracle-backed lending, load `evm-audit-oracles` as well, and load `evm-audit-defi-amm` when the price source depends on AMM liquidity. The selected checklists already contain the merged SAS-AV and DROZER vectors. For a typical DeFi protocol, expect to load 6-8 domain skills.
+Load `evm-audit-general` + `evm-audit-precision-math` (always), then add skills based on the routing table above. For oracle-backed lending, load `evm-audit-oracles` as well, and load `evm-audit-defi-amm` when the price source depends on AMM liquidity. The selected checklists already contain the merged SAS-AV, DROZER, and AUDITMOS vectors. For a typical DeFi protocol, expect to load 6-8 domain skills.
 
 ### Phase 3: Spawn Parallel Sub-Agents
 **Spawn one opus sub-agent per selected skill.** Do not run skills sequentially in the main session — parallel agents produce dramatically better results by keeping each agent's context focused.
@@ -148,3 +148,4 @@ Every sub-agent and the synthesis step MUST use this exact format. No deviations
 - `[Blast docs]` — Blast L2 documentation
 - `[SAS-AV]` — deduplicated attack vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills), retaining the source vector number for provenance
 - `[DROZER]` — EVM-relevant, deduplicated attack vectors adapted from [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite) at pinned commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`
+- `[AUDITMOS]` — attack-vector patterns adapted from [auditmos/skills](https://github.com/auditmos/skills) at pinned commit `c9583babb0ce189d9f39a05caf94b5a5da655010`

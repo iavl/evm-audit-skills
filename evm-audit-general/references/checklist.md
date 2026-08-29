@@ -88,6 +88,8 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 
 - [ ] **First iteration edge case**: The first iteration of a loop may behave differently (e.g., empty state, uninitialized variables). Look for: loop body logic that assumes prior iterations have run. [beirao L-01]
 
+- [ ] **[AUDITMOS-STATE-VALIDATION-7] Parallel arrays must have matching lengths**: Functions that process related arrays must reject mismatched lengths before indexing or applying values. Otherwise callers can trigger out-of-bounds reverts or leave only part of a state transition applied. Look for: functions accepting `ids` and `amounts`, or any paired arrays, without an explicit equality check. [Source: Auditmos `audit-state-validation`, pattern #7](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-state-validation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+
 ## Block/Time Assumptions
 
 - [ ] **`block.timestamp` only reliable for long intervals**: Validators can manipulate timestamps by several seconds. Don't use for intervals shorter than ~15 minutes. Look for: time-sensitive logic with sub-minute precision. [beirao G-28]
@@ -131,6 +133,8 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 - [ ] **Call to address that doesn't exist returns true**: Low-level `.call()` to an address with no code returns `success = true` with empty returndata. This can silently skip operations if the target hasn't been deployed yet. Look for: `.call()` to addresses derived from configuration or computation without checking `extcodesize > 0`. [beirao E-05, Tamjid C34]
 
 - [ ] **Semantic overloading**: Using the same variable or return value for multiple meanings (e.g., 0 means "not found" AND "zero balance") creates ambiguity that leads to logic errors. Look for: functions where a zero return could mean success, failure, or absence. [beirao G-11]
+
+- [ ] **[AUDITMOS-STATE-VALIDATION-5] Non-existent IDs must not use default state**: Functions accepting an ID must verify that its record exists before reading or mutating it. Mapping defaults can make a nonexistent entry look valid, corrupt counters, mark debt as repaid, or apply state changes to an empty record. Look for: `mapping[id]` reads followed by accounting updates without an existence flag or equivalent check. [Source: Auditmos `audit-state-validation`, pattern #5](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-state-validation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
 
 - [ ] **Code asymmetry — withdraw doesn't undo deposit state**: If `deposit()` updates state variables A, B, C, the `withdraw()` function should reverse ALL of A, B, C. Missing one creates an inconsistent state. Look for: deposit/withdraw function pairs where state modifications aren't symmetric. [beirao G-26]
 
@@ -432,3 +436,17 @@ The source checks below are already represented by canonical checks in this doma
 - `DROZER-UNI-60` **Taint Boundary at External Returns** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539domain=general EVM=44 new=13 provenance=31
 
 - `DROZER-UNI-99` **Approval / Permission Persistence After Action Reversal** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## Auditmos/skills Provenance (deduplicated)
+
+The source patterns below are already represented by canonical checks in this suite. These provenance records retain Auditmos coverage without adding duplicate checklist items.
+
+- `AUDITMOS-AUCTION-4` **Auction Can Be Seized During Active Period** -> existing auction timestamp boundary check; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-auction/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-REENTRANCY-1` **Token Transfer Reentrancy** -> existing canonical coverage in evm-audit-general; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-reentrancy/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-REENTRANCY-2` **State Update After External Call** -> existing canonical coverage in evm-audit-general; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-reentrancy/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-REENTRANCY-3` **Cross-Function Reentrancy** -> existing canonical coverage in evm-audit-general; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-reentrancy/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-REENTRANCY-4` **Read-Only Reentrancy** -> existing canonical coverage in evm-audit-general; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-reentrancy/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-STATE-VALIDATION-2` **Unexpected Matching Inputs** -> existing canonical coverage in evm-audit-general; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-state-validation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-STATE-VALIDATION-3` **Unexpected Empty Inputs** -> existing canonical coverage in evm-audit-general; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-state-validation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-STATE-VALIDATION-4` **Unchecked Return Values** -> existing canonical coverage in evm-audit-general; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-state-validation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-STATE-VALIDATION-8` **Improper Pause Mechanism** -> existing canonical coverage in evm-audit-general; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-state-validation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010

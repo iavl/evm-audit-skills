@@ -80,3 +80,9 @@ The source checks below are already represented by canonical checks in this doma
 - `DROZER-UNI-46` **External Calls in Loops** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
 - `DROZER-UNI-47` **Bounded Cleanup on Delete** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
 - `DROZER-UNI-107` **Nested Loop Depth Exceeds Gas Budget** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## Auditmos/skills Provenance (deduplicated)
+
+The source patterns below are already represented by canonical checks in this suite. These provenance records retain Auditmos coverage without adding duplicate checklist items.
+
+- `AUDITMOS-LIQUIDATION-DOS-1` **Many Small Positions DoS** -> existing unbounded-loop and array-growth DoS checks in evm-audit-dos; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-liquidation-dos/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010

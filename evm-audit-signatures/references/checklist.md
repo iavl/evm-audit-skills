@@ -97,3 +97,14 @@ The source checks below are already represented by canonical checks in this doma
 - `DROZER-SIG-4` **Nonce & Replay Prevention Atomicity** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/signature.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
 - `DROZER-UNI-58` **Signed Data Completeness** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
 - `DROZER-UNI-59` **Nonce / Replay Protection** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
+
+## Auditmos/skills Provenance (deduplicated)
+
+The source patterns below are already represented by canonical checks in this suite. These provenance records retain Auditmos coverage without adding duplicate checklist items.
+
+- `AUDITMOS-SIGNATURE-1` **Missing Nonce Replay** -> existing canonical coverage in evm-audit-signatures; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-signature/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-SIGNATURE-2` **Cross Chain Replay** -> existing canonical coverage in evm-audit-signatures; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-signature/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-SIGNATURE-3` **Missing Parameter** -> existing canonical coverage in evm-audit-signatures; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-signature/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-SIGNATURE-4` **No Expiration** -> existing canonical coverage in evm-audit-signatures; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-signature/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-SIGNATURE-5` **Unchecked ecrecover() Return** -> existing canonical coverage in evm-audit-signatures; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-signature/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
+- `AUDITMOS-SIGNATURE-6` **Signature Malleability** -> existing canonical coverage in evm-audit-signatures; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-signature/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
