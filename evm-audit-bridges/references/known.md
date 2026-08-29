@@ -1,8 +1,8 @@
-# evm-audit-bridges — KNOWN (Opus Already Knows)
+# evm-audit-bridges — KNOWN
 
 *Generated: 2026-02-28 | Items: 16*
 
-ℹ️  Opus explains these deeply from training. Lowest priority for skill inclusion.
+ℹ️  Established audit patterns. Lowest priority for supplemental skill inclusion.
 
 - [ ] **Double normalization/denormalization**: If a value is already normalized, normalizing again causes massive precision loss. Look for: multiple normalize/denormalize calls on the same value through call chains. [Wormhole checklist]
 
@@ -35,4 +35,3 @@
 - [ ] **Unsupported chain whitelisting**: If a protocol accepts cross-chain messages from any chain, an attacker can deploy on an unsupported chain and send malicious messages. All compatible source chains must be whitelisted. Look for: cross-chain receivers without source chain validation. [beirao MC-10]
 
 - [ ] **Bridge contract upgradability differs across chains**: A bridge contract may be immutable on one chain but upgradeable on another. A compromised upgrade on one chain can affect the entire bridge. Look for: cross-chain systems where upgrade authority differs per chain. [multichain-auditor]
-

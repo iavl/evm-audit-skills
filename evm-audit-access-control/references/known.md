@@ -1,8 +1,8 @@
-# evm-audit-access-control — KNOWN (Opus Already Knows)
+# evm-audit-access-control — KNOWN
 
 *Generated: 2026-02-28 | Items: 14*
 
-ℹ️  Opus explains these deeply from training. Lowest priority for skill inclusion.
+ℹ️  Established audit patterns. Lowest priority for supplemental skill inclusion.
 
 - [ ] **Admin can perform token transfers on behalf of users**: If admin functions exist that can move user tokens (e.g., `rescueTokens`, `emergencyWithdraw` with admin-controlled recipient), the admin can rug users. Look for: any admin function that calls `transfer()` or `transferFrom()` with an admin-controlled destination. [beirao A-01, Nascent toolkit]
 
@@ -31,4 +31,3 @@
 - [ ] **Deploy scripts not included in audit scope**: Deployment order, parameter values, and role assignments in deploy scripts are as security-critical as runtime code. An incorrect deployment can leave contracts in a vulnerable state. Look for: deploy scripts that set up permissions or initial state. [Nascent audit-readiness]
 
 - [ ] **When all agents are the same person**: In multi-role systems (liquidator, borrower, LP), consider what happens if one entity controls all roles simultaneously. Self-liquidation, self-arbitrage, circular collateral. Look for: cross-role interactions where same-address scenarios aren't tested. [beirao G-22]
-

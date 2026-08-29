@@ -8,8 +8,6 @@ Non-obvious denial-of-service and griefing attack patterns.
 
 - [ ] **Insufficient gas forwarding (SWC-126)**: When a contract calls another contract via `.call{gas: X}()` with a fixed gas amount, the caller can provide just enough gas for the outer function to succeed but not enough for the inner call. The outer function may silently succeed while the inner call fails. Look for: `.call{gas: fixedAmount}()` where the fixed amount may be too low for certain execution paths. [beirao E-03, Tamjid F-08]
 
-- [ ] **Try/catch always fails with insufficient gas**: `try/catch` blocks require enough gas for the external call. An attacker can submit a transaction with precisely enough gas for the try to fail but catch to execute, causing unexpected fallback behavior. Look for: `try/catch` on external calls in critical paths. [beirao G-18]
-
 ## Unbounded Loops
 
 - [ ] **User-growable arrays iterated in a loop**: If users can add elements to an array (stakers, depositors, whitelisted addresses) and a function iterates over the entire array, an attacker can DoS the function by adding elements until it exceeds the block gas limit. Look for: `for (i = 0; i < array.length; i++)` where `array` can grow via public functions. [beirao L-02, Decurity LSD, Hacken UniV4]

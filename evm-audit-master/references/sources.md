@@ -62,6 +62,8 @@ The per-check deduplication map is maintained in [drozer-lite-provenance.md](dro
 
 The per-pattern deduplication map is maintained in [auditmos-provenance.md](auditmos-provenance.md). It is audit metadata and is not a runtime checklist.
 
+The two provenance maps document source-level coverage only; they do not certify semantic uniqueness across the 19 runtime checklists. Repository-level runtime decisions are recorded in [checklist-semantic-dedup-review.md](checklist-semantic-dedup-review.md), and the deterministic maintenance checks are implemented in `scripts/validate_checklists.py`.
+
 ### alt-research2/SolidityGuard (coverage comparison only; reviewed 2026-08-29)
 | Source | URL | Status |
 |--------|-----|--------|

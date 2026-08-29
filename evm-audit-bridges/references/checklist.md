@@ -70,23 +70,17 @@
 
 ## Bridge Security Fundamentals
 
-- [ ] **Signed messages must include**: token type, both chain IDs, receiver, amount, nonce, and EIP-712 domain separator. Missing any field enables replay or spoofing. [Spearbit bridge checklist C6.1]
+- [ ] **Signed bridge messages must bind all execution-affecting fields**: Include token identity, source and destination chain IDs, receiver, amount, nonce, and a complete EIP-712 domain separator. Omitting any field enables replay, spoofing, or misdirected funds. Look for: bridge message encodings that omit a value later used in execution. [Spearbit bridge checklist C6.1]
 
-- [ ] **Used signatures must be invalidated**: After execution, the signature/message hash must be marked as used to prevent replay. [Spearbit bridge checklist C6.2]
+- [ ] **Used bridge signatures must be invalidated**: After execution, the signature or message hash must be marked as spent atomically with the state transition to prevent replay. Look for: relay paths that do not consume the message before external effects. [Spearbit bridge checklist C6.2]
 
-- [ ] **Chain identifier cannot be spoofed**: Source and destination chain IDs must be in the signed message and verified against actual execution chain. [Spearbit bridge checklist C6.4, C6.5]
+- [ ] **Bridge chain identifiers cannot be spoofed**: Source and destination chain IDs must be signed and verified against the configured source, destination, and actual execution chain. Look for: relayers that accept caller-supplied chain IDs without endpoint/peer validation. [Spearbit bridge checklist C6.4, C6.5]
 
 - [ ] **Challenge window long enough for human response**: For optimistic bridges, the challenge period must allow incident response (30+ min minimum). Consider per-chain based on weakest chain's finality. [Spearbit bridge checklist]
 
 ## Bridge Security Verification (Expanded from Spearbit)
 
-- [ ] **All necessary values must be in signed bridge message**: Token type, chain IDs (source + destination), receiver address, amount, nonce. Missing any field allows replay or spoofing. Look for: bridge message encoding that omits chain ID, nonce, or receiver. [Spearbit Bridge C6.1]
-
-- [ ] **Signature invalidation after use**: Used bridge signatures must be marked as spent. Without this, the same message can be replayed. Look for: bridge relay functions that don't mark message hashes as consumed. [Spearbit Bridge C6.2]
-
 - [ ] **Message hash collision resistance**: If message hashing uses `abi.encodePacked` with variable-length fields, hash collisions are possible. Use `abi.encode` instead. Look for: `keccak256(abi.encodePacked(...))` in bridge message hashing with multiple dynamic types. [Spearbit Bridge C6.3]
-
-- [ ] **Chain identifier spoofing**: If source/destination chain IDs aren't included in the signed message AND verified against expected values, an attacker can spoof cross-chain messages. Look for: bridge relayers that don't verify chain IDs match the expected source/destination. [Spearbit Bridge C6.4, C6.5]
 
 - [ ] **Nonce required for duplicate operations**: Without a nonce, identical operations (same sender, receiver, amount) can't be distinguished, potentially blocking legitimate duplicate transfers. Look for: bridge message schemas without nonce field. [Spearbit Bridge C6.6]
 

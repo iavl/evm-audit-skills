@@ -1,8 +1,8 @@
-# evm-audit-bridges — NOVEL (Opus 4.6 Does NOT Know)
+# evm-audit-bridges — NOVEL
 
 *Generated: 2026-02-28 | Items: 11*
 
-✅ Verified: Claude Opus 4.6 cannot explain these from training. Highest-signal content.
+✅ Additional domain-specific coverage. Highest-signal content for focused review.
 
 - [ ] **`lzReceive` OOG from lazy nonce loop**: `_clearPayload` loops from `lazyInboundNonce` to current nonce. If many messages are verified but not received, the loop causes OOG. Fix: process messages with lower nonces first to keep the gap small. Look for: large gaps between `lazyInboundNonce` and current nonce in message processing. [LayerZeroV2 checklist]
 
@@ -25,4 +25,3 @@
 - [ ] **Burned nonce from failed auto-redemption**: If a retryable ticket fails auto-redemption (out of gas), the sender's nonce is spent. If the L1 contract predicted a deployment address based on nonce 0, the actual deployment (via manual redemption) will use nonce 1, creating a different address. Look for: L1 contracts that predict L2 contract addresses based on nonce. [Arbitrum Checklist]
 
 - [ ] **`callValueRefundAddress` can cancel tickets**: The `callValueRefundAddress` parameter in `createRetryableTicket` gets permission to cancel the ticket permanently. A malicious actor can set themselves as refund address, intentionally set gas too low, then cancel the ticket before anyone redeems it. Look for: permissionless L1 functions where users control `callValueRefundAddress`. [Arbitrum Checklist]
-

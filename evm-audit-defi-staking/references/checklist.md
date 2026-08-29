@@ -8,32 +8,30 @@
 - [ ] **stETH/wstETH withdrawal has a queue**: Withdrawing from Lido involves a queue (days-weeks), receiving an NFT, and withdrawal amount limits. Protocols assuming instant withdrawal will fail. Look for: withdrawal functions that assume immediate liquidity. [beirao LSD-03]
 
 ### rETH (Rocket Pool)
-- [ ] **rETH `burn()` reverts if RocketDepositPool is empty**: If the Rocket Pool deposit pool has no ETH, burning rETH to get ETH reverts. Protocols must handle this gracefully. Look for: `rETH.burn()` without try/catch or fallback. [beirao LSD-04]
-- [ ] **rETH/ETH rate CAN decrease**: Unlike common belief, rETH rate can decrease due to validator slashing. Don't assume monotonically increasing rate. Look for: code that assumes rETH value only goes up. [beirao LSD-05]
-- [ ] **Consensus attack on RPL nodes**: Malicious RPL node operators can submit incorrect exchange rate data. Look for: rETH rate used without sanity bounds. [beirao LSD-06]
+- [ ] **rETH `burn()` reverts if RocketDepositPool is empty**: If the Rocket Pool deposit pool has no ETH, burning rETH to get ETH reverts. Protocols must handle this gracefully. Look for: `rETH.burn()` without try/catch or a fallback path. [beirao LSD-04]
+- [ ] **rETH/ETH rate CAN decrease**: Unlike common belief, rETH's exchange rate can decrease during validator slashing. Do not assume monotonically increasing value. Look for: share-price or collateral logic that assumes rETH only appreciates. [beirao LSD-05]
+- [ ] **Consensus attack on RPL nodes**: Malicious Rocket Pool node operators can submit incorrect exchange-rate data. Look for: rETH rate used without sanity bounds or an independent validation source. [beirao LSD-06]
 
 ### cbETH (Coinbase)
-- [ ] **cbETH has full blacklisting**: Blacklist applies to transfers, approvals, mints, and burns. If a protocol's vault is blacklisted, all cbETH is frozen. Look for: cbETH held in shared vaults. [beirao LSD-07]
-- [ ] **cbETH/ETH rate changeable by oracle**: A small set of addresses (onlyOracle modifier) can change the exchange rate. Rate manipulation by the oracle = instant profit/loss. Look for: cbETH rate used without deviation checks. [beirao LSD-08]
-- [ ] **cbETH/ETH rate can decrease**: Unlike stETH, cbETH explicitly can decrease in value. Look for: assumptions of monotonically increasing cbETH rate. [beirao LSD-09]
+- [ ] **cbETH has full blacklisting**: The blacklist applies to transfers, approvals, mints, and burns. If a protocol address is blacklisted, all cbETH held there can be frozen. Look for: cbETH held in shared vaults without a blacklist-aware recovery path. [beirao LSD-07]
+- [ ] **cbETH/ETH rate changeable by oracle**: A small set of addresses protected by `onlyOracle` can change the exchange rate, and the rate can decrease. Look for: cbETH rate used without deviation checks or a policy for non-monotonic rates. [beirao LSD-08, LSD-09]
 
 ### sfrxETH (Frax)
-- [ ] **sfrxETH can temporarily detach from frxETH**: During reward transfers by Frax's multi-sig, the sfrxETH/frxETH rate temporarily deviates. An attacker can exploit this timing. Look for: sfrxETH rate used in MEV-sensitive operations without deviation checks. [beirao LSD-10]
+- [ ] **sfrxETH can temporarily detach from frxETH**: During reward transfers by Frax's multisig, the sfrxETH/frxETH rate can temporarily deviate. An attacker can exploit this timing. Look for: sfrxETH rate used in MEV-sensitive operations without deviation checks. [beirao LSD-10]
 
 ## LSD Protocol Design
 
-- [ ] **WithdrawCredentials front-running**: When staking ETH to a validator, a malicious validator can front-run the deposit transaction to set their own WithdrawCredentials, stealing all future withdrawals. The credentials are immutable once set. Look for: deposit flows that don't verify WithdrawCredentials match expectations. [Decurity LSD]
+- [ ] **WithdrawCredentials front-running**: When staking ETH to a validator, a malicious validator can front-run the deposit transaction to set their own WithdrawCredentials, stealing all future withdrawals. The credentials are immutable once set. Look for: `DepositContract.deposit()` flows that do not verify withdrawal credentials after registration. [Decurity LSD]
 
 - [ ] **Derivative must handle slashing/burn**: If a validator is slashed, the derivative token's backing decreases. The protocol must support burning proportional derivative tokens or adjusting the rate. Look for: derivative token implementations without burn capability or rate decrease handling. [Decurity LSD]
 
-- [ ] **DepositContract.deposit() gas limit**: If the protocol accumulates large ETH balances and calls `deposit()` in a loop, too many iterations hit block gas limit. Look for: batch deposit functions without iteration limits. [Decurity LSD]
+- [ ] **DepositContract.deposit() gas limit**: If the protocol accumulates large ETH balances and calls `deposit()` in a loop, too many iterations hit the block gas limit. Look for: batch deposit functions without iteration limits or per-iteration gas controls. [Decurity LSD]
 
-- [ ] **Validator array iteration gas**: Operations iterating over all validators (e.g., for rewards, slashing) can hit gas limits. Look for: unbounded loops over validator data arrays. [Decurity LSD]
+- [ ] **Validator array iteration gas**: Operations iterating over all validators (for example, rewards or slashing) can hit gas limits as the set grows. Look for: unbounded loops over validator data arrays. [Decurity LSD]
 
 - [ ] **Inflation attack on empty LSD pool**: When creating a new staking pool, if no initial deposit is made, an attacker can manipulate the share price. Look for: pool creation without initial deposit or virtual shares. [Decurity LSD]
 
-- [ ] **Slashing penalty exceeds operator balance**: If the slashing penalty is larger than the operator's staked balance, the excess comes from user funds. Look for: slashing math that doesn't cap at operator balance. [Decurity LSD]
-
+- [ ] **Slashing penalty exceeds operator balance**: If the slashing penalty is larger than the operator's staked balance, the excess comes from user funds or leaves accounting insolvent. Look for: slashing math that does not cap the penalty at operator collateral or define loss coverage. [Decurity LSD]
 
 ## Staking Rewards
 
@@ -47,7 +45,7 @@
 
 ## Staking Lock Mechanisms
 
-- [ ] **Staking for others reduces lock time**: If user A can stake on behalf of user B, and B already has a locked position, the new stake may extend or reset the lock differently than intended. Look for: `stake(address onBehalfOf)` functions that affect lock timing. [beirao LS-01]
+- [ ] **Staking for others reduces lock time**: If user A can stake on behalf of user B, a tiny stake may reset or alter B's lock timer differently than intended. Look for: `stake(address onBehalfOf)` functions that affect another user's lock timing. [beirao LS-01]
 
 - [ ] **Liquid wrapper bypasses lock entirely**: A smart contract can wrap locked/staked tokens and issue liquid receipt tokens, completely defeating the time-lock. Look for: token interfaces that allow third-party wrapping of locked positions. [beirao LS-02]
 
@@ -69,15 +67,7 @@
 
 ## LSD Protocol-Level Risks (Expanded from Decurity LSD)
 
-- [ ] **WithdrawCredentials front-running on validator deposit**: When a protocol calls `DepositContract.deposit()`, a malicious validator operator can front-run with their own deposit using the same pubkey but different `WithdrawCredentials`, redirecting staked ETH to their address. Look for: validator registration flows that don't verify withdrawal credentials post-deposit. [Decurity LSD]
-
 - [ ] **Slashing-induced depeg**: If validators are slashed, the derivative token should be worth less than 1:1 with ETH. If the protocol doesn't support burning derivatives to reflect the loss, a depeg occurs. Look for: LSD protocols without burning mechanisms or slashing loss distribution. [Decurity LSD]
-
-- [ ] **DepositContract.deposit() out-of-gas with accumulated ETH**: If the protocol accumulates ETH and calls `DepositContract.deposit()` in a loop for multiple validators, the loop can run out of gas. Look for: batch deposit functions without gas limits per iteration or maximum batch size. [Decurity LSD]
-
-- [ ] **Validator array iteration gas exhaustion**: Functions that iterate over all validators (e.g., to calculate total staked, distribute rewards) can exceed block gas limit as validator count grows. Look for: `for (i = 0; i < validators.length; i++)` patterns in LSD protocols. [Decurity LSD]
-
-- [ ] **Operator slashing exceeds operator balance**: If slashing penalty > operator's staked balance, the protocol absorbs the loss. Look for: slashing handlers that don't account for the scenario where penalty > operator collateral. [Decurity LSD]
 
 - [ ] **Operator withdraws collateral while still validating**: If an operator can withdraw their staked collateral while their validators are still active, there's no penalty for misbehavior. Look for: operator withdrawal functions without checking validator exit status. [Decurity LSD]
 
@@ -85,21 +75,9 @@
 
 ## Specific LSD Tokens (Expanded from Beirao)
 
-- [ ] **rETH burn() can revert if RocketDepositPool is empty**: The `rETH.burn()` function requires enough ETH in the RocketDepositPool. If the pool is depleted, burns (and thus unstaking) fail. Look for: protocols that rely on rETH → ETH conversion without handling the revert. [beirao LSD-04]
-
-- [ ] **rETH/ETH rate can decrease during slashing**: Unlike stETH which rebases, rETH's exchange rate decreases when validators are slashed. Protocols assuming monotonically increasing rETH value will have accounting errors. Look for: share price calculations assuming rETH only appreciates. [beirao LSD-05]
-
-- [ ] **RPL node consensus attacks**: Rocket Pool nodes submit exchange rate data. A coordinated attack by nodes could submit incorrect rETH/ETH rate data. Look for: protocols using rETH price without additional validation source. [beirao LSD-06]
-
-- [ ] **cbETH has blacklisting on transfers, approvals, mints, and burns**: cbETH (Coinbase) can blacklist addresses at the token level. A protocol address getting blacklisted traps all cbETH holdings. Look for: protocols holding cbETH without considering blacklist risk. [beirao LSD-07]
-
-- [ ] **cbETH/ETH rate controlled by `onlyOracle` modifier**: A few authorized addresses can change the cbETH/ETH exchange rate. Rate can also decrease. Look for: protocols assuming cbETH rate is immutable or only increases. [beirao LSD-08, LSD-09]
-
-- [ ] **sfrxETH may detach from frxETH during Frax team operations**: The sfrxETH/frxETH rate can temporarily diverge when the Frax team's multisig transfers rewards. Look for: protocols that price sfrxETH based on expected 1:1+ ratio with frxETH without tolerance. [beirao LSD-10]
+All checks from this source section are covered by the canonical token-specific entries above; this section adds no separate runtime rows.
 
 ## Staking Lock-time Issues (from Beirao)
-
-- [ ] **Users can reduce others' lock-time by staking for them**: If a protocol allows staking on behalf of another address and the lock timer resets on each stake, an attacker can stake a tiny amount for a victim to reset their lock timer. Look for: `stakeFor(address beneficiary)` functions that reset lock timers. [beirao LS-01]
 
 - [ ] **Wrapper contracts for liquid staked positions**: A contract can wrap locked staking positions and issue liquid tokens against them, defeating the purpose of the lock. Look for: staking contracts without anti-wrapping mechanisms (e.g., transfer restrictions on staked positions). [beirao LS-02]
 

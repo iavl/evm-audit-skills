@@ -10,7 +10,7 @@ Every known ERC20 edge case that can break protocols. Not basic "use SafeERC20" 
 
 - [ ] **Tokens that revert on zero-amount transfer (LEND, BNB)**: Some tokens revert when `transfer(to, 0)` is called. If a reward distribution or fee collection computes zero and then transfers, it causes DoS. Look for: transfer calls where the amount could be 0 in edge cases (empty rewards, rounding to zero). [beirao FT-12]
 
-- [ ] **Tokens that revert on transfer to specific addresses (LUSD)**: LUSD reverts when transferring to certain addresses (its own address, zero address, pool addresses). Look for: protocols that transfer tokens to addresses derived from user input without whitelist checking. [beirao FT-15]
+- [ ] **Tokens that revert on transfer to specific addresses (LUSD)**: LUSD reverts when transferring to certain destinations, including its own address, the zero address, and pool addresses. Look for: protocols that transfer tokens to addresses derived from user input without whitelist checking, such as `token.transfer(address(token), amount)`. [beirao FT-15, weird-erc20]
 
 - [ ] **Multiple-address tokens (Synthetix SNX)**: Some tokens are accessible via multiple contract addresses (proxy + implementation, or multiple proxies). If your protocol tracks by token address, the same underlying token appears as different tokens. Look for: allowlists or mappings keyed by token address that could miss an alias. [beirao FT-05]
 
@@ -40,7 +40,7 @@ Every known ERC20 edge case that can break protocols. Not basic "use SafeERC20" 
 
 ## Decimal Quirks
 
-- [ ] **Decimals vary across chains**: USDT/USDC = 6 decimals on Ethereum, 18 decimals on BSC. A protocol hardcoding `10**6` will break on BSC. Look for: hardcoded decimal values, especially `1e6`, `1e18`, or `10**decimals` with assumed values. [multichain-auditor]
+- [ ] **Decimals vary across chains**: USDT/USDC can use 6 decimals on Ethereum and 18 on BSC, so a cross-chain protocol hardcoding `10**6`, `1e6`, or `1e18` can miscalculate values. Look for: decimal assumptions instead of querying and validating each token's actual `decimals()`. [multichain-auditor]
 
 - [ ] **Tokens with 0 decimals**: Some tokens use 0 decimals (indivisible). Math that divides by `10**decimals` divides by 1 (no-op) but rounding issues appear in share calculations. Look for: vault/share math that doesn't handle 0-decimal tokens. [weird-erc20]
 
@@ -84,11 +84,7 @@ Every known ERC20 edge case that can break protocols. Not basic "use SafeERC20" 
 
 - [ ] **Non-string metadata fields (MKR uses bytes32)**: MKR's `name()` and `symbol()` return `bytes32` not `string`. Contracts that decode metadata as string will get garbage or revert. Look for: `IERC20Metadata(token).name()` calls on arbitrary tokens without try/catch. [weird-erc20]
 
-- [ ] **USDC/USDT have different decimals on different chains**: USDT = 6 decimals on ETH, 18 on BSC. USDC = 6 on ETH, 18 on BSC. A cross-chain protocol using hardcoded decimals will miscalculate values. Look for: `decimals` assumptions in cross-chain or multichain deployments. [multichain-auditor]
-
 - [ ] **Phantom functions on tokens without permit**: Tokens that don't implement `permit()` won't revert on low-level calls — the call succeeds as a no-op (phantom function). Code that calls `permit()` then `transferFrom()` may silently skip the permit. Look for: `try token.permit(...)` patterns that don't verify the permit actually set allowance. [weird-erc20]
-
-- [ ] **Tokens that revert on transfer to self (address(token))**: LUSD and some tokens revert when you transfer to the token's own address. Look for: patterns where `token.transfer(address(token), amount)` could occur, e.g., when destination is derived from user input. [weird-erc20, beirao FT-15]
 
 ## Supplemental Attack Vectors (SAS-AV)
 

@@ -1,8 +1,8 @@
-# evm-audit-assembly — KNOWN (Opus Already Knows)
+# evm-audit-assembly — KNOWN
 
 *Generated: 2026-02-28 | Items: 36*
 
-ℹ️  Opus explains these deeply from training. Lowest priority for skill inclusion.
+ℹ️  Established audit patterns. Lowest priority for supplemental skill inclusion.
 
 - [ ] **CREATE2 + selfdestruct = arbitrary code replacement**: A contract deployed via CREATE2 can be `selfdestruct`-ed and redeployed with COMPLETELY DIFFERENT code at the same address. This is the fundamental rug-pull/audit-bypass vector. The new contract has FRESH storage. Look for: any contract with `selfdestruct` deployed via CREATE2, or factories that use CREATE2 with deployable bytecode. [mixbytes CREATE2]
 
@@ -75,4 +75,3 @@
 - [ ] **External call to non-existent contract always succeeds in assembly**: Low-level `staticcall`/`call` to an address without code (EOA) returns success=1 with no output. If the code reads previous memory as the "return value", it can interpret stale valid data as a successful response. Fix: check `extcodesize(target) > 0` before call, and verify `returndatasize() == expected`. [Source: Dacian — Inline Assembly Vulnerabilities, samczsun 0x vulnerability]
 
 - [ ] **Overflow/underflow in inline assembly — no automatic checks**: Assembly `add`, `sub`, `mul` have no overflow protection. `add(type(uint256).max, 1)` silently returns 0. Manual overflow check: `if lt(result, input) { revert(0,0) }`. [Source: Dacian — Inline Assembly Vulnerabilities]
-

@@ -1,8 +1,8 @@
-# evm-audit-chain-specific — NOVEL (Opus 4.6 Does NOT Know)
+# evm-audit-chain-specific — NOVEL
 
 *Generated: 2026-02-28 | Items: 5*
 
-✅ Verified: Claude Opus 4.6 cannot explain these from training. Highest-signal content.
+✅ Additional domain-specific coverage. Highest-signal content for focused review.
 
 - [ ] **Chainlink price feed staleness thresholds differ on Arbitrum**: LINK/ETH feed has 24h heartbeat with 18 decimals, while LINK/USD has 1h heartbeat with 8 decimals. Wrong threshold = stale prices accepted. Look for: hardcoded staleness thresholds or decimal values that don't match the specific Arbitrum feed. [Arbitrum Checklist]
 
@@ -13,4 +13,3 @@
 - [ ] **`tx.origin == msg.sender` is not always true for EOAs on L2**: On Optimism, L1→L2 messages can have `tx.origin == msg.sender` even when the sender is a smart contract on L1. EOA-only checks using `tx.origin == msg.sender` are bypassable. Look for: `require(tx.origin == msg.sender)` as an EOA check on L2s. [multichain-auditor]
 
 - [ ] **XDai/Gnosis chain token contracts have callbacks**: On Gnosis chain, USDC/WBTC/WETH had post-transfer callbacks unlike their Ethereum counterparts. This enabled reentrancy attacks and led to a chain hard fork. Look for: same-name tokens assumed to behave identically across chains. [multichain-auditor]
-

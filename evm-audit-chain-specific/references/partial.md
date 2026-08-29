@@ -1,8 +1,8 @@
-# evm-audit-chain-specific — PARTIAL (Opus Knows Concept, Not Specifics)
+# evm-audit-chain-specific — PARTIAL
 
 *Generated: 2026-02-28 | Items: 18*
 
-⚠️  Opus knows the general class but not the specific protocol/version/formula detail.
+⚠️  The general class is established, but protocol, version, or formula details require focused review.
 
 - [ ] **`block.basefee` returns L1 basefee on Arbitrum**: Use `ArbGasInfo.getL1BaseFeeEstimate()` for L1 fees, and `ArbGasInfo` precompile methods for L2 gas prices. Look for: `block.basefee` used for gas calculations on Arbitrum. [multichain-auditor]
 
@@ -39,4 +39,3 @@
 - [ ] **`block.number` on Arbitrum returns L1 block number, not L2**: The L1 block number updates approximately every minute (~5 block jumps). Short-term timing based on `block.number` is unreliable. For L2 block numbers, use `ArbSys(100).arbBlockNumber()`. Look for: `block.number` used for short-term timing on Arbitrum. [Arbitrum Checklist]
 
 - [ ] **zkSync ERA has fundamentally different opcode behavior**: CREATE, CREATE2, CALL, STATICCALL, DELEGATECALL, MSTORE, MLOAD, CALLDATALOAD, CALLDATACOPY all behave differently on zkSync. Direct EVM contract deployment often fails. Look for: contracts deployed to zkSync without ERA-specific adaptation. [multichain-auditor, beirao MC-11]
-

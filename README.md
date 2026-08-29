@@ -6,7 +6,7 @@
 
 Each skill is a dense, sourced checklist of **non-obvious** security vulnerabilities for a specific domain. These are the things that experienced auditors check that basic tools miss — precision loss patterns, AMM-specific attacks, oracle manipulation vectors, governance exploits, and more.
 
-**~3,600 lines of checklist content and 1,004 individual checks across the 19 domain skills plus the master index.**
+**~3,000 lines of checklist content and 876 individual checks across the 19 domain skills plus the master index.**
 
 ---
 
@@ -42,7 +42,7 @@ The table distinguishes repositories whose checklist content was merged from rep
 | Repository | Relationship to this suite | Scope / revision |
 |---|---|---|
 | [austintgriffith/evm-audit-skills](https://github.com/austintgriffith/evm-audit-skills) | Base repository / current fork parent | Original 20-skill structure and initial checklists |
-| [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills) | Merged and adapted | 166 deduplicated `SAS-AV` checks; commit `b864c2ee3b2f63c4361a5064084ce1e99dcf7444`; MIT |
+| [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills) | Merged and adapted | 166 source-level deduplicated `SAS-AV` checks; commit `b864c2ee3b2f63c4361a5064084ce1e99dcf7444`; MIT |
 | [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite) | Merged and adapted | 177 EVM checks; commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`; MIT |
 | [auditmos/skills](https://github.com/auditmos/skills) | Merged and adapted | 116 attack-vector patterns; commit `c9583babb0ce189d9f39a05caf94b5a5da655010`; MIT |
 | [devdacian/ai-auditor-primers](https://github.com/devdacian/ai-auditor-primers) | Reference only | Primer patterns cross-referenced and integrated selectively; no full repository copied |
@@ -55,25 +55,40 @@ The table distinguishes repositories whose checklist content was merged from rep
 
 The three rows marked “Merged and adapted” represent external repository content incorporated into the runtime checklists; the base row records the original lineage. The SolidityGuard comparison used commit `35645e8ba76cdacbeec40f347c758de2077e2ecd`; resulting gap checks were independently written from public EIP, SWC, and ERC-4337 references.
 
+External source integration is deduplicated at the provenance level. Runtime checklist entries have also been semantically deduplicated for unambiguous same-file duplicates; cross-domain candidates remain tracked for explicit human adjudication in [`evm-audit-master/references/checklist-semantic-dedup-review.md`](evm-audit-master/references/checklist-semantic-dedup-review.md). The 19 routed checklist files remain the runtime source of truth.
+
 ---
 
-## How To Use (OpenClaw)
+## How To Use
 
 ### Run an audit
 
-Just hand the agent a contract:
+Just provide the workflow with a contract:
 
 ```
 audit this contract and file issues: https://github.com/owner/repo/blob/main/contracts/MyContract.sol
 ```
 
-The agent will:
+The workflow will:
 1. Load `evm-audit-master` → read the contract → select relevant skills
 2. Each selected domain skill walks its checklist, including the merged SAS-AV, DROZER, and AUDITMOS vectors
-3. Spawn parallel opus sub-agents, one per skill domain
-4. Each agent reviews every checklist item and writes a per-check review ledger with one terminal status
+3. Apply the runtime-neutral execution policy below to create one domain review per selected skill
+4. Each domain review examines every checklist item and writes a per-check review ledger with one terminal status
 5. Synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md`
 6. File GitHub issues only for confirmed Medium+ findings
+
+### Runtime-neutral execution
+
+If the runtime supports sub-agents:
+
+- Parallelize independent domain reviews.
+- Respect the runtime's concurrency limits.
+- Reuse the reconnaissance/source context; do not duplicate source ingestion.
+- Use the strongest appropriate available reasoning model.
+
+If sub-agents are unavailable:
+
+- Execute domains sequentially.
 
 ### The audit pipeline
 
@@ -84,10 +99,10 @@ Contract URL/path
   RECON (select 5-8 skills from routing table)
       │
       ▼
-  PARALLEL AGENTS (one per skill, all run simultaneously)
-  ├── agent: evm-audit-general     → review-general.md
-  ├── agent: evm-audit-precision-math → review-precision-math.md
-  ├── agent: evm-audit-defi-amm   → review-defi-amm.md
+  DOMAIN REVIEWS (parallel when supported; sequential otherwise)
+  ├── evm-audit-general     → review-general.md
+  ├── evm-audit-precision-math → review-precision-math.md
+  ├── evm-audit-defi-amm   → review-defi-amm.md
   └── ...
       │
       ▼

@@ -12,7 +12,7 @@
 
 - [ ] **Proposal execution front-running**: After a proposal passes and the timelock expires, the execution transaction is public. An attacker can front-run execution with a transaction that changes state to make the proposal harmful. Look for: proposals that depend on specific protocol state at execution time. [beirao GOV-02]
 
-- [ ] **CREATE2 + proposal hash collision**: An attacker proposes executing code from a CREATE2-deployed contract. Before execution, they `selfdestruct` and redeploy different code at the same address. The proposal's target address is the same, but the code is malicious. Look for: proposals targeting CREATE2-deployed contracts or contracts with `selfdestruct`. [SigmaPrime governance]
+- [ ] **Fake proposals via CREATE/CREATE2 contract substitution**: An attacker can submit a benign proposal target, obtain approval, then deploy or redeploy different code at the same address before execution. Verify proposal bytecode/target identity at execution or restrict mutable deployment patterns. Look for: proposals targeting CREATE2-deployed contracts, contracts with `selfdestruct`, or unverified CREATE targets. [SigmaPrime governance, Sigma Prime — Governance & DAOs, Tornado Cash]
 
 - [ ] **Proposal with block number deadline + different L2 block times**: Block numbers vary wildly across chains. A proposal with `endBlock = currentBlock + 40_320` (7 days on mainnet) lasts only ~14 hours on Arbitrum. Look for: governance timeouts measured in blocks on L2s with different block times. [multichain-auditor]
 
@@ -101,8 +101,6 @@
 ## Sigma Prime — Governance & DAO Vulnerabilities (Phase 3)
 
 - [ ] **Proposal execution order not enforced in multi-step proposals**: If anyone can trigger proposal execution and individual steps can be executed separately, attacker can include the market-opening tx but skip the safety-initialization tx, then exploit the empty market. Package multi-step proposals into one Multicall. [Source: Sigma Prime — Governance & DAOs, Sonne Finance]
-
-- [ ] **Fake proposals via CREATE/CREATE2 contract substitution**: Attacker submits seemingly harmless proposal contract, which is approved by voters. Before execution, attacker self-destructs the contract and deploys a malicious one at the same address via CREATE2 (same salt). Fix: enforce proposals from EOAs or verify bytecode hash. [Source: Sigma Prime — Governance & DAOs, Tornado Cash]
 
 - [ ] **Multi-sig quorum failure from unresponsive signers**: If multi-sig signers become unavailable (arrested, lost keys, hostile), the DAO becomes permanently unable to execute operations. Have backup slow-path governance via token voting. [Source: Sigma Prime — Governance & DAOs, Swerve Finance]
 

@@ -1,8 +1,8 @@
-# evm-audit-chain-specific — KNOWN (Opus Already Knows)
+# evm-audit-chain-specific — KNOWN
 
 *Generated: 2026-02-28 | Items: 19*
 
-ℹ️  Opus explains these deeply from training. Lowest priority for skill inclusion.
+ℹ️  Established audit patterns. Lowest priority for supplemental skill inclusion.
 
 - [ ] **`block.number` returns L1 block number**: On Arbitrum, `block.number` returns the approximate L1 block number, NOT the L2 block number. Use `ArbSys(0x64).arbBlockNumber()` for L2 block number. Time-based logic using `block.number` will have ~1000x lower resolution than expected. Look for: `block.number` used for timing, deadlines, or block-frequency calculations on Arbitrum. [multichain-auditor, beirao ARB-01]
 
@@ -41,4 +41,3 @@
 - [ ] **Hardcoded WETH/token addresses invalid across chains**: WETH is 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 on Ethereum but 0x7ceb23fd6bc0add59e62ac25578270cff1b9f619 on Polygon. Look for: any hardcoded contract address that's assumed same across chains. [multichain-auditor]
 
 - [ ] **Precompile addresses differ across chains**: Precompiled contracts exist at different addresses on Arbitrum, Optimism, and other L2s. Using a precompile address from one chain on another may call empty addresses or different contracts. Look for: hardcoded precompile addresses in multichain deployments. [multichain-auditor]
-

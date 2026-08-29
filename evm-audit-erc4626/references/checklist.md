@@ -36,7 +36,7 @@
 
 ## Share Price Manipulation
 
-- [ ] **Direct token transfer inflates share price**: If vault uses `balanceOf(address(this))` for `totalAssets`, direct transfers manipulate conversion rate. Must track assets internally with deposit/withdraw accounting. Look for: `totalAssets()` implementations using raw `balanceOf`. [ERC4626 checklist SP3, beirao V-02]
+- [ ] **Direct token transfer inflates share price**: If a vault uses `balanceOf(address(this))` for `totalAssets`, a direct transfer increases assets without minting shares and manipulates the conversion rate. Track assets through explicit accounting or otherwise neutralize unsolicited transfers. Look for: `totalAssets()` implementations using raw `balanceOf` without handling direct donations. [ERC4626 checklist SP3, M4, beirao V-01, V-02]
 
 - [ ] **Pessimistic `totalAssets` accounting**: `totalAssets` should be pessimistically calculated — don't count unrealized gains or pending yields until they're confirmed. [ERC4626 checklist SP1]
 
@@ -83,31 +83,13 @@
 
 ## ERC4626 Standard Compliance (Expanded from Solthodox Checklist)
 
-- [ ] **`convertToAssets`/`convertToShares` must NOT vary by caller**: These are informational functions that MUST return the same value regardless of who calls them. If they include caller-specific fees or balances, they violate the spec and break composability. Look for: `msg.sender` references inside `convertToAssets`/`convertToShares`. [ERC4626 Checklist SC9]
-
-- [ ] **`convertToAssets`/`convertToShares` must NOT include slippage**: These functions should return the ideal/theoretical conversion, not the practical amount after slippage. Slippage is only included in `previewDeposit`/`previewWithdraw`. Look for: slippage calculations in `convertTo*` functions. [ERC4626 Checklist SC10]
-
-- [ ] **`previewDeposit` must round DOWN, `previewMint` must round UP**: `previewDeposit` returns fewer-or-equal shares than actual deposit mints. `previewMint` returns more-or-equal assets than actual mint costs. Wrong rounding direction allows extracting value. Look for: inconsistent rounding in preview functions. [ERC4626 Checklist SC26, SC27]
-
-- [ ] **`previewWithdraw` must round UP, `previewRedeem` must round DOWN**: `previewWithdraw` shows more-or-equal shares burned than actual. `previewRedeem` shows fewer-or-equal assets received than actual. Look for: rounding direction that favors the user over the protocol. [ERC4626 Checklist SC40, SC41]
-
-- [ ] **`maxDeposit`/`maxMint` must return 0 when deposits disabled, never revert**: These functions must never revert and must return 0 when deposits are paused/disabled. Look for: `maxDeposit` that reverts or returns non-zero when deposits are disabled. [ERC4626 Checklist SC15, SC18]
-
-- [ ] **`totalAssets` must include yield AND external fees**: The `totalAssets()` function must account for all assets managed by the vault including accrued yield and externally charged fees. Failing to include these causes share price to be stale. Look for: `totalAssets()` that only returns deposited principal without accrued yield. [ERC4626 Checklist SC5, SC6]
+All checks from this source section are covered by the canonical ERC4626 compliance entries above; this section adds no separate runtime rows.
 
 ## ERC4626 Math & Token Edge Cases (Expanded)
 
 - [ ] **Inverse fee calculation when converting assets↔shares**: If the vault charges a deposit fee, converting from assets→shares and shares→assets requires using the inverse of the fee. `shares = assets * (1 - fee) / pricePerShare` but `assets = shares * pricePerShare / (1 - fee)`. Getting the inverse wrong means deposit/withdraw don't round-trip correctly. Look for: fee logic that doesn't properly invert between deposit and withdraw paths. [ERC4626 Checklist M5]
 
-- [ ] **Direct token transfer can inflate share price**: Sending tokens directly to the vault (not through deposit) increases `totalAssets` without minting shares, inflating the share price. This can be weaponized for first-depositor attacks or to manipulate vault-based pricing. Look for: vaults using `balanceOf(address(this))` in `totalAssets()` without tracking deposits. [ERC4626 Checklist M4, beirao V-01, V-02]
-
-- [ ] **Vault with 1 wei remaining**: If almost all assets are withdrawn leaving 1 wei, the share price may become extremely low or extremely high depending on implementation. This can cause precision issues for new depositors. Look for: edge case testing with near-zero vault balances. [beirao V-06]
-
-- [ ] **Vault with zero shares but non-zero assets (or vice versa)**: If all shares are burned but some assets remain (or vice versa), the vault enters an inconsistent state. Look for: edge cases where `totalSupply == 0` but `totalAssets > 0`. [ERC4626 Checklist M7]
-
 - [ ] **ERC4626 external swap slippage in withdrawals**: If vault strategies require swaps to liquidate positions for withdrawals, high slippage means users get fewer assets than expected. Vaults should have TVL limits so liquidation slippage stays manageable. Look for: vaults with illiquid strategies that don't cap deposits based on liquidation capacity. [ERC4626 Checklist E5, E6]
-
-- [ ] **Inherited ERC4626 with overridden functions must override ALL dependent functions**: If you inherit from OZ's ERC4626 and modify deposit logic, you may also need to override `previewDeposit`, `maxDeposit`, `convertToShares`, etc. Missing overrides causes inconsistency. Look for: ERC4626 subclasses that override some but not all related functions. [ERC4626 Checklist IC1]
 
 ## Supplemental Attack Vectors (SAS-AV)
 

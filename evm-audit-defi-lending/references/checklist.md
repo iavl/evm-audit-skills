@@ -20,14 +20,13 @@
 
 - [ ] **Liquidator receives less than expected**: If liquidation uses a swap to convert collateral, slippage during the swap may make the liquidation unprofitable. Look for: swap-based liquidation without slippage protection. [beirao LEN-05]
 
-- [ ] **Cannot repay loan = permanent bad debt**: If the repayment function has a bug or dependency that can fail, the loan can never be closed. Look for: repay functions with external dependencies that could revert. [Decurity CDP]
+- [ ] **Cannot repay loan = permanent bad debt**: If `repay()` can enter a state where it always reverts — for example because a required token or dependency is paused, a repayment condition is impossible, interest overflows, or accounting contains a logic error — the borrower cannot close the loan and the lender may never be repaid. Look for: repay functions with external dependencies or state-dependent conditions that can permanently block repayment. [Decurity CDP, Dacian — Lending/Borrowing DeFi Attacks]
 
 - [ ] **[AUDITMOS-LIQUIDATION-6] No partial liquidation for whale positions**: If positions can exceed one liquidator's capital or transaction capacity and only full closure is supported, large underwater positions may remain unliquidated and accumulate bad debt. Look for: full-close-only liquidation with no bounded partial amount, batching, or other path for large positions. [Source: Auditmos `audit-liquidation`, pattern #6](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-liquidation/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
 
-- [ ] **Single borrower can't be liquidated**: Some implementations skip liquidation when `borrowerCount == 1`. During protocol sunsetting, the last borrower is immune to liquidation. Look for: liquidation loops with `count > 1` conditions. [ERC4626 primer pattern #18]
+- [ ] **Single borrower can't be liquidated**: Some implementations skip liquidation when `borrowerCount == 1`, leaving the last borrower immune during protocol sunsetting or single-position cleanup. Look for: liquidation loops and terminal-position branches with `count > 1` or equivalent conditions. [ERC4626 primer pattern #18, Dacian — DeFi Liquidation Vulnerabilities, Cyfrin Bima]
 
-- [ ] **Liquidation before grace period**: After repayments resume (post-pause), borrowers need a grace period to repay. Liquidating immediately is unfair. Look for: post-unpause liquidation without delay. [ERC4626 primer]
-
+- [ ] **Liquidation before grace period**: After repayments resume following a pause, borrowers need a grace period to repay; immediately liquidating positions that became unhealthy during the pause is unfair and MEV-sensitive. Look for: post-unpause liquidation without a pause-duration-based or otherwise enforced delay. [ERC4626 primer, Dacian — Lending/Borrowing DeFi Attacks]
 
 - [ ] **[AUDITMOS-LENDING-9] Forced loan assignment without lender consent**: `buyLoan()` or equivalent transfer paths must not let an actor assign a loan to an unwilling lender. Look for: loan ownership transfers that omit lender consent, a lender whitelist, or an equivalent acceptance rule. [Source: Auditmos `audit-lending`, pattern #9](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-lending/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
 
@@ -39,36 +38,35 @@
 
 - [ ] **Incomplete or too-short auction launch**: Missing input validation when starting an auction can create auctions in invalid states; accepting a near-zero duration can enable immediate seizure without competitive bidding. Look for: auction start functions without parameter bounds or an enforced minimum duration. [Decurity CDP]
 
-- [ ] **Partial collateral auction math**: When only a portion of collateral is auctioned, the math for splitting must be exact. Rounding errors can leave dust or under-collateralize the remaining position. Look for: arithmetic in partial liquidation functions. [Decurity CDP]
+- [ ] **Partial collateral auction math**: When only a portion of collateral is auctioned, the split and the remaining collateral-to-debt ratio must be exact. Rounding errors can leave dust, overvalue the remainder, or under-collateralize the remaining position. Look for: partial liquidation and auction functions that do not recompute the remaining position's health. [Decurity CDP]
 
-- [ ] **Interrupted bid funds not returned**: If a bidder is outbid, their funds must be returned. If the auction creator cancels, the last bidder's funds must be returned. Look for: bid escrow that doesn't handle all cancellation/interruption paths. [Decurity CDP]
+- [ ] **Interrupted bid funds not returned**: If a bidder is outbid, a debtor repays, or an auction is cancelled/prematurely closed, every affected bidder's escrow must be returned exactly once. Look for: bid escrow that does not track and refund all higher-bid, repayment, cancellation, and interruption paths. [Decurity CDP]
 
 ## CDP-Specific
 
-- [ ] **Closed vault storage not cleaned**: When a CDP is closed (debt repaid), if the storage entry isn't erased, code that checks existence may behave incorrectly. Look for: state reads on potentially-deleted vault entries. [Decurity CDP]
+- [ ] **Closed vault storage not cleaned**: When a CDP is closed after debt repayment, stale storage fields or nested mapping data can make later reads treat the vault as active or reuse old collateral/debt. Look for: close functions that do not clear the storage struct/mapping entry and subsequent paths that do not enforce an explicit existence flag. [Decurity CDP]
 
 - [ ] **Pool value calculation with fee split**: If borrower fees split between lender and pool, verify both calculations sum correctly and neither path rounds in the wrong direction. Look for: fee distribution math with multiple recipients. [Decurity CDP]
 
-- [ ] **Stablecoin arbitrage via different collateral types**: If a CDP accepts multiple stablecoins as equivalent (1:1), an attacker can deposit the depegged stablecoin and borrow against it at full value. Look for: stablecoin collateral without independent price feeds. [Decurity CDP]
+- [ ] **Stablecoin collateral arbitrage across assets**: If a CDP treats multiple stablecoins as equivalent at 1:1, an attacker can deposit a depegged stablecoin, swap collateral types, or borrow against it at full value. Look for: stablecoin collateral and cross-asset withdrawals without independent prices or depeg checks. [Decurity CDP]
 
 - [ ] **Health ratio checked AFTER safeTransferFrom**: ERC721 `safeTransferFrom` calls `onERC721Received` callback before the health ratio check. An attacker can reenter during the callback when the health ratio is invalid. Look for: health factor checks after `safeTransferFrom` or `_safeMint`. [Decurity CDP]
 
-- [ ] **Interest rate calculated before or after close/liquidation**: Wrong ordering = user pays too much or too little interest. Look for: interest accrual timing relative to vault close/liquidation. [Decurity CDP]
+- [ ] **Interest accrual ordering around close and liquidation**: Interest must be accrued at the intended point before debt settlement, health checks, liquidation, or vault closure. Wrong ordering can use stale debt, charge too much or too little interest, or create a timing window between the check and execution. Look for: close/liquidation paths whose accrual timing differs from the protocol's stated accounting model. [Decurity CDP]
 
 ## AAVE/Compound Integration
 
-- [ ] **High utilization blocks withdrawal**: At 100% utilization rate, lenders can't withdraw their deposits. The protocol should handle this gracefully rather than reverting. Look for: withdrawal functions that assume utilization < 100%. [beirao AC-01]
+- [ ] **High utilization blocks withdrawal**: At 100% utilization rate, lenders can't withdraw their deposits. The protocol should handle this gracefully rather than reverting. Look for: integrations that assume utilization is below 100% or do not handle an external pool's unavailable liquidity. [beirao AC-01]
 
-
-- [ ] **AAVE siloed assets prevent all other borrows**: Borrowing a siloed asset on AAVE prohibits borrowing ANY other asset. If the protocol doesn't check `getSiloedBorrowing()`, a user's position can be locked. Look for: AAVE borrow functions without siloed asset checks. [beirao AC-08]
+- [ ] **AAVE siloed asset prohibition**: Borrowing a siloed asset on AAVE prohibits borrowing ANY other asset. If an integration auto-selects or fails to check `getSiloedBorrowing()`, subsequent borrow operations fail and can lock a position. Look for: AAVE borrow paths without siloed-asset checks. [beirao AC-08]
 
 - [ ] **AAVE flashloans inflate pool index**: Each AAVE flashloan slightly inflates the pool index. Max 180 flashloans per block. This can be used to manipulate lending rates. Look for: rate-sensitive logic that doesn't account for flashloan-induced index inflation. [beirao AC-05]
 
-- [ ] **Max debt on isolated assets = DoS**: On AAVE, when the debt ceiling for an isolated asset is reached, all new borrows revert. An attacker can fill the ceiling to DoS other users. Look for: borrow functions against AAVE isolated markets without ceiling checks. [beirao AC-09]
+- [ ] **AAVE isolated-asset debt cap can block borrowing**: On AAVE, when the debt ceiling for an isolated asset is reached, all new borrows revert. An attacker can fill the ceiling to DoS other users. Look for: borrow paths against AAVE isolated markets without checking remaining capacity. [beirao AC-09]
 
-- [ ] **Protocol pause blocks everything**: If AAVE/Compound is paused, all integrated protocol operations that touch the lending market will revert. Look for: external calls to lending markets without try/catch or fallback logic. [beirao AC-02]
+- [ ] **Paused AAVE/Compound market blocks integration**: If the integrated market is paused, deposit, withdrawal, borrow, and repayment calls can all revert. The wrapper needs an explicit fallback or user-safe handling path. Look for: external lending calls without pause-aware behavior. [beirao AC-02]
 
-- [ ] **Deprecated pool still holds funds**: If a lending pool is deprecated, existing positions may be stuck. Look for: integration code that doesn't handle pool deprecation. [beirao AC-03]
+- [ ] **Deprecated AAVE/Compound pool can strand funds**: A deprecated pool may change behavior or stop supporting operations while positions remain. Look for: long-lived integrations that do not monitor pool status or provide migration and withdrawal handling. [beirao AC-03]
 
 - [ ] **eMode category interactions**: If the protocol's assets are in the same eMode category on AAVE, liquidation parameters are different. Look for: eMode-specific LTV/threshold values not accounted for. [beirao AC-04]
 
@@ -97,37 +95,11 @@
 
 ## CDP Specific (Expanded from Decurity)
 
-- [ ] **Closed CDP storage not erased**: When a user repays all debt and closes their CDP/vault, if the storage entry isn't erased, stale data may be used by other code paths that don't check for vault existence. Look for: vault closure functions that don't delete the storage struct or mapping entry. [Decurity CDP]
-
-- [ ] **Impossible debt repayment condition**: Edge cases where a user CANNOT repay their loan — e.g., repayment requires a token that's paused, or interest has accrued to exceed uint256, or the repayment function has a logic error that reverts. Look for: repay functions with conditions that could become impossible to satisfy. [Decurity CDP]
-
-- [ ] **Stablecoin arbitrage via collateral swapping**: If a CDP allows depositing one stablecoin and withdrawing a different one at 1:1, an attacker can arbitrage any depeg. Look for: CDPs that treat all stablecoins as equal value without checking their actual price. [Decurity CDP]
-
-- [ ] **LP token collateral pricing via `pool.getReserves()` is manipulable**: Pricing LP tokens using reserve ratios is vulnerable to flash loan manipulation. Correct approach uses fair LP pricing formulas. Look for: `pair.getReserves()` used in collateral valuation for Uniswap LP positions. [Decurity CDP]
-
-- [ ] **Different Uniswap fee tiers for same pair**: Multiple pools exist for the same token pair (0.01%, 0.05%, 0.3%, 1%). If a protocol doesn't specify which pool, it may interact with the wrong one. Look for: LP collateral handling that doesn't distinguish fee tiers. [Decurity CDP]
-
-- [ ] **Earn token depeg risk**: Wrapped tokens pegged to an asset (renBTC, cbETH) may depeg. If the protocol prices them 1:1 with the underlying, a depeg means the collateral is worth less than assumed. Look for: `1:1` price assumptions for wrapped/pegged tokens. [Decurity CDP]
-
-- [ ] **Interest rate calculation timing — before or after liquidation**: If interest is calculated AFTER liquidation, the liquidation uses stale interest data. If BEFORE, the liquidation uses current but the vault may accrue interest between check and execution. Look for: interest accrual timing relative to liquidation execution. [Decurity CDP]
-
-- [ ] **Auction math when partial collateral is auctioned**: If only part of a vault's collateral goes to auction, the remaining collateral-to-debt ratio must be recalculated correctly. Common bug: remaining collateral is overvalued or remaining debt is undervalued. Look for: partial liquidation functions that don't recompute the remaining position's health. [Decurity CDP]
-
-- [ ] **Interrupted auction bid refunds**: If an auction is interrupted (debtor repays, higher bid, premature close), the previous bidder's funds must be returned. Look for: auction mechanisms where bid deposits aren't tracked and refunded on interruption. [Decurity CDP]
+All checks from this source section are covered by the canonical CDP entries above; this section adds no separate runtime rows.
 
 ## Lending Integration (AAVE/Compound - from Beirao)
 
-- [ ] **Utilization rate too high — collateral can't be retrieved**: If AAVE/Compound pool utilization approaches 100%, withdrawals revert because there's not enough idle liquidity. Protocols built on top that need to withdraw collateral will fail. Look for: protocols wrapping AAVE/Compound positions that don't handle high-utilization scenarios. [beirao AC-01]
-
-- [ ] **AAVE siloed asset prohibition**: Borrowing an AAVE siloed asset prohibits borrowing ANY other asset. If a protocol borrows a siloed asset without knowing, all subsequent borrow operations fail. Look for: protocols that auto-select borrow assets on AAVE without checking `getSiloedBorrowing()`. [beirao AC-08]
-
-- [ ] **AAVE isolated asset max debt cap**: On AAVE isolated assets, there's a maximum total debt. If the cap is reached, no one can borrow more — potential DoS for protocols relying on borrowing that asset. Look for: protocols that borrow isolated assets without checking remaining capacity. [beirao AC-09]
-
 - [ ] **cETH has no `underlying()` function**: Compound's cETH token doesn't implement `underlying()` (since its underlying is native ETH). Code that calls `cToken.underlying()` generically will revert on cETH. Look for: generic Compound integrations that call `underlying()` on all cTokens. [beirao AC-07]
-
-- [ ] **Paused AAVE/Compound markets**: If the integrated market is paused, deposit/withdraw/borrow/repay all fail. Protocol built on top needs fallback behavior. Look for: AAVE/Compound wrappers without handling for paused markets. [beirao AC-02]
-
-- [ ] **Deprecated AAVE pools**: Pools can be deprecated, changing behavior. Look for: long-lived protocol integrations that don't monitor pool status. [beirao AC-03]
 
 ---
 
@@ -142,8 +114,6 @@
 - [ ] **Debt closed without repayment via non-existent ID decrement**: If `close(id)` doesn't validate that `id` exists in the credits mapping, calling with non-existent IDs still decrements the loan `count` variable. Repeatedly calling with bogus IDs gets `count == 0`, marking the loan as fully repaid. [Source: Dacian — Lending/Borrowing DeFi Attacks, Code4rena DebtDAO]
 
 - [ ] **Token disallow stops existing loan repayment but not liquidation**: If `repay()` has `onlyWhitelistedToken` modifier but `liquidate()` doesn't, disallowing a previously-allowed token creates an asymmetric state where borrowers can't repay but can be liquidated. Token disallow should only affect new loans. [Source: Dacian — Lending/Borrowing DeFi Attacks, Sherlock Blueberry Update 1]
-
-- [ ] **No grace period after repayment resumption**: When repayments are unpaused, borrowers who became liquidatable during the pause are instantly liquidated by MEV bots. Grace period equal to pause duration (capped at max hours) should be implemented. [Source: Dacian — Lending/Borrowing DeFi Attacks, Sherlock Blueberry]
 
 - [ ] **Liquidator takes all collateral by repaying smallest debt position**: If liquidation share calculation uses `share / oldShare` from a single position rather than total debt across all positions, a liquidator can drain all collateral by repaying only the smallest debt tranche. [Source: Dacian — Lending/Borrowing DeFi Attacks, Sherlock Blueberry]
 
@@ -188,8 +158,6 @@
 - [ ] **Zero-value transfer reverts block liquidation**: If liquidation code calculates small fee/reward amounts that round to zero, and the token reverts on zero-value transfers, liquidation is blocked. [Source: Dacian — DeFi Liquidation Vulnerabilities]
 
 - [ ] **Token deny list (USDC blacklist) blocks liquidation via push mechanism**: If liquidation sends tokens to addresses on a deny list (e.g., USDC blacklist), the transfer reverts, making liquidation impossible. Fix: use pull-based claims. [Source: Dacian — DeFi Liquidation Vulnerabilities]
-
-- [ ] **Single-borrower liquidation edge case**: Some protocols have `while (troveCount > 1)` in liquidation logic, preventing the last remaining borrower from ever being liquidated. [Source: Dacian — DeFi Liquidation Vulnerabilities, Cyfrin Bima]
 
 - [ ] **Liquidation reward calculated using wrong token decimals**: If reward is paid in 18-decimal collateral but calculated using 6-decimal debt position value, the reward shrinks by 12 orders of magnitude, removing all liquidation incentive. [Source: Dacian — DeFi Liquidation Vulnerabilities, Code4rena Size]
 

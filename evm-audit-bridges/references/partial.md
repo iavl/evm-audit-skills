@@ -1,8 +1,8 @@
-# evm-audit-bridges — PARTIAL (Opus Knows Concept, Not Specifics)
+# evm-audit-bridges — PARTIAL
 
 *Generated: 2026-02-28 | Items: 18*
 
-⚠️  Opus knows the general class but not the specific protocol/version/formula detail.
+⚠️  The general class is established, but protocol, version, or formula details require focused review.
 
 - [ ] **Gas limit and msg.value from options are NOT enforced on-chain**: The options metadata is an off-chain agreement with the Executor. ANYONE can call `lzReceive` with different gas/value than specified in options. Look for: receiving contracts that assume msg.value or gas matches what was specified on sending side. Fix: encode expected values in the message payload and check on receive. [LayerZeroV2 checklist]
 
@@ -39,4 +39,3 @@
 - [ ] **Out-of-order retryable ticket execution**: If multiple retryable tickets are created in one L1 tx, they may execute in different order on L2. If gas price spikes and auto-redemption fails, anyone can manually redeem tickets in any order. Look for: L1 contracts that create multiple retryable tickets with ordering dependencies. [Arbitrum Checklist]
 
 - [ ] **`unsafeCreateRetryableTicket` doesn't alias refund addresses**: The unsafe version doesn't apply aliasing to `excessFeeRefundAddress` and `callValueRefundAddress`. If these are L1 contract addresses, the L2 contract at the same address may not control the refunded funds. Look for: usage of `unsafeCreateRetryableTicket` with L1 contract addresses as refund recipients. [Arbitrum Checklist]
-

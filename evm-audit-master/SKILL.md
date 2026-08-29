@@ -17,31 +17,31 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 | # | Skill | Description | Items |
 |---|-------|-------------|-------|
 | 1 | **evm-audit-master** | This file. Routing table, methodology, source attribution. Load first. | — |
-| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID/array validation, Unicode source review, inheritance semantics, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 118 |
-| 3 | **evm-audit-precision-math** | Division-before-multiplication, rounding to zero, precision scaling mismatches, downcast overflow, rounding direction (protocol vs user), decimal assumption errors | 42 |
-| 4 | **evm-audit-erc20** | Fee-on-transfer, rebasing, ERC777 hooks, approve race conditions, zero-transfer reverts, pausable tokens, deny lists (USDC), deflationary/inflationary tokens, multiple-address tokens | 42 |
-| 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, wrong slippage bases and token-vs-value bounds, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 84 |
-| 6 | **evm-audit-defi-lending** | Auction and liquidation vulnerabilities (self-bidding, incentives, bad debt, partial liquidation, reward ordering), lending/borrowing attacks, oracle-manipulation economics, liquidity/cap/LTV stress modeling, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 104 |
-| 7 | **evm-audit-defi-staking** | Liquid staking, restaking, EigenLayer integration, stakedButUnverified accounting, Beacon Chain proof verification (Deneb), validator front-running, cooldown exploitation, reward calculation precision | 69 |
-| 8 | **evm-audit-erc4626** | Share/asset conversion, inflation attack, virtual shares, deposit/withdraw rounding, first depositor attack, multi-step operations, 85+ patterns from Dacian's ERC4626 primer | 68 |
+| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID/array validation, Unicode source review, inheritance semantics, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 108 |
+| 3 | **evm-audit-precision-math** | Division-before-multiplication, rounding to zero, precision scaling mismatches, downcast overflow, rounding direction (protocol vs user), decimal assumption errors | 36 |
+| 4 | **evm-audit-erc20** | Fee-on-transfer, rebasing, ERC777 hooks, approve race conditions, zero-transfer reverts, pausable tokens, deny lists (USDC), deflationary/inflationary tokens, multiple-address tokens | 40 |
+| 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, wrong slippage bases and token-vs-value bounds, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 66 |
+| 6 | **evm-audit-defi-lending** | Auction and liquidation vulnerabilities (self-bidding, incentives, bad debt, partial liquidation, reward ordering), lending/borrowing attacks, oracle-manipulation economics, liquidity/cap/LTV stress modeling, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 88 |
+| 7 | **evm-audit-defi-staking** | Liquid staking, restaking, EigenLayer integration, stakedButUnverified accounting, Beacon Chain proof verification (Deneb), validator front-running, cooldown exploitation, reward calculation precision | 57 |
+| 8 | **evm-audit-erc4626** | Share/asset conversion, inflation attack, virtual shares, deposit/withdraw rounding, first depositor attack, multi-step operations, 85+ patterns from Dacian's ERC4626 primer | 58 |
 | 9 | **evm-audit-erc4337** | Account abstraction, smart wallet security, UserOperation hash integrity, bundler ordering/censorship assumptions, paymaster attacks, session key exploits, gas griefing | 40 |
-| 10 | **evm-audit-bridges** | Cross-chain bridge security, LayerZero V2, CCIP, Wormhole, Across, message replay, finality assumptions, relayer trust, adapter pattern issues | 61 |
-| 11 | **evm-audit-proxies** | UUPS deep dive (uninitialized implementation, delegatecall to selfdestruct, broken upgrade chain, authorization schema changes), Transparent proxy, Beacon, Diamond, storage collision, immutable variable loss | 42 |
-| 12 | **evm-audit-signatures** | Signature replay (missing nonce, cross-chain, missing parameter, no expiration), ecrecover return check, signature malleability, EIP-712 conformance, ECDSA library version requirements | 32 |
-| 13 | **evm-audit-governance** | DAO attacks (flash-loan + delegation bypass, voting power destruction, totalPower manipulation, snapshot staleness, quorum impossibility, treasury delegation abuse, restriction bypass, token recycling, proposal deadlines, pre-mint exploitation), proposal execution ordering, fake proposals via CREATE2, multi-sig quorum failure | 55 |
-| 14 | **evm-audit-oracles** | Chainlink integration (stale prices, L2 sequencer, per-feed heartbeats, decimal assumptions, wrong addresses, front-running, unhandled reverts, depeg detection, minAnswer/maxAnswer), predictable randomness, Sigma Prime pricing patterns | 63 |
-| 15 | **evm-audit-assembly** | Inline assembly memory corruption, user-controlled storage writes, EIP-1153 transient storage isolation, call to non-existent contracts, overflow/underflow without protection, uint128 overflow evading 256-bit detection | 48 |
-| 16 | **evm-audit-chain-specific** | L2/alt-chain quirks — Arbitrum, Optimism, zkSync, Blast, BSC, Polygon. Sequencer downtime, different opcodes, gas pricing differences, precompile availability, block time assumptions | 43 |
+| 10 | **evm-audit-bridges** | Cross-chain bridge security, LayerZero V2, CCIP, Wormhole, Across, message replay, finality assumptions, relayer trust, adapter pattern issues | 58 |
+| 11 | **evm-audit-proxies** | UUPS deep dive (uninitialized implementation, delegatecall to selfdestruct, broken upgrade chain, authorization schema changes), Transparent proxy, Beacon, Diamond, storage collision, immutable variable loss | 32 |
+| 12 | **evm-audit-signatures** | Signature replay (missing nonce, cross-chain, missing parameter, no expiration), ecrecover return check, signature malleability, EIP-712 conformance, ECDSA library version requirements | 21 |
+| 13 | **evm-audit-governance** | DAO attacks (flash-loan + delegation bypass, voting power destruction, totalPower manipulation, snapshot staleness, quorum impossibility, treasury delegation abuse, restriction bypass, token recycling, proposal deadlines, pre-mint exploitation), proposal execution ordering, fake proposals via CREATE2, multi-sig quorum failure | 54 |
+| 14 | **evm-audit-oracles** | Chainlink integration (stale prices, L2 sequencer, per-feed heartbeats, decimal assumptions, wrong addresses, front-running, unhandled reverts, depeg detection, minAnswer/maxAnswer), predictable randomness, Sigma Prime pricing patterns | 48 |
+| 15 | **evm-audit-assembly** | Inline assembly memory corruption, user-controlled storage writes, EIP-1153 transient storage isolation, call to non-existent contracts, overflow/underflow without protection, uint128 overflow evading 256-bit detection | 39 |
+| 16 | **evm-audit-chain-specific** | L2/alt-chain quirks — Arbitrum, Optimism, zkSync, Blast, BSC, Polygon. Sequencer downtime, different opcodes, gas pricing differences, precompile availability, block time assumptions | 39 |
 | 17 | **evm-audit-flashloans** | Flash loan attack patterns, oracle manipulation via flash loans, governance flash loan voting, flash mint issues, composability risks | 14 |
 | 18 | **evm-audit-erc721** | NFT-specific issues: onERC721Received callbacks, enumeration DoS, royalty enforcement, metadata manipulation, batch mint edge cases | 39 |
-| 19 | **evm-audit-dos** | Denial of service patterns: unbounded loops, block gas limit, self-destruct force-send, storage deletion costs, griefing via revert, return data bombs | 19 |
+| 19 | **evm-audit-dos** | Denial of service patterns: unbounded loops, block gas limit, self-destruct force-send, storage deletion costs, griefing via revert, return data bombs | 18 |
 | 20 | **evm-audit-access-control** | Access control patterns: missing modifiers, `tx.origin` authorization, off-chain signer/frontend trust, 2-step ownership, role-based permissions, emergency pause, time delays, admin overpowers | 21 |
 
-**Total: 1004 checklist items across 19 specialized skills + 1 master index**
+**Total: 876 checklist items across 19 specialized skills + 1 master index**
 
 ## Checklist Organization
 
-The 166 deduplicated attack vectors adapted from sanbir/solidity-auditor-skills, plus the canonical portions of the 177 EVM-relevant checks adapted from gdroz3r/drozer-lite and 116 attack-vector patterns adapted from auditmos/skills, are merged into the relevant domain checklists. Unique items retain their source identifiers, D/FP triage, and pinned source references; covered drozer-lite items are tracked in the centralized [drozer-lite provenance map](references/drozer-lite-provenance.md), and covered Auditmos patterns are tracked in the centralized [Auditmos provenance map](references/auditmos-provenance.md), without adding runtime checks. The routed `references/checklist.md` files remain the single runtime source of truth.
+The 166 attack vectors adapted from sanbir/solidity-auditor-skills, the canonical portions of the 177 EVM-relevant checks adapted from gdroz3r/drozer-lite, and the 116 attack-vector patterns adapted from auditmos/skills retain their source-level provenance. The routed `references/checklist.md` files remain the single runtime source of truth. Repository-level semantic deduplication decisions are recorded in [checklist-semantic-dedup-review.md](references/checklist-semantic-dedup-review.md); the current review has merged unambiguous same-file duplicates while cross-domain candidates remain explicitly pending human adjudication. Covered drozer-lite and Auditmos records remain in their centralized provenance maps without adding runtime checks.
 
 SolidityGuard's 104-pattern index was used only for coverage comparison at commit `35645e8ba76cdacbeec40f347c758de2077e2ecd`; its proprietary content was not copied. New gap checks are independently authored and cite public standards.
 
@@ -92,14 +92,16 @@ SolidityGuard's 104-pattern index was used only for coverage comparison at commi
 
 **Exit:** The selected skill set and the exact checklist source for each skill are recorded.
 
-### Phase 3: Spawn Parallel Sub-Agents
+### Phase 3: Execute Selected Domain Reviews
 **Entry:** Phase 2 has produced the selected skill set and checklist sources.
 
 **Actions:**
-1. **Spawn one opus sub-agent per selected skill.** Keep the existing parallel model; do not change the audit's concurrency strategy.
-2. Give each agent the full contract source, its one checklist, this master skill, and `references/check-review-contract.md`.
-3. Require each agent to write `audits/<repo>-<date>/review-<skill>.md` with exactly one review record for every checklist item. Agents must not emit unqualified findings outside the review contract.
-4. Wait for every selected agent to finish before synthesis.
+1. If the runtime supports sub-agents, create one review task per selected skill and parallelize independent domain reviews.
+2. Respect the runtime's concurrency limits. Reuse the source inventory and shared contract context captured in Phase 1; do not duplicate source ingestion. Use the strongest appropriate available reasoning model.
+3. If sub-agents are unavailable, execute one domain review at a time sequentially.
+4. Give each review access to the full contract source captured in Phase 1, its one checklist, this master skill, and `references/check-review-contract.md`; do not refetch or re-ingest the same source unless a missing-file or verification gap requires it.
+5. Require each domain review to write `audits/<repo>-<date>/review-<skill>.md` with exactly one review record for every checklist item. Reviews must not emit unqualified findings outside the review contract.
+6. Wait for every selected review to finish before synthesis.
 
 **Exit:** Every expected checklist item has one valid record with one of the four terminal statuses. Missing, duplicate, unknown, or malformed records make the audit incomplete.
 
@@ -181,9 +183,9 @@ Assign severity only after the `CONFIRMED` evidence gate passes. Never assign a 
 - `[SWC-XXX]` — Smart Contract Weakness Classification registry (superseded by EEA EthTrust)
 - `[Arbitrum docs]` — Arbitrum official documentation
 - `[Blast docs]` — Blast L2 documentation
-- `[SAS-AV]` — deduplicated attack vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills), retaining the source vector number for provenance
-- `[DROZER]` — EVM-relevant, deduplicated attack vectors adapted from [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite) at pinned commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`
-- `[AUDITMOS]` — attack-vector patterns adapted from [auditmos/skills](https://github.com/auditmos/skills) at pinned commit `c9583babb0ce189d9f39a05caf94b5a5da655010`; covered patterns are tracked in the [Auditmos provenance map](references/auditmos-provenance.md)
+- `[SAS-AV]` — source-level deduplicated attack vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills), retaining the source vector number for provenance
+- `[DROZER]` — EVM-relevant source-level deduplicated attack vectors adapted from [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite) at pinned commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`
+- `[AUDITMOS]` — source-level attack-vector patterns adapted from [auditmos/skills](https://github.com/auditmos/skills) at pinned commit `c9583babb0ce189d9f39a05caf94b5a5da655010`; covered patterns are tracked in the [Auditmos provenance map](references/auditmos-provenance.md)
 - `[EIP-1153]` — Ethereum transient storage specification used for independently authored transient-storage checks
 - `[ERC-4337]` — Account abstraction specification used for independently authored UserOperation and bundler checks
 - `[OWASP]` — OWASP Smart Contract Top 10 used for independently authored operational-boundary checks
