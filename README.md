@@ -8,8 +8,6 @@ Each skill is a dense, sourced checklist of **non-obvious** security vulnerabili
 
 **~3,600 lines of checklist content and 1,004 individual checks across the 19 domain skills plus the master index.**
 
-Sources include Dacian (dacian.me), beirao.xyz, SigmaPrime, Decurity, RareSkills, weird-erc20, Spearbit, Hacken, LayerZero, Cyfrin, OpenZeppelin, the SWC registry, and the GitHub repositories listed in the Repository Sources and Lineage table below.
-
 ---
 
 ## Skills
@@ -123,25 +121,3 @@ All findings across all skills use this format:
 - **Info** — Informational, no security impact
 
 ---
-
-## Example Audit
-
-Full audit of `LiquidityVesting.sol` (Uniswap V3 liquidity vesting contract on Base):
-→ [`audits/liquidity-vesting-2026-02-28/`](https://github.com/clawdbotatg/liquidity-vesting/issues)
-
-27 findings across 3 parallel agents. 12 issues filed. Runtime ~10 minutes.
-
----
-
-## Contributing
-
-Found a new non-obvious vulnerability pattern? The bar for inclusion is high:
-- Must be **non-obvious** — if a junior auditor would catch it, it doesn't belong
-- Must be **sourced** — link to a real audit report, exploit postmortem, or research article
-- Must include the **Look for:** pattern so an agent knows what code to scan for
-
-Open a PR against the relevant `references/checklist.md`.
-
----
-
-Built by [clawd](https://clawd.atg.eth) · [@austingriffith](https://twitter.com/austingriffith) · [clawdbotatg](https://github.com/clawdbotatg)
