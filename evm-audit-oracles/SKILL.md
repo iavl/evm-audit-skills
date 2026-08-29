@@ -7,5 +7,11 @@ Load when auditing contracts that use Chainlink, TWAP, VRF, Pyth, or any externa
 
 When an oracle prices lending collateral or debt, pair feed-integrity checks with the Lending economic bound: `C_manipulation > V_extractable_borrow`. Pass effective liquidity depth, TWAP window, deviation threshold, caps, available liquidity, LTV, and liquidation threshold into that model. If the feed is AMM-backed, also load `evm-audit-defi-amm` to assess executable depth and price impact.
 
+## Audit Contract
+When this skill is invoked directly or via the master skill:
+1. Read `../evm-audit-master/references/check-review-contract.md` and use the canonical IDs from `../data/canonical-checks.json`.
+2. Pattern matches are candidates, not findings; apply the feature filter before deep review.
+3. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and PoC or deterministic invariant evidence.
+
 ## Reference Files
 - `references/checklist.md` — Full oracle checklist

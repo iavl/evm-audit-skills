@@ -7,5 +7,11 @@ Load when auditing CDPs, lending markets, liquidation mechanisms, or AAVE/Compou
 
 For every oracle-backed collateral or debt valuation, do not stop at verifying that the feed call, decimals, and staleness checks are correct. Build the economic bound in `references/checklist.md`: `C_manipulation > V_extractable_borrow`, using liquidity depth, TWAP window, deviation threshold, borrow/supply caps, available liquidity, LTV, and liquidation threshold. Load `evm-audit-oracles` for feed behavior and `evm-audit-defi-amm` when the price source depends on AMM liquidity.
 
+## Audit Contract
+When this skill is invoked directly or via the master skill:
+1. Read `../evm-audit-master/references/check-review-contract.md` and use the canonical IDs from `../data/canonical-checks.json`.
+2. Pattern matches are candidates, not findings; apply the feature filter before deep review.
+3. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and PoC or deterministic invariant evidence.
+
 ## Reference Files
 - `references/checklist.md` — Full lending/liquidation checklist

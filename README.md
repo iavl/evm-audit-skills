@@ -4,9 +4,9 @@
 
 ## What This Is
 
-Each skill is a dense, sourced checklist of **non-obvious** security vulnerabilities for a specific domain. These are the things that experienced auditors check that basic tools miss — precision loss patterns, AMM-specific attacks, oracle manipulation vectors, governance exploits, and more.
+Each skill is a structured, sourced checklist of **non-obvious** security vulnerabilities for a specific domain. The canonical JSON registry keeps one stable attack hypothesis per root cause while generated Markdown views remain easy for audit runtimes to consume.
 
-**~3,000 lines of checklist content and 876 individual checks across the 19 domain skills plus the master index.**
+**868 canonical checks and 871 generated runtime entries across the 19 domain skills plus the master index.**
 
 ---
 
@@ -55,7 +55,7 @@ The table distinguishes repositories whose checklist content was merged from rep
 
 The three rows marked “Merged and adapted” represent external repository content incorporated into the runtime checklists; the base row records the original lineage. The SolidityGuard comparison used commit `35645e8ba76cdacbeec40f347c758de2077e2ecd`; resulting gap checks were independently written from public EIP, SWC, and ERC-4337 references.
 
-External source integration is deduplicated at the provenance level. Runtime checklist entries have also been semantically deduplicated for unambiguous same-file duplicates; cross-domain candidates remain tracked for explicit human adjudication in [`evm-audit-master/references/checklist-semantic-dedup-review.md`](evm-audit-master/references/checklist-semantic-dedup-review.md). The 19 routed checklist files remain the runtime source of truth.
+External source integration is preserved as provenance, not counted as separate attack vectors. Edit [`data/canonical-checks.json`](data/canonical-checks.json), then run `python3 scripts/generate_checklists.py` to update the 19 generated runtime views. Semantic merges require the same root cause, trigger, proof obligation, and impact; otherwise related contextual checks remain distinct.
 
 ---
 
@@ -70,12 +70,12 @@ audit this contract and file issues: https://github.com/owner/repo/blob/main/con
 ```
 
 The workflow will:
-1. Load `evm-audit-master` → read the contract → select relevant skills
-2. Each selected domain skill walks its checklist, including the merged SAS-AV, DROZER, and AUDITMOS vectors
-3. Apply the runtime-neutral execution policy below to create one domain review per selected skill
-4. Each domain review examines every checklist item and writes a per-check review ledger with one terminal status
-5. Synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md`
-6. File GitHub issues only for confirmed Medium+ findings
+1. Load `evm-audit-master` and build a source, dependency, chain, and feature map.
+2. Use the domain routing table and `data/features.json` to run the fast filter.
+3. Deep-review only selected canonical IDs, then prove candidates with a PoC or deterministic invariant.
+4. Write lightweight filtered records and full records for deep/proof stages under the review contract.
+5. Synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
+6. File GitHub issues only for confirmed Medium+ findings when explicitly in scope.
 
 ### Runtime-neutral execution
 
@@ -90,23 +90,48 @@ If sub-agents are unavailable:
 
 - Execute domains sequentially.
 
+### Canonical source and validation
+
+The editable source is [`data/canonical-checks.json`](data/canonical-checks.json).
+Feature definitions live in [`data/features.json`](data/features.json), and a
+reconnaissance feature map can be evaluated with:
+
+```bash
+python3 scripts/select_checks.py --features uses-erc20,uses-oracle --format json
+```
+
+Regenerate and validate the runtime views with:
+
+```bash
+python3 scripts/generate_checklists.py --check
+python3 scripts/validate_checklists.py --strict
+python3 -m unittest discover -s tests -v
+```
+
+Model-specific `known/partial/novel` snapshots are retained only under
+`benchmarks/model-knowledge/`; they are not runtime inputs.
+
 ### The audit pipeline
 
 ```
 Contract URL/path
       │
       ▼
-  RECON (select 5-8 skills from routing table)
+  RECON + FEATURE MAP
       │
       ▼
-  DOMAIN REVIEWS (parallel when supported; sequential otherwise)
-  ├── evm-audit-general     → review-general.md
-  ├── evm-audit-precision-math → review-precision-math.md
-  ├── evm-audit-defi-amm   → review-defi-amm.md
+  FAST FILTER (route canonical IDs)
+      │
+      ▼
+  DEEP REVIEW (parallel when supported; sequential otherwise)
+  ├── selected domain → review-<skill>.md
   └── ...
       │
       ▼
-  SYNTHESIS (validate coverage, filter CONFIRMED, deduplicate, rank)
+  PROOF (PoC / invariant) → CONFIRMED candidates
+      │
+      ▼
+  SYNTHESIS (validate coverage, deduplicate, score severity)
       │
       ▼
   AUDIT-REPORT.md + GitHub Issues
@@ -116,14 +141,15 @@ Contract URL/path
 
 ## Review Ledger and Confirmed Finding Format
 
-Each selected skill writes one review record per checklist item. The record must include applicability, code path, preconditions, exploitability, impact, PoC/invariant evidence, and exactly one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. See [`evm-audit-master/references/check-review-contract.md`](evm-audit-master/references/check-review-contract.md).
+Each routed canonical ID receives one review record. Fast-filtered items use the lightweight format; deep/proof candidates include applicability, code path, preconditions, exploitability, impact, PoC/invariant evidence, and exactly one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. See [`evm-audit-master/references/check-review-contract.md`](evm-audit-master/references/check-review-contract.md).
 
 Only `CONFIRMED` records may become findings. Confirmed findings use this format:
 
 ```
 ## [X-N] Title
 **Status**: CONFIRMED
-**Checklist reference**: `<skill>/<check-ref>`
+**Checklist reference**: `<canonical-id>`
+**Legacy/source references**: `<source IDs or aliases from canonical registry>`
 **Severity**: Critical / High / Medium / Low / Info
 **Category**: [skill name]
 **Location**: `functionName()` or file:line
@@ -137,12 +163,7 @@ Only `CONFIRMED` records may become findings. Confirmed findings use this format
 **Recommendation**: Concrete fix with code snippet.
 ```
 
-**Severity definitions:**
-- **Critical** — Direct loss of funds by a third party, no preconditions
-- **High** — Loss of funds requiring specific conditions, or permanent DoS
-- **Medium** — Degraded behavior, trust model violation, incorrect accounting
-- **Low** — Best practice violation, latent bug, no direct fund risk
-- **Info** — Informational, no security impact
+Severity is assigned only after confirmation using the dimensions and mapping in [`evm-audit-master/references/severity-scoring.md`](evm-audit-master/references/severity-scoring.md). Checklist type and confidence never determine severity.
 
 `NOT_APPLICABLE`, `REVIEWED_SAFE`, and `SUSPICIOUS` records never appear as findings in `AUDIT-REPORT.md`. If all records have terminal statuses but suspicious items remain, the report must disclose unresolved review status and must not claim the audit is clean.
 

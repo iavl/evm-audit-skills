@@ -7,14 +7,16 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 ## How To Use
 1. **Always load this skill first** for any EVM smart contract audit
 2. Read the contract(s) under audit
-3. Use the routing table below to load relevant specialized skills
+3. Build a reconnaissance feature map and use the routing table plus
+   `../data/features.json` to select relevant canonical checks
 4. Read [the per-check review contract](references/check-review-contract.md)
-5. Review every selected checklist item and assign exactly one terminal status
-6. Put only `CONFIRMED` items into the final audit report
+5. Run the `FAST_FILTER`, `DEEP_REVIEW`, and `PROOF` stages in that contract
+6. Put only `CONFIRMED` items into the final audit report and assign severity
+   during synthesis
 
 ## All 20 Skills — Definitive Index
 
-| # | Skill | Description | Items |
+| # | Skill | Description | Runtime entries |
 |---|-------|-------------|-------|
 | 1 | **evm-audit-master** | This file. Routing table, methodology, source attribution. Load first. | — |
 | 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID/array validation, Unicode source review, inheritance semantics, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 108 |
@@ -23,7 +25,7 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 | 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, wrong slippage bases and token-vs-value bounds, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 66 |
 | 6 | **evm-audit-defi-lending** | Auction and liquidation vulnerabilities (self-bidding, incentives, bad debt, partial liquidation, reward ordering), lending/borrowing attacks, oracle-manipulation economics, liquidity/cap/LTV stress modeling, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 88 |
 | 7 | **evm-audit-defi-staking** | Liquid staking, restaking, EigenLayer integration, stakedButUnverified accounting, Beacon Chain proof verification (Deneb), validator front-running, cooldown exploitation, reward calculation precision | 57 |
-| 8 | **evm-audit-erc4626** | Share/asset conversion, inflation attack, virtual shares, deposit/withdraw rounding, first depositor attack, multi-step operations, 85+ patterns from Dacian's ERC4626 primer | 58 |
+| 8 | **evm-audit-erc4626** | Share/asset conversion, inflation attack, virtual shares, deposit/withdraw rounding, first depositor attack, multi-step operations, 85+ patterns from Dacian's ERC4626 primer | 53 |
 | 9 | **evm-audit-erc4337** | Account abstraction, smart wallet security, UserOperation hash integrity, bundler ordering/censorship assumptions, paymaster attacks, session key exploits, gas griefing | 40 |
 | 10 | **evm-audit-bridges** | Cross-chain bridge security, LayerZero V2, CCIP, Wormhole, Across, message replay, finality assumptions, relayer trust, adapter pattern issues | 58 |
 | 11 | **evm-audit-proxies** | UUPS deep dive (uninitialized implementation, delegatecall to selfdestruct, broken upgrade chain, authorization schema changes), Transparent proxy, Beacon, Diamond, storage collision, immutable variable loss | 32 |
@@ -37,15 +39,42 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 | 19 | **evm-audit-dos** | Denial of service patterns: unbounded loops, block gas limit, self-destruct force-send, storage deletion costs, griefing via revert, return data bombs | 18 |
 | 20 | **evm-audit-access-control** | Access control patterns: missing modifiers, `tx.origin` authorization, off-chain signer/frontend trust, 2-step ownership, role-based permissions, emergency pause, time delays, admin overpowers | 21 |
 
-**Total: 876 checklist items across 19 specialized skills + 1 master index**
+**Total: 868 canonical checks and 871 generated runtime entries across 19 specialized skills + 1 master index**
 
 ## Checklist Organization
 
-The 166 attack vectors adapted from sanbir/solidity-auditor-skills, the canonical portions of the 177 EVM-relevant checks adapted from gdroz3r/drozer-lite, and the 116 attack-vector patterns adapted from auditmos/skills retain their source-level provenance. The routed `references/checklist.md` files remain the single runtime source of truth. Repository-level semantic deduplication decisions are recorded in [checklist-semantic-dedup-review.md](references/checklist-semantic-dedup-review.md); the current review has merged unambiguous same-file duplicates while cross-domain candidates remain explicitly pending human adjudication. Covered drozer-lite and Auditmos records remain in their centralized provenance maps without adding runtime checks.
+The JSON registry at `data/canonical-checks.json` is the single editable source
+of truth. The 19 `references/checklist.md` files are deterministic generated
+runtime views. Every check has a stable canonical ID, structured
+trigger/detection/false-positive/proof fields, a `type` (`normative`,
+`semantic`, `exploit-pattern`, or `heuristic`), and a `confidence` label. The
+166 attack vectors adapted from sanbir/solidity-auditor-skills, the
+EVM-relevant drozer-lite records, and the Auditmos patterns remain traceable as
+provenance and aliases.
+
+Semantic deduplication is evidence-based: merge only when root cause, trigger,
+proof obligation, and impact are the same. Otherwise retain the contextual
+checks and link them with `related` IDs. Decisions are recorded in
+[checklist-semantic-dedup-review.md](references/checklist-semantic-dedup-review.md);
+a lower check count is not a goal by itself.
 
 SolidityGuard's 104-pattern index was used only for coverage comparison at commit `35645e8ba76cdacbeec40f347c758de2077e2ecd`; its proprietary content was not copied. New gap checks are independently authored and cite public standards.
 
-## Routing Table — Which Skills To Load
+## Canonical Registry and Feature Routing
+
+The editable registry is `../data/canonical-checks.json`; run
+`python3 ../scripts/generate_checklists.py` to regenerate the domain views. Each
+canonical check has feature tags from `../data/features.json`. Run
+`python3 ../scripts/select_checks.py --features <comma-separated-feature-ids>` to
+produce the fast-filter selection and its filtered-out IDs.
+
+Reconnaissance must account for every canonical ID in a routing manifest. A
+feature match selects a check for deep review; a feature absence produces a
+lightweight `NOT_APPLICABLE` record. The selector reduces deep-review work but
+does not bypass the evidence gate or allow pattern matching to become a
+finding.
+
+## Routing Table — Which Skills and Features To Load
 
 | If the contract involves... | Load skill |
 |---|---|
@@ -86,9 +115,10 @@ SolidityGuard's 104-pattern index was used only for coverage comparison at commi
 **Entry:** Phase 1 scope and protocol surfaces are recorded.
 
 **Actions:**
-1. Load `evm-audit-general` and `evm-audit-precision-math` for every audit.
-2. Add skills from the routing table. For oracle-backed lending, also load `evm-audit-oracles`; load `evm-audit-defi-amm` when the price source depends on AMM liquidity.
-3. Use each selected skill's `references/checklist.md` as the runtime checklist. The merged SAS-AV, DROZER, and AUDITMOS vectors remain in those domain checklists.
+1. Build the feature map from the source inventory, entry points, dependencies, and target chain.
+2. Use the domain routing table and `../data/features.json` to select relevant canonical IDs. Keep general and precision checks in the fast filter, but do not deep-review entries whose feature predicates are absent.
+3. For oracle-backed lending, select `evm-audit-oracles`; select `evm-audit-defi-amm` when the price source depends on AMM liquidity.
+4. Use the generated `references/checklist.md` view for the selected IDs. Canonical IDs, not repeated source labels, define review identity.
 
 **Exit:** The selected skill set and the exact checklist source for each skill are recorded.
 
@@ -96,11 +126,11 @@ SolidityGuard's 104-pattern index was used only for coverage comparison at commi
 **Entry:** Phase 2 has produced the selected skill set and checklist sources.
 
 **Actions:**
-1. If the runtime supports sub-agents, create one review task per selected skill and parallelize independent domain reviews.
-2. Respect the runtime's concurrency limits. Reuse the source inventory and shared contract context captured in Phase 1; do not duplicate source ingestion. Use the strongest appropriate available reasoning model.
-3. If sub-agents are unavailable, execute one domain review at a time sequentially.
-4. Give each review access to the full contract source captured in Phase 1, its one checklist, this master skill, and `references/check-review-contract.md`; do not refetch or re-ingest the same source unless a missing-file or verification gap requires it.
-5. Require each domain review to write `audits/<repo>-<date>/review-<skill>.md` with exactly one review record for every checklist item. Reviews must not emit unqualified findings outside the review contract.
+1. If the runtime supports sub-agents, parallelize independent selected-domain reviews and respect the runtime's concurrency limits.
+2. Reuse the reconnaissance source inventory and shared contract context; do not duplicate source ingestion or assume a particular model/runtime.
+3. If sub-agents are unavailable, execute selected domains sequentially.
+4. Record filtered-out IDs with the lightweight fast-filter format. For selected IDs, run deep review and proof stages under `references/check-review-contract.md`.
+5. Require each domain review to write `audits/<repo>-<date>/review-<skill>.md` with exactly one canonical review record per routed ID. Shared IDs must not produce duplicate findings.
 6. Wait for every selected review to finish before synthesis.
 
 **Exit:** Every expected checklist item has one valid record with one of the four terminal statuses. Missing, duplicate, unknown, or malformed records make the audit incomplete.
@@ -109,11 +139,11 @@ SolidityGuard's 104-pattern index was used only for coverage comparison at commi
 **Entry:** All selected review ledgers exist and pass the coverage and format gate.
 
 **Actions:**
-1. Validate that every expected item appears exactly once and that every status is one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
+1. Validate that every canonical ID in the routing manifest appears exactly once and that every status is one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
 2. If coverage or record validation fails, mark the audit `INCOMPLETE` and do not write a final `AUDIT-REPORT.md`.
 3. Review only `CONFIRMED` records for duplicate root causes and cross-cutting interactions. Check oracle-backed lending economics, state-machine consistency, and combined attack paths.
 4. If synthesis discovers a new cross-cutting candidate, map it to existing checklist item(s), or record it in `review-integration.md` and apply the same review contract before admission.
-5. Write `AUDIT-REPORT.md` using only `CONFIRMED` findings ranked by severity. Do not include N/A, safe, or suspicious records as findings.
+5. Write `AUDIT-REPORT.md` using only `CONFIRMED` findings ranked by the [severity model](references/severity-scoring.md). Do not include N/A, safe, or suspicious records as findings.
 6. If all records are terminal but any item is `SUSPICIOUS`, mark the report `COMPLETE_WITH_UNRESOLVED_REVIEW`; do not claim the audit is clean or vulnerability-free. If there are no confirmed findings, say only that no confirmed findings were established within the reviewed scope.
 
 **Exit:** The final report contains only confirmed findings, or no final report exists because coverage is incomplete.
@@ -137,7 +167,8 @@ Only final `CONFIRMED` findings and the synthesis output use this format. Per-ch
 ~~~
 ## [X-N] Title
 **Status**: CONFIRMED
-**Checklist reference**: `<skill>/<check-ref>`
+**Checklist reference**: `<canonical-id>`
+**Legacy/source references**: `<source IDs or aliases from canonical registry>`
 **Severity**: Critical / High / Medium / Low / Info
 **Category**: [skill name that caught this]
 **Location**: `functionName()` or file:line
@@ -151,14 +182,10 @@ Only final `CONFIRMED` findings and the synthesis output use this format. Per-ch
 **Recommendation**: Concrete fix with code snippet where possible.
 ~~~
 
-**Severity definitions** (use these, not your own judgment):
-- **Critical**: Direct loss of funds by a third party, no preconditions
-- **High**: Loss of funds requiring specific conditions, or permanent DoS
-- **Medium**: Degraded behavior, trust model violation, incorrect accounting, or owner-only fund loss
-- **Low**: Best practice violation, latent bug, or confusing behavior without direct fund risk
-- **Info**: Informational, no security impact
-
-Assign severity only after the `CONFIRMED` evidence gate passes. Never assign a finding severity to `SUSPICIOUS`.
+Use the dimensions and mapping in
+[`references/severity-scoring.md`](references/severity-scoring.md). Assign
+severity only after the `CONFIRMED` evidence gate passes; never assign a
+finding severity to `SUSPICIOUS`.
 
 ## Source Attribution Key
 - `[beirao]` — beirao.xyz audit checklist

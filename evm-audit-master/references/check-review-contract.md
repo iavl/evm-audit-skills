@@ -1,6 +1,9 @@
 # Per-Check Review Contract
 
-This contract defines the audit-run review ledger. The canonical domain checklists remain unchanged and remain the runtime source of truth. Statuses belong only to the run-specific ledger under `audits/<repo>-<date>/`.
+This contract defines the audit-run review ledger. The canonical JSON registry is
+the knowledge source; generated domain checklists are the runtime compatibility
+view. Statuses belong only to the run-specific ledger under
+`audits/<repo>-<date>/`.
 
 ## Review Pipeline
 
@@ -28,6 +31,29 @@ One terminal status
 
 `APPLICABLE` is a branch in the analysis, not a fifth status. Do not skip from recognizing a pattern to confirming a finding.
 
+## Review stages
+
+Use a three-stage funnel for every routed canonical check:
+
+1. **`FAST_FILTER`** — compare the check's feature predicate with the
+   reconnaissance feature map. Record a short applicability basis. If the
+   feature is absent, use `NOT_APPLICABLE` and do not create deep evidence
+   fields.
+2. **`DEEP_REVIEW`** — for selected checks, trace reachability, preconditions,
+   guards, and invariants. Use `REVIEWED_SAFE` or `SUSPICIOUS` when proof is not
+   complete.
+3. **`PROOF`** — for candidates, establish exploitability and impact with a
+   runnable PoC, transaction trace, or deterministic invariant violation before
+   using `CONFIRMED`.
+
+The routing manifest must account for every canonical ID as selected or filtered
+out, including the feature evidence used for the decision. A filtered check is
+not a finding and is not silently omitted from the audit record.
+
+Validate a completed ledger with
+`python3 scripts/validate_checklists.py --review-ledger <path>`. Use
+`--review-ledger` once per domain ledger when validating a complete audit run.
+
 ## Terminal Statuses
 
 | Status | Meaning | Required evidence | Final report |
@@ -41,12 +67,17 @@ Every record must end with exactly one of these four statuses. There is no emitt
 
 ## Record Identity and Format
 
-Use the existing source identifier when a checklist item has one, including `SAS-AV-*`, `DROZER-*`, and `AUDITMOS-*`. For an item without a source identifier, use `<domain>/<section>/<exact-title>`. If the exact title repeats within a section, append a one-based occurrence index. Do not renumber or mechanically rewrite the canonical checklists.
+Use the stable `canonical_id` from `../../data/canonical-checks.json` as the review
+identity. Preserve existing source identifiers, including `SAS-AV-*`,
+`DROZER-*`, and `AUDITMOS-*`, only as provenance. A legacy path/section/title
+alias may be included for traceability, but it is not a second review item.
 
 Each selected skill writes one `review-<skill>.md` ledger. Preserve checklist order and write exactly one record per checklist item:
 
 ```markdown
 ### <check-ref> — <title>
+- **Review stage**: FAST_FILTER | DEEP_REVIEW | PROOF
+- **Routing basis**: matched feature IDs and reconnaissance evidence, or the concrete reason the feature is absent
 - **Status**: NOT_APPLICABLE | REVIEWED_SAFE | SUSPICIOUS | CONFIRMED
 - **Applicability**: APPLICABLE — ... | NOT_APPLICABLE — ...
 - **Code path**: ...
@@ -57,7 +88,11 @@ Each selected skill writes one `review-<skill>.md` ledger. Preserve checklist or
 - **Evidence**: file:line, test name, trace, calculation, or explicit scope basis
 ```
 
-Do not leave fields blank. Use an explicit `N/A — reason` or `UNRESOLVED — missing ...` where a field does not support the selected status.
+At `FAST_FILTER`, record only `Review stage`, `Routing basis`, `Status`,
+`Applicability`, and `Evidence`; do not expand the remaining fields for a
+filtered-out check. At `DEEP_REVIEW` and `PROOF`, do not leave applicable
+fields blank. Use an explicit `N/A — reason` or `UNRESOLVED — missing ...`
+where a field does not support the selected status.
 
 ## State-Specific Gates
 
@@ -171,10 +206,12 @@ Reachable defect with proof:
 
 ## Synthesis Admission Gate
 
-1. Enumerate the expected items from every selected canonical checklist.
+1. Enumerate every canonical ID from the routing manifest and selected canonical checklist set.
 2. Reject ledgers with missing, duplicate, unknown, malformed, or non-terminal records. Mark the audit `INCOMPLETE` and do not write a final report.
 3. Consider only records whose exact status is `CONFIRMED` for finding deduplication and report generation.
 4. Preserve all relevant checklist references and evidence when merging duplicate confirmed records.
 5. Map cross-domain candidates to existing records, or create `review-integration.md` and apply this contract to the new record.
 6. If suspicious records remain after complete coverage, the report may be emitted with report-level status `COMPLETE_WITH_UNRESOLVED_REVIEW`, but it must not claim the audit is clean or vulnerability-free and must not include suspicious details as findings.
-7. If no confirmed records remain, report only that no confirmed findings were established within the reviewed scope.
+7. Assign severity only with the dimensions and mapping in
+   [`severity-scoring.md`](severity-scoring.md), after confirmation.
+8. If no confirmed records remain, report only that no confirmed findings were established within the reviewed scope.

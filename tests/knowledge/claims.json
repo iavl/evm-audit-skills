@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "claims": [
+    {
+      "id": "SOL-TIME-001",
+      "canonical_id": "EVM-TIME-001",
+      "source_url": "https://docs.soliditylang.org/en/latest/units-and-global-variables.html#time-units",
+      "required_terms": [
+        "non-literal operand or destination",
+        "literal itself is not a uint24 value"
+      ],
+      "forbidden_terms": [
+        "time literals are uint24",
+        "regular time expressions are uint24",
+        "1 days * largeNumber may silently truncate"
+      ]
+    },
+    {
+      "id": "SOL-TYPE-001",
+      "canonical_id": "EVM-TYPE-001",
+      "source_url": "https://docs.soliditylang.org/en/latest/types.html#explicit-conversions",
+      "required_terms": [
+        "preserves the two's-complement bit pattern",
+        "does not make the explicit conversion itself revert"
+      ],
+      "forbidden_terms": [
+        "casting a negative int to uint reverts",
+        "assigning negative value to uint reverts",
+        "reverts in checked context"
+      ]
+    },
+    {
+      "id": "SOL-MATH-001",
+      "canonical_id": "EVM-MATH-001",
+      "source_url": "https://docs.soliditylang.org/en/latest/types.html#integers",
+      "required_terms": [
+        "cannot overflow",
+        "full-precision mulDiv"
+      ],
+      "forbidden_terms": [
+        "must be (a * c) / b",
+        "always multiply before dividing"
+      ]
+    },
+    {
+      "id": "ERC4626-ROUND-001",
+      "canonical_id": "ERC4626-ROUND-001",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-4626",
+      "required_terms": [
+        "assets supplied to shares received DOWN",
+        "shares requested to assets supplied UP",
+        "assets requested to shares burned UP",
+        "shares burned to assets received DOWN",
+        "convertToShares DOWN",
+        "convertToAssets DOWN"
+      ],
+      "forbidden_terms": [
+        "round shares up on deposit"
+      ]
+    },
+    {
+      "id": "EIP-6780-CREATE2-001",
+      "canonical_id": "EVM-ASM-001",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-6780",
+      "required_terms": [
+        "after eip-6780",
+        "not a general metamorphic upgrade primitive"
+      ],
+      "forbidden_terms": [
+        "can be selfdestruct-ed and redeployed with completely different code at the same address"
+      ]
+    },
+    {
+      "id": "EIP-6780-EXTCODE-001",
+      "canonical_id": "EVM-ASM-008",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-6780",
+      "required_terms": [
+        "does not remove its code",
+        "created and destroyed in the same transaction"
+      ],
+      "forbidden_terms": [
+        "in the next transaction, it returns 0"
+      ]
+    },
+    {
+      "id": "EIP-3855-001",
+      "canonical_id": "EVM-ASM-025",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-3855",
+      "required_terms": [
+        "compiler target",
+        "chain fork"
+      ],
+      "forbidden_terms": [
+        "paris evm target"
+      ]
+    },
+    {
+      "id": "ERC4626-PREVIEW-001",
+      "canonical_id": "EVM-ERC4626-018",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-4626",
+      "required_terms": [
+        "may revert",
+        "vault-specific limit"
+      ],
+      "forbidden_terms": [
+        "preview* functions must never revert"
+      ]
+    },
+    {
+      "id": "SOL-TRYCATCH-001",
+      "canonical_id": "EVM-GEN-005",
+      "source_url": "https://docs.soliditylang.org/en/latest/control-structures.html#try-catch",
+      "required_terms": [
+        "out-of-gas failure",
+        "external call or contract creation expression"
+      ],
+      "forbidden_terms": [
+        "try/catch always fails with insufficient gas"
+      ]
+    }
+  ]
+}

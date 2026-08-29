@@ -1,9 +1,10 @@
 # Runtime Checklist Semantic Deduplication Review
 
-This is the repository-level review record for semantic deduplication of the 19
-domain `references/checklist.md` files. It is audit metadata, not a runtime
-checklist. Source provenance remains attached to the canonical runtime item;
-source-level provenance maps do not imply that all runtime prose is unique.
+This is the repository-level review record for semantic deduplication of the
+canonical registry and its 19 generated domain views. It is audit metadata,
+not a runtime checklist. Source provenance remains attached to the canonical
+JSON item; source-level provenance maps do not imply that all runtime prose is
+unique.
 
 ## Decision Rules
 
@@ -168,5 +169,21 @@ canonical runtime item is used.
 The same-file pass is complete for the groups listed above. All cross-domain
 groups are now classified: X-03 is merged into the general canonical item and
 the remaining groups are intentionally kept distinct. The three exact-title
-validator warnings are documented intentional cross-domain retention, not
-unreviewed candidates.
+legacy candidates are represented by explicit shared canonical IDs or
+cross-domain retention, not unreviewed candidates.
+
+## Canonical Registry Decisions
+
+The following corrections are represented as one stable canonical item with
+legacy aliases; source identifiers remain provenance only.
+
+| Canonical ID | Covered legacy items | Decision |
+|---|---|---|
+| `EVM-TYPE-001` | Precision negative-to-unsigned cast; General assigning a negative value to uint | Merge: same explicit conversion semantics and proof obligation. |
+| `EVM-TIME-001` | Precision time-literal claim; General regular time-expression claim | Merge: same literal typing and narrowing-conversion proof obligation. |
+| `ERC4626-ROUND-001` | `convertTo*`, `previewDeposit`, `previewMint`, `previewWithdraw`, `previewRedeem`, and broad vault-favoring rounding rows | Merge: one EIP-4626 normative rounding table; all six legacy rows are aliases. |
+| `EVM-ASM-025` | Assembly and chain-specific PUSH0 support checks | Merge: one compiler-target/fork opcode rule with both runtime contexts. |
+
+The canonical registry is the source of truth for future decisions. A candidate
+may be merged only when its root cause, trigger, proof obligation, and impact
+match; contextual differences remain separate and use `related` IDs.

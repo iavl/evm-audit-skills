@@ -1,0 +1,26 @@
+name: Validate checklist corpus
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify generated checklists
+        run: python3 scripts/generate_checklists.py --check
+      - name: Validate registry and provenance
+        run: python3 scripts/validate_checklists.py --strict
+      - name: Run regression tests
+        run: python3 -m unittest discover -s tests -v
