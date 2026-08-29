@@ -71,9 +71,9 @@ The agent will:
 1. Load `evm-audit-master` → read the contract → select relevant skills
 2. Each selected domain skill walks its checklist, including the merged SAS-AV, DROZER, and AUDITMOS vectors
 3. Spawn parallel opus sub-agents, one per skill domain
-4. Each agent walks its checklist and writes findings
-5. Synthesize into a final `AUDIT-REPORT.md`
-6. File GitHub issues for all Medium+ findings
+4. Each agent reviews every checklist item and writes a per-check review ledger with one terminal status
+5. Synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md`
+6. File GitHub issues only for confirmed Medium+ findings
 
 ### The audit pipeline
 
@@ -85,13 +85,13 @@ Contract URL/path
       │
       ▼
   PARALLEL AGENTS (one per skill, all run simultaneously)
-  ├── agent: evm-audit-general     → findings-general.md
-  ├── agent: evm-audit-precision-math → findings-math.md
-  ├── agent: evm-audit-defi-amm   → findings-amm.md
+  ├── agent: evm-audit-general     → review-general.md
+  ├── agent: evm-audit-precision-math → review-precision-math.md
+  ├── agent: evm-audit-defi-amm   → review-defi-amm.md
   └── ...
       │
       ▼
-  SYNTHESIS (deduplicate, rank, cross-cutting analysis)
+  SYNTHESIS (validate coverage, filter CONFIRMED, deduplicate, rank)
       │
       ▼
   AUDIT-REPORT.md + GitHub Issues
@@ -99,17 +99,26 @@ Contract URL/path
 
 ---
 
-## Standard Finding Format
+## Review Ledger and Confirmed Finding Format
 
-All findings across all skills use this format:
+Each selected skill writes one review record per checklist item. The record must include applicability, code path, preconditions, exploitability, impact, PoC/invariant evidence, and exactly one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. See [`evm-audit-master/references/check-review-contract.md`](evm-audit-master/references/check-review-contract.md).
+
+Only `CONFIRMED` records may become findings. Confirmed findings use this format:
 
 ```
 ## [X-N] Title
+**Status**: CONFIRMED
+**Checklist reference**: `<skill>/<check-ref>`
 **Severity**: Critical / High / Medium / Low / Info
 **Category**: [skill name]
 **Location**: `functionName()` or file:line
+**Applicability**: APPLICABLE — why the checklist item applies
+**Code path**: Exact reachable path
+**Preconditions**: Concrete conditions
+**Exploitability**: How the conditions are satisfied
+**Impact**: Concrete consequence
+**Proof of Concept / Invariant Violation**: Runnable proof or deterministic invariant violation
 **Description**: What the issue is and why it matters.
-**Proof of Concept**: Exact steps to trigger or exploit.
 **Recommendation**: Concrete fix with code snippet.
 ```
 
@@ -119,5 +128,7 @@ All findings across all skills use this format:
 - **Medium** — Degraded behavior, trust model violation, incorrect accounting
 - **Low** — Best practice violation, latent bug, no direct fund risk
 - **Info** — Informational, no security impact
+
+`NOT_APPLICABLE`, `REVIEWED_SAFE`, and `SUSPICIOUS` records never appear as findings in `AUDIT-REPORT.md`. If all records have terminal statuses but suspicious items remain, the report must disclose unresolved review status and must not claim the audit is clean.
 
 ---

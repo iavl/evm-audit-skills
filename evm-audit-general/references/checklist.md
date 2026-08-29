@@ -106,8 +106,6 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 
 ## Solidity Compiler
 
-- [ ] **PUSH0 opcode (Solidity ≥0.8.20)**: The `push0` opcode emitted by default in ≥0.8.20 isn't supported on many L2s and alt-chains. Look for: `pragma solidity ^0.8.20` or higher in multichain deployments. [multichain-auditor, beirao MC-03]
-
 - [ ] **Unchecked blocks need validation**: Code in `unchecked { }` bypasses overflow/underflow checks. Every unchecked block must be manually verified for safety. Look for: `unchecked` blocks, especially around user-influenced values. [beirao M-10]
 
 - [ ] **Assigning negative value to uint reverts**: In Solidity ≥0.8.0, casting a negative `int` to `uint` reverts. In `unchecked`, it wraps. Look for: signed-to-unsigned conversions near `unchecked` blocks. [beirao M-09]
@@ -155,8 +153,6 @@ Every item here is non-obvious — basic reentrancy, overflow checks, access con
 - [ ] **C3 inheritance and override order changes security semantics**: Solidity linearization determines which base implementation, modifier, or `super` call executes; an unintended order can bypass a guard or select the wrong initialization/accounting logic. Look for: multiple inheritance with overlapping overrides or `super` calls whose linearization is not explicitly checked. [SWC-125]
 
 - [ ] **`private` state is not secret on-chain**: Solidity visibility only restricts source-level access; storage slots and historical values remain readable by anyone. Look for: private variables containing keys, passwords, salts, unrevealed bids, or other data whose secrecy is part of the security model. [SWC-136]
-
-- [ ] **`block.timestamp` should only be used for long intervals**: Miners/validators can manipulate timestamps by a few seconds. Using it for sub-minute precision is unreliable. Look for: `block.timestamp` in calculations where seconds matter (e.g., interest calculations per second). [Tamjid C4, beirao G-28]
 
 - [ ] **Don't assume specific ETH balance**: Contracts can receive ETH via selfdestruct, coinbase, or pre-deployment sends. `require(address(this).balance == expectedAmount)` will break. Look for: exact balance assertions or calculations dependent on a specific ETH balance. [Tamjid C14]
 

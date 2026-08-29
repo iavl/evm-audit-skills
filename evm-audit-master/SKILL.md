@@ -1,6 +1,6 @@
 ---
 name: evm-audit-master
-description: Master index for EVM smart contract security audit skills. Load this FIRST for every audit to determine which specialized skills to load. Contains routing table and audit methodology.
+description: Master index for EVM smart contract security audits. Load this FIRST to route specialized skills and enforce per-check applicability, evidence review states, and confirmed-only synthesis.
 ---
 # EVM Smart Contract Security Audit — Master Index
 
@@ -8,7 +8,9 @@ description: Master index for EVM smart contract security audit skills. Load thi
 1. **Always load this skill first** for any EVM smart contract audit
 2. Read the contract(s) under audit
 3. Use the routing table below to load relevant specialized skills
-4. Walk through each loaded skill's checklist systematically
+4. Read [the per-check review contract](references/check-review-contract.md)
+5. Review every selected checklist item and assign exactly one terminal status
+6. Put only `CONFIRMED` items into the final audit report
 
 ## All 20 Skills — Definitive Index
 
@@ -70,51 +72,80 @@ SolidityGuard's 104-pattern index was used only for coverage comparison at commi
 ## Audit Methodology
 
 ### Phase 1: Reconnaissance
-1. Fetch all contract files (raw GitHub URL or local path)
-2. Identify all contract files, entry points, and external dependencies
-3. Map inheritance hierarchy and proxy relationships
-4. Identify all external calls and token interactions
-5. Note the target deployment chain(s)
+**Entry:** Contract source is available from the supplied URL or local path.
+
+**Actions:**
+1. Fetch or read all contract files in scope.
+2. Identify contract files, state-changing entry points, and external dependencies.
+3. Map inheritance, proxy, delegatecall, and implementation relationships.
+4. Identify external calls, token interactions, and relevant deployment chain(s).
+
+**Exit:** The audit scope, source inventory, entry points, dependencies, and target chain(s) are recorded.
 
 ### Phase 2: Skill Selection
-Load `evm-audit-general` + `evm-audit-precision-math` (always), then add skills based on the routing table above. For oracle-backed lending, load `evm-audit-oracles` as well, and load `evm-audit-defi-amm` when the price source depends on AMM liquidity. The selected checklists already contain the merged SAS-AV, DROZER, and AUDITMOS vectors. For a typical DeFi protocol, expect to load 6-8 domain skills.
+**Entry:** Phase 1 scope and protocol surfaces are recorded.
+
+**Actions:**
+1. Load `evm-audit-general` and `evm-audit-precision-math` for every audit.
+2. Add skills from the routing table. For oracle-backed lending, also load `evm-audit-oracles`; load `evm-audit-defi-amm` when the price source depends on AMM liquidity.
+3. Use each selected skill's `references/checklist.md` as the runtime checklist. The merged SAS-AV, DROZER, and AUDITMOS vectors remain in those domain checklists.
+
+**Exit:** The selected skill set and the exact checklist source for each skill are recorded.
 
 ### Phase 3: Spawn Parallel Sub-Agents
-**Spawn one opus sub-agent per selected skill.** Do not run skills sequentially in the main session — parallel agents produce dramatically better results by keeping each agent's context focused.
+**Entry:** Phase 2 has produced the selected skill set and checklist sources.
 
-Each agent receives:
-- The full contract source
-- Their one checklist (read from `references/checklist.md`)
-- The standard finding format (below)
-- Output path: `audits/<repo>-<date>/findings-<skill>.md`
+**Actions:**
+1. **Spawn one opus sub-agent per selected skill.** Keep the existing parallel model; do not change the audit's concurrency strategy.
+2. Give each agent the full contract source, its one checklist, this master skill, and `references/check-review-contract.md`.
+3. Require each agent to write `audits/<repo>-<date>/review-<skill>.md` with exactly one review record for every checklist item. Agents must not emit unqualified findings outside the review contract.
+4. Wait for every selected agent to finish before synthesis.
 
-Wait for all agents to complete, then proceed to Phase 4.
+**Exit:** Every expected checklist item has one valid record with one of the four terminal statuses. Missing, duplicate, unknown, or malformed records make the audit incomplete.
 
 ### Phase 4: Synthesis
-Read all `findings-*.md` files. Deduplicate findings that multiple agents flagged. Check for cross-cutting concerns:
-- [ ] Interactions between finding categories (e.g., oracle manipulation + liquidation)
-- [ ] Oracle-backed lending: prove `C_manipulation > V_extractable_borrow` using effective liquidity depth, TWAP window, deviation threshold, borrow cap, supply cap, LTV, and liquidation threshold.
-- [ ] State machine consistency across all state transitions
-- [ ] Economic attack vectors combining multiple findings
-Write final `AUDIT-REPORT.md` with all findings ranked by severity.
+**Entry:** All selected review ledgers exist and pass the coverage and format gate.
+
+**Actions:**
+1. Validate that every expected item appears exactly once and that every status is one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
+2. If coverage or record validation fails, mark the audit `INCOMPLETE` and do not write a final `AUDIT-REPORT.md`.
+3. Review only `CONFIRMED` records for duplicate root causes and cross-cutting interactions. Check oracle-backed lending economics, state-machine consistency, and combined attack paths.
+4. If synthesis discovers a new cross-cutting candidate, map it to existing checklist item(s), or record it in `review-integration.md` and apply the same review contract before admission.
+5. Write `AUDIT-REPORT.md` using only `CONFIRMED` findings ranked by severity. Do not include N/A, safe, or suspicious records as findings.
+6. If all records are terminal but any item is `SUSPICIOUS`, mark the report `COMPLETE_WITH_UNRESOLVED_REVIEW`; do not claim the audit is clean or vulnerability-free. If there are no confirmed findings, say only that no confirmed findings were established within the reviewed scope.
+
+**Exit:** The final report contains only confirmed findings, or no final report exists because coverage is incomplete.
 
 ### Phase 5: File Issues (if repo provided)
-Run `gh issue create --repo <owner/repo>` for every finding **Medium severity and above**.
-Skip Info and Low unless explicitly asked. Each issue title should be prefixed: `[Critical]`, `[High]`, or `[Medium]`.
+**Entry:** `AUDIT-REPORT.md` passed Phase 4 and contains only confirmed findings.
+
+**Actions:**
+1. Run `gh issue create --repo <owner/repo>` only for confirmed findings with Medium severity or above.
+2. Skip Info and Low unless explicitly asked.
+3. Prefix issue titles with `[Critical]`, `[High]`, or `[Medium]`.
+
+**Exit:** Every created issue maps to a confirmed finding in `AUDIT-REPORT.md`; no issue is created for a suspicious or unreviewed item.
 
 ---
 
 ## Standard Finding Format
 
-Every sub-agent and the synthesis step MUST use this exact format. No deviations.
+Only final `CONFIRMED` findings and the synthesis output use this format. Per-check records use the linked [review contract](references/check-review-contract.md).
 
 ~~~
 ## [X-N] Title
+**Status**: CONFIRMED
+**Checklist reference**: `<skill>/<check-ref>`
 **Severity**: Critical / High / Medium / Low / Info
 **Category**: [skill name that caught this]
 **Location**: `functionName()` or file:line
+**Applicability**: APPLICABLE — why the checklist item applies
+**Code path**: Exact reachable path from entry point to affected operation
+**Preconditions**: Concrete state, caller, timing, balance, role, or deployment conditions
+**Exploitability**: How an attacker or permitted actor satisfies the preconditions
+**Impact**: Concrete security, accounting, availability, or trust-model consequence
+**Proof of Concept / Invariant Violation**: Runnable test/transaction trace, or deterministic invariant violation with evidence
 **Description**: What the issue is and why it matters. Be specific — name the variable, line, or pattern.
-**Proof of Concept**: Exact steps to trigger or exploit. If not exploitable, explain the failure mode.
 **Recommendation**: Concrete fix with code snippet where possible.
 ~~~
 
@@ -124,6 +155,8 @@ Every sub-agent and the synthesis step MUST use this exact format. No deviations
 - **Medium**: Degraded behavior, trust model violation, incorrect accounting, or owner-only fund loss
 - **Low**: Best practice violation, latent bug, or confusing behavior without direct fund risk
 - **Info**: Informational, no security impact
+
+Assign severity only after the `CONFIRMED` evidence gate passes. Never assign a finding severity to `SUSPICIOUS`.
 
 ## Source Attribution Key
 - `[beirao]` — beirao.xyz audit checklist
