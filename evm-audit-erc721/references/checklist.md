@@ -167,7 +167,3 @@ The checks below are the canonical runtime additions from the EVM-relevant droze
   - **Methodology:** For every `supportsInterface` override, enumerate every ancestor contract's interface (including upgradeable/proxy libraries). Verify the override returns true for each. Prefer `return super.supportsInterface(interfaceId) || interfaceId == type(IThis).interfaceId` to the fully-enumerated OR chain to avoid drift on future inheritance changes.
   - **Look for:** `supportsInterface` returns `interfaceId == type(IThis).interfaceId` only, not OR'd with `super` New interface added to the contract but supportsInterface not updated AccessControl + Enumerable + custom interface but only one is reported Interface-detection-based integration docs (e.g., marketplaces) not tested against actual supportsInterface
   - **Origin:** [gdroz3r/drozer-lite — checklists/universal.md](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
-
-## drozer-lite Provenance (deduplicated)
-
-The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.

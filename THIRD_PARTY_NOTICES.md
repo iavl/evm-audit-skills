@@ -32,7 +32,7 @@ SOFTWARE.
 
 ## auditmos/skills
 
-The 116 attack-vector patterns distributed across the domain checklists are adapted from [auditmos/skills](https://github.com/auditmos/skills), commit `c9583babb0ce189d9f39a05caf94b5a5da655010`.
+The 116 attack-vector patterns adapted from [auditmos/skills](https://github.com/auditmos/skills), commit `c9583babb0ce189d9f39a05caf94b5a5da655010`, are incorporated into the suite. Canonical additions remain in the domain checklists, while semantically covered source records are maintained in the [Auditmos provenance map](evm-audit-master/references/auditmos-provenance.md).
 
 The source repository is distributed under the MIT License:
 
@@ -62,7 +62,7 @@ SOFTWARE.
 
 ## gdroz3r/drozer-lite
 
-This repository incorporates 177 EVM-relevant checks from [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite), commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`. The checks are distributed across the domain checklists with `DROZER-*` identifiers; Solana and ICP-specific checks were excluded. The source repository is distributed under the MIT License:
+This repository incorporates 177 EVM-relevant checks from [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite), commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`. Canonical additions are distributed across the domain checklists with `DROZER-*` identifiers, while semantically covered source records are maintained in the [drozer-lite provenance map](evm-audit-master/references/drozer-lite-provenance.md); Solana and ICP-specific checks were excluded. The source repository is distributed under the MIT License:
 
 ```text
 MIT License

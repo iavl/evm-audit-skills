@@ -39,7 +39,7 @@ description: Master index for EVM smart contract security audit skills. Load thi
 
 ## Checklist Organization
 
-The 166 deduplicated attack vectors adapted from sanbir/solidity-auditor-skills, 177 EVM-relevant checks adapted from gdroz3r/drozer-lite, and 116 attack-vector patterns adapted from auditmos/skills are merged into the relevant domain checklists. Unique items retain their source identifiers, D/FP triage, and pinned source references; covered items retain provenance-only records. The routed `references/checklist.md` files are now the single source of truth.
+The 166 deduplicated attack vectors adapted from sanbir/solidity-auditor-skills, plus the canonical portions of the 177 EVM-relevant checks adapted from gdroz3r/drozer-lite and 116 attack-vector patterns adapted from auditmos/skills, are merged into the relevant domain checklists. Unique items retain their source identifiers, D/FP triage, and pinned source references; covered drozer-lite items are tracked in the centralized [drozer-lite provenance map](references/drozer-lite-provenance.md), and covered Auditmos patterns are tracked in the centralized [Auditmos provenance map](references/auditmos-provenance.md), without adding runtime checks. The routed `references/checklist.md` files remain the single runtime source of truth.
 
 SolidityGuard's 104-pattern index was used only for coverage comparison at commit `35645e8ba76cdacbeec40f347c758de2077e2ecd`; its proprietary content was not copied. New gap checks are independently authored and cite public standards.
 
@@ -150,7 +150,7 @@ Every sub-agent and the synthesis step MUST use this exact format. No deviations
 - `[Blast docs]` — Blast L2 documentation
 - `[SAS-AV]` — deduplicated attack vectors adapted from [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills), retaining the source vector number for provenance
 - `[DROZER]` — EVM-relevant, deduplicated attack vectors adapted from [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite) at pinned commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`
-- `[AUDITMOS]` — attack-vector patterns adapted from [auditmos/skills](https://github.com/auditmos/skills) at pinned commit `c9583babb0ce189d9f39a05caf94b5a5da655010`
+- `[AUDITMOS]` — attack-vector patterns adapted from [auditmos/skills](https://github.com/auditmos/skills) at pinned commit `c9583babb0ce189d9f39a05caf94b5a5da655010`; covered patterns are tracked in the [Auditmos provenance map](references/auditmos-provenance.md)
 - `[EIP-1153]` — Ethereum transient storage specification used for independently authored transient-storage checks
 - `[ERC-4337]` — Account abstraction specification used for independently authored UserOperation and bundler checks
 - `[OWASP]` — OWASP Smart Contract Top 10 used for independently authored operational-boundary checks

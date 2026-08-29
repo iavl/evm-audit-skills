@@ -117,16 +117,3 @@ These vectors are merged from sanbir/solidity-auditor-skills; each item retains 
 ## drozer-lite Additions
 
 The checks below are the canonical runtime additions from the EVM-relevant drozer-lite profiles. Each item retains the source profile and pinned commit.
-
-
-## drozer-lite Provenance (deduplicated)
-
-The source checks below are already represented by canonical checks in this domain. These provenance records do not add checklist items.
-
-- `DROZER-UNI-20` **Cross-Environment Resource Parity** -> existing domain coverage; [source](https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists/universal.md) @ fcc489d7eb14208bedcb6290b7b8ca5af6058539
-
-## Auditmos/skills Provenance (deduplicated)
-
-The source patterns below are already represented by canonical checks in this suite. These provenance records retain Auditmos coverage without adding duplicate checklist items.
-
-- `AUDITMOS-AUCTION-2` **Auction Start During Sequencer Downtime** -> existing L2 sequencer check; description strengthened for auctions; [source](https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/skills/audit-auction/reference.md) @ c9583babb0ce189d9f39a05caf94b5a5da655010
