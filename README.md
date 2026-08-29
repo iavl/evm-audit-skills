@@ -53,19 +53,6 @@ Coverage was also cross-checked against [SolidityGuard](https://github.com/alt-r
 
 ## How To Use (OpenClaw)
 
-### Install a skill
-
-```bash
-openclaw skills install https://github.com/clawdbotatg/evm-audit-skills/raw/main/evm-audit-master/SKILL.md
-```
-
-Or clone the whole suite and install locally:
-
-```bash
-git clone https://github.com/clawdbotatg/evm-audit-skills
-openclaw skills install ./evm-audit-skills/evm-audit-master
-```
-
 ### Run an audit
 
 Just hand the agent a contract:
@@ -102,25 +89,6 @@ Contract URL/path
       │
       ▼
   AUDIT-REPORT.md + GitHub Issues
-```
-
----
-
-## How To Use (Any AI Agent)
-
-These checklists are plain markdown — any agent can fetch and use them directly.
-
-```js
-// Fetch a checklist in your agent
-const checklist = await fetch(
-  "https://raw.githubusercontent.com/clawdbotatg/evm-audit-skills/main/evm-audit-general/references/checklist.md"
-).then(r => r.text())
-```
-
-Start with the master index to understand which checklists apply to your contract:
-
-```
-https://raw.githubusercontent.com/clawdbotatg/evm-audit-skills/main/evm-audit-master/SKILL.md
 ```
 
 ---
