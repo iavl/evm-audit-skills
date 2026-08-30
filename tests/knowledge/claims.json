@@ -201,7 +201,7 @@
         },
         {
           "kind": "executable",
-          "test": "tests/semantics/test/Semantics.t.sol::testEIP6780RetainsOldCodeAndBlocksCreate2Redeploy"
+          "test": "tests/semantics/test_eip6780_differential.sh::paris-and-cancun"
         }
       ],
       "required_terms": [
@@ -638,6 +638,10 @@
           "kind": "official",
           "url": "https://eips.ethereum.org/EIPS/eip-6780",
           "locator": "SELFDESTRUCT lifecycle"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test_eip6780_differential.sh::paris-and-cancun"
         }
       ],
       "required_terms": [
