@@ -21,8 +21,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 FEATURE_STATES = {"PRESENT", "ABSENT_CONFIRMED", "UNKNOWN"}
 PREDICATE_KEYS = ("all_of", "any_of", "none_of")
-SELECTOR_VERSION = "2"
-ROUTING_MANIFEST_VERSION = 2
+SELECTOR_VERSION = "3"
+ROUTING_MANIFEST_VERSION = 3
+FEATURE_MAP_VERSION = 2
+EVIDENCE_KINDS = {"slither-ast", "slither-ir", "compiler-ast", "source", "deployment", "manual", "legacy"}
 
 
 class SelectionInputError(ValueError):
@@ -72,7 +74,7 @@ def audit_context(
         "registry_sha256": registry_sha256(registry),
         "knowledge_commit": git_value(root, "rev-parse", "HEAD"),
         "knowledge_dirty": bool(git_value(root, "status", "--short")),
-        "target_commit": target_commit or (git_value(resolved_target, "rev-parse", "HEAD") if resolved_target else None),
+        "target_repo_commit": target_commit or (git_value(resolved_target, "rev-parse", "HEAD") if resolved_target else None),
         "chain_id": chain_id,
         "fork_block": fork_block,
         "compiler_version": compiler_version,
@@ -94,17 +96,28 @@ def vocabulary(feature_data: dict[str, Any]) -> tuple[set[str], dict[str, str]]:
     return names, aliases
 
 
-def _evidence(value: Any, feature: str) -> list[str]:
+def _evidence(value: Any, feature: str, schema_version: int) -> list[dict[str, str]]:
     if value is None:
         return []
-    if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
-        raise SelectionInputError(f"feature {feature!r} evidence must be a non-empty string list")
-    return [item.strip() for item in value]
+    if not isinstance(value, list):
+        raise SelectionInputError(f"feature {feature!r} evidence must be a list")
+    normalized: list[dict[str, str]] = []
+    for item in value:
+        if schema_version == 1 and isinstance(item, str) and item.strip():
+            normalized.append({"kind": "legacy", "location": "unspecified", "reason": item.strip()})
+            continue
+        if not isinstance(item, dict) or set(item) != {"kind", "location", "reason"}:
+            raise SelectionInputError(f"feature {feature!r} evidence entries need kind/location/reason")
+        if item.get("kind") not in EVIDENCE_KINDS or any(not isinstance(item.get(key), str) or not item[key].strip() for key in ("location", "reason")):
+            raise SelectionInputError(f"feature {feature!r} has invalid typed evidence")
+        normalized.append({key: item[key].strip() for key in ("kind", "location", "reason")})
+    return normalized
 
 
 def normalize_feature_map(raw: dict[str, Any], names: set[str]) -> dict[str, dict[str, Any]]:
-    if raw.get("schema_version") != 1:
-        raise SelectionInputError("feature map schema_version must be 1")
+    schema_version = raw.get("schema_version")
+    if schema_version not in {1, FEATURE_MAP_VERSION}:
+        raise SelectionInputError(f"feature map schema_version must be 1 or {FEATURE_MAP_VERSION}")
     entries = raw.get("features")
     if not isinstance(entries, dict):
         raise SelectionInputError("feature map must contain an object named 'features'")
@@ -114,13 +127,13 @@ def normalize_feature_map(raw: dict[str, Any], names: set[str]) -> dict[str, dic
 
     normalized: dict[str, dict[str, Any]] = {}
     for feature, entry in entries.items():
-        if isinstance(entry, str):
+        if schema_version == 1 and isinstance(entry, str):
             status = entry
-            evidence: list[str] = []
+            evidence: list[dict[str, str]] = []
             reason = ""
         elif isinstance(entry, dict):
             status = entry.get("status")
-            evidence = _evidence(entry.get("evidence"), feature)
+            evidence = _evidence(entry.get("evidence"), feature, schema_version)
             reason = entry.get("reason", "")
             if not isinstance(reason, str):
                 raise SelectionInputError(f"feature {feature!r} reason must be a string")
@@ -149,7 +162,7 @@ def legacy_feature_map(raw_features: str, names: set[str], aliases: dict[str, st
     return {
         feature: {
             "status": "PRESENT" if feature in requested else "UNKNOWN",
-            "evidence": ["legacy --features shorthand"] if feature in requested else [],
+            "evidence": [{"kind": "legacy", "location": "command line", "reason": "legacy --features shorthand"}] if feature in requested else [],
         }
         for feature in names
     }
@@ -253,29 +266,38 @@ def evaluate_check(check: dict[str, Any], feature_map: dict[str, dict[str, Any]]
     }
 
 
-def compact_check(check: dict[str, Any], include_provenance: bool = True) -> dict[str, Any]:
+def compact_check(check: dict[str, Any], profile: str = "compact") -> dict[str, Any]:
     """Return only the fields needed by a domain agent for deep review."""
 
     result = {
         "canonical_id": check["canonical_id"],
         "title": check["title"],
-        "type": check.get("type"),
-        "confidence": check.get("confidence"),
-        "freshness": check.get("freshness"),
-        "verified_at": check.get("verified_at"),
-        "predicate": check.get("predicate", {"all_of": [], "any_of": [], "none_of": []}),
         "trigger": check.get("trigger", []),
-        "risk": check.get("risk", []),
         "detection": check.get("detection", []),
         "false_positive_gates": check.get("false_positive_gates", []),
         "proof": check.get("proof", []),
     }
-    if include_provenance:
+    if profile == "full":
+        result.update({
+            "description": check.get("description"),
+            "risk": check.get("risk"),
+            "type": check.get("type"),
+            "confidence": check.get("confidence"),
+            "freshness": check.get("freshness"),
+            "verified_at": check.get("verified_at"),
+            "predicate": check.get("predicate", {"all_of": [], "any_of": [], "none_of": []}),
+            "verification": check.get("verification"),
+        })
+        result.update({
+            key: check[key]
+            for key in ("chain", "protocol_version", "hardfork_from", "hardfork_until")
+            if check.get(key) is not None
+        })
         result["provenance"] = [
             {key: value for key, value in entry.items() if key in {"label", "url", "kind", "locator"}}
             for entry in check.get("provenance", [])
         ]
-    if check.get("related"):
+    if profile == "full" and check.get("related"):
         result["related"] = check["related"]
     return result
 
@@ -295,19 +317,26 @@ def selected_markdown(manifest: dict[str, Any], checks: list[dict[str, Any]], pr
         "",
     ]
     for check in checks:
-        entry = compact_check(check, include_provenance=profile == "full")
+        entry = compact_check(check, profile)
         selected = next(item for item in manifest["selected"] if item["canonical_id"] == check["canonical_id"])
         lines.append(f"## [{entry['canonical_id']}] {entry['title']}")
         if profile == "full":
             lines.extend([
                 f"- **Type / confidence:** {entry['type']} / {entry['confidence']}",
                 f"- **Predicate:** all_of={','.join(entry['predicate']['all_of']) or '-'}; any_of={','.join(entry['predicate']['any_of']) or '-'}; none_of={','.join(entry['predicate']['none_of']) or '-'}",
+                f"- **Freshness:** {entry['freshness']} / verified_at={entry['verified_at'] or 'unverified'}",
+                f"- **Risk:** {one_line(entry['risk'])}",
             ])
+            chain_context = "; ".join(
+                f"{key}={entry[key]}"
+                for key in ("chain", "protocol_version", "hardfork_from", "hardfork_until")
+                if key in entry
+            )
+            if chain_context:
+                lines.append(f"- **Chain context:** {chain_context}")
         lines.extend([
-            f"- **Freshness:** {entry['freshness']} / verified_at={entry['verified_at'] or 'unverified'}",
             f"- **Routing basis:** {one_line(selected['basis'])}",
             f"- **Trigger:** {one_line(entry['trigger'])}",
-            f"- **Risk:** {one_line(entry['risk'])}",
             f"- **Detection:** {one_line(entry['detection'])}",
             f"- **FP:** {one_line(entry['false_positive_gates'])}",
             f"- **Proof:** {one_line(entry['proof'])}",
@@ -369,14 +398,14 @@ def select(
             "registry_sha256": registry_sha256(registry),
             "knowledge_commit": None,
             "knowledge_dirty": None,
-            "target_commit": None,
+            "target_repo_commit": None,
             "chain_id": None,
             "fork_block": None,
             "compiler_version": None,
             "audit_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         },
         "scope": {"domains": scope_domains, "candidate_count": len(selected) + len(filtered)},
-        "feature_map": {"schema_version": 1, "features": feature_map},
+        "feature_map": {"schema_version": FEATURE_MAP_VERSION, "features": feature_map},
         "features": feature_map,
         "selected_count": len(selected),
         "filtered_count": len(filtered),
@@ -407,7 +436,7 @@ def selected_checks(
     feature_map = {
         feature: {
             "status": "PRESENT" if feature in features else "UNKNOWN",
-            "evidence": ["legacy selected_checks wrapper"] if feature in features else [],
+            "evidence": [{"kind": "legacy", "location": "compatibility wrapper", "reason": "legacy selected_checks wrapper"}] if feature in features else [],
         }
         for feature in names
     }
@@ -418,7 +447,7 @@ def selected_checks(
     return selected, filtered
 
 
-def parse_domains(args: argparse.Namespace, registry: dict[str, Any]) -> list[str] | None:
+def parse_domains(args: argparse.Namespace, known: set[str]) -> list[str] | None:
     if args.domain and args.domains:
         raise SelectionInputError("use only one of --domain and --domains")
     raw = args.domain or args.domains
@@ -427,7 +456,6 @@ def parse_domains(args: argparse.Namespace, registry: dict[str, Any]) -> list[st
     values = sorted({value.strip() for value in raw.split(",") if value.strip()})
     if not values:
         raise SelectionInputError("domain scope must contain at least one domain")
-    known = {domain for check in registry.get("checks", []) for domain in check.get("domains", [])}
     unknown = sorted(set(values) - known)
     if unknown:
         raise SelectionInputError(f"unknown domains: {', '.join(unknown)}")
@@ -443,8 +471,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--domain", help="limit selection to one domain skill")
     parser.add_argument("--domains", help="comma-separated in-scope domains for a global manifest")
     parser.add_argument("--emit-checks", action="store_true", help="include selected check bodies in JSON or render them in Markdown")
-    parser.add_argument("--profile", choices=("full", "compact"), default="full", help="selected-check body profile; compact omits provenance and repeated metadata")
-    parser.add_argument("--target-root", type=Path, help="target repository used to resolve target_commit")
+    parser.add_argument("--profile", choices=("full", "compact"), default="full", help="selected-check body profile; compact emits only review-critical fields")
+    parser.add_argument("--target-root", type=Path, help="target repository used to resolve target_repo_commit")
     parser.add_argument("--target-commit", help="explicit target repository commit")
     parser.add_argument("--chain-id", type=int, help="deployment chain ID")
     parser.add_argument("--fork-block", type=int, help="fork or state snapshot block")
@@ -466,7 +494,12 @@ def main(argv: list[str] | None = None) -> int:
             feature: feature_map.get(feature, {"status": "UNKNOWN", "evidence": []})
             for feature in sorted(names)
         }
-        scope_domains = parse_domains(args, registry)
+        known_domains = {
+            json.loads(path.read_text(encoding="utf-8"))["id"]
+            for path in (root / "domains").glob("*.json")
+            if path.name != "domain.schema.json"
+        }
+        scope_domains = parse_domains(args, known_domains)
         context = audit_context(
             root,
             registry,
@@ -480,7 +513,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest, selected_checks = select(registry, feature_map, names, scope_domains, context)
         if args.emit_checks:
             manifest["selected_checks"] = [
-                compact_check(check, include_provenance=args.profile == "full") for check in selected_checks
+                compact_check(check, args.profile) for check in selected_checks
             ]
 
         if args.format == "json":

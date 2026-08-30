@@ -62,19 +62,25 @@ DETECTOR_DESCRIPTIONS = {
     "uses-merkle": "Merkle proof operation",
     "uses-reentrancy-callback": "callback or hook entry point",
     "uses-callback-capable-token": "ERC777/ERC721/ERC1155 callback surface",
+    "uses-arbitrary-external-call": "caller-controlled low-level call target",
+    "uses-access-control": "ownership, role, or authorization surface",
 }
 
+# Only structural Slither facts with complete traversal may prove absence.
+# Name/type heuristics remain useful for presence but can never exclude checks.
+ABSENCE_CAPABLE = {"uses-assembly", "uses-dynamic-loop", "uses-msg-value", "uses-payable"}
 
-def source_evidence(value: Any, detector: str) -> str:
+
+def source_evidence(value: Any, detector: str, kind: str) -> tuple[str, str, str]:
     mapping = getattr(value, "source_mapping", None)
     filename = getattr(getattr(mapping, "filename", None), "relative", None)
     lines = getattr(mapping, "lines", None) or []
     location = f"{filename}:{lines[0]}" if filename and lines else str(filename or "unknown")
-    return f"slither:{location} detector={detector}"
+    return kind, location, f"Slither detector matched {detector}"
 
 
-def add(evidence: dict[str, set[str]], feature: str, value: Any, detector: str) -> None:
-    evidence[feature].add(source_evidence(value, detector))
+def add(evidence: dict[str, set[tuple[str, str, str]]], feature: str, value: Any, detector: str, kind: str = "slither-ast") -> None:
+    evidence[feature].add(source_evidence(value, detector, kind))
 
 
 def lowered_parts(contract: Any, function: Any | None = None, node: Any | None = None) -> str:
@@ -89,13 +95,14 @@ def lowered_parts(contract: Any, function: Any | None = None, node: Any | None =
             ]
         )
         values.extend(str(variable) for variable in getattr(function, "variables_read", []))
+        values.extend(getattr(modifier, "name", "") for modifier in getattr(function, "modifiers", []))
     if node is not None:
         values.append(str(getattr(node, "expression", "")))
         values.extend(f"{type(ir).__name__}:{ir}" for ir in getattr(node, "irs", []))
     return " ".join(values).lower()
 
 
-def detect(slither: Any) -> dict[str, set[str]]:
+def detect(slither: Any) -> dict[str, set[tuple[str, str, str]]]:
     evidence = {feature: set() for feature in DETECTOR_DESCRIPTIONS}
     for contract in slither.contracts:
         contract_text = lowered_parts(contract)
@@ -113,6 +120,8 @@ def detect(slither: Any) -> dict[str, set[str]]:
             add(evidence, "uses-merkle", contract, "merkle-type")
         if any(term in contract_text for term in ("erc777", "erc721receiver", "erc1155receiver")):
             add(evidence, "uses-callback-capable-token", contract, "token-callback-type")
+        if any(term in contract_text for term in ("ownable", "accesscontrol", "authority", "roles")):
+            add(evidence, "uses-access-control", contract, "access-control-type")
 
         for function in contract.functions_and_modifiers_declared:
             function_text = lowered_parts(contract, function)
@@ -122,6 +131,8 @@ def detect(slither: Any) -> dict[str, set[str]]:
                 add(evidence, "uses-msg-value", function, "msg-value-read")
             if any(term in function_text for term in ("multicall", "batch", "execute[]")):
                 add(evidence, "uses-multicall", function, "batch-entrypoint")
+            if any(term in function_text for term in ("onlyowner", "onlyrole", "authorized", "admin")):
+                add(evidence, "uses-access-control", function, "authorization-modifier")
             if any(term in function_text for term in ("callback", "hook", "onerc721received", "onerc1155received", "tokensreceived")):
                 add(evidence, "uses-reentrancy-callback", function, "callback-entrypoint")
             if any(term in function_text for term in ("onerc721received", "onerc1155received", "tokensreceived")):
@@ -143,14 +154,16 @@ def detect(slither: Any) -> dict[str, set[str]]:
                 if "LOOP" in node_type:
                     add(evidence, "uses-dynamic-loop", node, "loop-node")
                 if "delegatecall" in text:
-                    add(evidence, "uses-delegatecall", node, "delegatecall-ir")
-                    add(evidence, "uses-low-level-call", node, "delegatecall-ir")
-                    add(evidence, "uses-external-call", node, "delegatecall-ir")
+                    add(evidence, "uses-delegatecall", node, "delegatecall-ir", "slither-ir")
+                    add(evidence, "uses-low-level-call", node, "delegatecall-ir", "slither-ir")
+                    add(evidence, "uses-external-call", node, "delegatecall-ir", "slither-ir")
                 if any(term in text for term in ("lowlevelcall", ".call(", ".staticcall(", "send(", "transfer(")):
-                    add(evidence, "uses-low-level-call", node, "low-level-call-ir")
-                    add(evidence, "uses-external-call", node, "low-level-call-ir")
+                    add(evidence, "uses-low-level-call", node, "low-level-call-ir", "slither-ir")
+                    add(evidence, "uses-external-call", node, "low-level-call-ir", "slither-ir")
+                    if any(str(parameter).lower() in text for parameter in getattr(function, "parameters", [])):
+                        add(evidence, "uses-arbitrary-external-call", node, "parameterized-call-target", "slither-ir")
                 if any(type(ir).__name__ in {"HighLevelCall", "NewContract", "NewElementaryType"} for ir in getattr(node, "irs", [])):
-                    add(evidence, "uses-external-call", node, "external-call-ir")
+                    add(evidence, "uses-external-call", node, "external-call-ir", "slither-ir")
                 if "create2" in text or "newcontract" in text and "salt:" in text:
                     add(evidence, "uses-create2", node, "create2-ir")
                 if "msg.value" in text:
@@ -178,15 +191,22 @@ def build_feature_map(root: Path, target: Path, solc: str | None, confirm_absenc
     for feature in feature_names:
         values = sorted(detected.get(feature, set()))
         if values:
-            features[feature] = {"status": "PRESENT", "evidence": values}
-        elif confirm_absence and feature in DETECTOR_DESCRIPTIONS:
+            features[feature] = {
+                "status": "PRESENT",
+                "evidence": [{"kind": kind, "location": location, "reason": reason} for kind, location, reason in values],
+            }
+        elif confirm_absence and feature in ABSENCE_CAPABLE:
             features[feature] = {
                 "status": "ABSENT_CONFIRMED",
-                "evidence": [f"slither:complete-ast-scan detector={DETECTOR_DESCRIPTIONS[feature]} not found"],
+                "evidence": [{
+                    "kind": "slither-ast",
+                    "location": str(target.resolve()),
+                    "reason": f"Complete Slither traversal found no {DETECTOR_DESCRIPTIONS[feature]}",
+                }],
             }
         else:
             features[feature] = {"status": "UNKNOWN", "evidence": []}
-    return {"schema_version": 1, "features": features}
+    return {"schema_version": 2, "features": features}
 
 
 def main(argv: list[str] | None = None) -> int:

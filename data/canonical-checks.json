@@ -114,6 +114,56 @@
       "label": "Solidity private information and randomness",
       "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#private-information-and-randomness",
       "kind": "official"
+    },
+    "chainlink-sequencer-feeds": {
+      "label": "Chainlink L2 sequencer uptime feeds",
+      "url": "https://docs.chain.link/data-feeds/l2-sequencer-feeds",
+      "kind": "official"
+    },
+    "chainlink-selecting-feeds": {
+      "label": "Chainlink selecting data feeds",
+      "url": "https://docs.chain.link/data-feeds/selecting-data-feeds",
+      "kind": "official"
+    },
+    "arbitrum-l1-to-l2": {
+      "label": "Arbitrum parent-to-child messaging",
+      "url": "https://docs.arbitrum.io/how-arbitrum-works/deep-dives/l1-to-l2-messaging",
+      "kind": "official"
+    },
+    "arbitrum-l2-to-l1": {
+      "label": "Arbitrum child-to-parent messaging",
+      "url": "https://docs.arbitrum.io/how-arbitrum-works/deep-dives/l2-to-l1-messaging",
+      "kind": "official"
+    },
+    "op-stack-fees": {
+      "label": "OP Stack transaction fees",
+      "url": "https://docs.optimism.io/stack/transactions/fees",
+      "kind": "official"
+    },
+    "zksync-account-abstraction": {
+      "label": "ZKsync native account abstraction",
+      "url": "https://docs.zksync.io/zksync-protocol/account-abstraction",
+      "kind": "official"
+    },
+    "blast-eth-yield": {
+      "label": "Blast ETH yield modes",
+      "url": "https://docs.blast.io/building/guides/eth-yield",
+      "kind": "official"
+    },
+    "blast-weth-yield": {
+      "label": "Blast WETH and USDB yield modes",
+      "url": "https://docs.blast.io/building/guides/weth-yield",
+      "kind": "official"
+    },
+    "blast-gas-fees": {
+      "label": "Blast gas modes",
+      "url": "https://docs.blast.io/building/guides/gas-fees",
+      "kind": "official"
+    },
+    "eip-1559": {
+      "label": "EIP-1559 fee market",
+      "url": "https://eips.ethereum.org/EIPS/eip-1559",
+      "kind": "official"
     }
   },
   "checks": [
@@ -7786,7 +7836,8 @@
         "uses-time"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum"
     },
     {
       "canonical_id": "EVM-CHAIN-002",
@@ -7858,7 +7909,8 @@
         "uses-time"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum"
     },
     {
       "canonical_id": "EVM-CHAIN-003",
@@ -7931,7 +7983,8 @@
         "uses-chain-specific"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum"
     },
     {
       "canonical_id": "EVM-CHAIN-004",
@@ -7940,20 +7993,20 @@
       ],
       "primary_domain": "evm-audit-chain-specific",
       "section": "Arbitrum",
-      "title": "Sequencer downtime = stale oracle prices + delayed liquidations/auctions",
-      "description": "When the sequencer is down, no new transactions execute. When it resumes, oracle prices are stale, positions may have gone deeply underwater, and auctions started immediately after restart can give the first bidder an unfair catch-up window. Check the Chainlink sequencer uptime feed and apply grace periods before liquidation or auction start. Look for: L2 liquidation or auction paths without sequencer uptime and restart-grace checks. [multichain-auditor, beirao ARB-02]",
+      "title": "Gate L2 liquidations and auctions on sequencer status and recovery",
+      "description": "A sequencer outage can prevent timely user and keeper transactions while external markets continue moving. On recovery, stale state and queued actions can make immediate liquidations or auctions unsafe. Use the target network's supported uptime signal and a documented recovery grace period when the protocol depends on continuous sequencing.",
       "trigger": [
-        "When the sequencer is down, no new transactions execute. When it resumes, oracle prices are stale, positions may have gone deeply underwater, and auctions started immediately after restart can give the first bidder an unfair catch-up window. Check the Chainlink sequencer uptime feed and apply grace periods before liquidation or auction start. Look for: L2 liquidation or auction paths without sequencer uptime and restart-grace checks. [multichain-auditor, beirao ARB-02]"
+        "An L2 liquidation, auction, or time-sensitive keeper path assumes continuous sequencer availability."
       ],
-      "risk": "When the sequencer is down, no new transactions execute. When it resumes, oracle prices are stale, positions may have gone deeply underwater, and auctions started immediately after restart can give the first bidder an unfair catch-up window. Check the Chainlink sequencer uptime feed and apply grace periods before liquidation or auction start. Look for: L2 liquidation or auction paths without sequencer uptime and restart-grace checks. [multichain-auditor, beirao ARB-02]",
+      "risk": "Outage and recovery can concentrate stale liquidations, auctions, or keeper actions into the first executable blocks and violate assumptions about timely intervention.",
       "detection": [
-        "When the sequencer is down, no new transactions execute. When it resumes, oracle prices are stale, positions may have gone deeply underwater, and auctions started immediately after restart can give the first bidder an unfair catch-up window. Check the Chainlink sequencer uptime feed and apply grace periods before liquidation or auction start. Look for: L2 liquidation or auction paths without sequencer uptime and restart-grace checks. [multichain-auditor, beirao ARB-02]"
+        "Trace the target chain's sequencer status signal, recovery behavior, oracle updates, and the first executable liquidation or auction after recovery."
       ],
       "false_positive_gates": [
-        "Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding."
+        "The target has no centralized sequencer dependency, or the operation remains safe under a bounded outage and documented recovery procedure."
       ],
       "proof": [
-        "Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation."
+        "Simulate an outage and recovery with adverse external price movement and show whether the first executable actions preserve the protocol invariant."
       ],
       "type": "exploit-pattern",
       "confidence": "medium",
@@ -7964,6 +8017,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "chainlink-sequencer-feeds",
+          "label": "Chainlink L2 sequencer uptime feeds",
+          "url": "https://docs.chain.link/data-feeds/l2-sequencer-feeds",
+          "kind": "official",
+          "locator": "sequencer status and recovery grace period"
         }
       ],
       "related": [],
@@ -7977,8 +8037,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Chainlink L2 sequencer uptime feeds: sequencer status and recovery grace period"
       },
       "predicate": {
         "all_of": [],
@@ -7996,7 +8056,8 @@
         "uses-oracle"
       ],
       "freshness": "time-sensitive",
-      "verified_at": null
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum"
     },
     {
       "canonical_id": "EVM-CHAIN-005",
@@ -8064,7 +8125,8 @@
         "uses-chain-specific"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum"
     },
     {
       "canonical_id": "EVM-CHAIN-006",
@@ -8097,6 +8159,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "arbitrum-l2-to-l1",
+          "label": "Arbitrum child-to-parent messaging",
+          "url": "https://docs.arbitrum.io/how-arbitrum-works/deep-dives/l2-to-l1-messaging",
+          "kind": "official",
+          "locator": "challenge period and outbox execution"
         }
       ],
       "related": [],
@@ -8110,8 +8179,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Arbitrum child-to-parent messaging: challenge period and outbox execution"
       },
       "notes": [
         "### Address Aliasing"
@@ -8131,8 +8200,9 @@
         "uses-bridge",
         "uses-chain-specific"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum"
     },
     {
       "canonical_id": "EVM-CHAIN-007",
@@ -8165,6 +8235,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "arbitrum-l1-to-l2",
+          "label": "Arbitrum parent-to-child messaging",
+          "url": "https://docs.arbitrum.io/how-arbitrum-works/deep-dives/l1-to-l2-messaging",
+          "kind": "official",
+          "locator": "address aliasing for parent-chain contract senders"
         }
       ],
       "related": [],
@@ -8178,8 +8255,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Arbitrum parent-to-child messaging: address aliasing for parent-chain contract senders"
       },
       "predicate": {
         "all_of": [],
@@ -8192,8 +8269,9 @@
       "features": [
         "uses-chain-specific"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum"
     },
     {
       "canonical_id": "EVM-CHAIN-008",
@@ -8270,7 +8348,8 @@
         "uses-time"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "op-stack"
     },
     {
       "canonical_id": "EVM-CHAIN-009",
@@ -8303,6 +8382,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "op-stack-fees",
+          "label": "OP Stack transaction fees",
+          "url": "https://docs.optimism.io/stack/transactions/fees",
+          "kind": "official",
+          "locator": "execution gas and L1 data fee components"
         }
       ],
       "related": [],
@@ -8316,8 +8402,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "OP Stack transaction fees: execution gas and L1 data fee components"
       },
       "predicate": {
         "all_of": [],
@@ -8330,8 +8416,9 @@
       "features": [
         "uses-chain-specific"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30",
+      "chain": "op-stack"
     },
     {
       "canonical_id": "EVM-CHAIN-010",
@@ -8399,7 +8486,8 @@
         "uses-chain-specific"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "op-stack"
     },
     {
       "canonical_id": "EVM-CHAIN-011",
@@ -8432,6 +8520,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "zksync-account-abstraction",
+          "label": "ZKsync native account abstraction",
+          "url": "https://docs.zksync.io/zksync-protocol/account-abstraction",
+          "kind": "official",
+          "locator": "native account abstraction"
         }
       ],
       "related": [],
@@ -8445,8 +8540,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "ZKsync native account abstraction: native account abstraction"
       },
       "predicate": {
         "all_of": [],
@@ -8459,8 +8554,9 @@
       "features": [
         "uses-chain-specific"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30",
+      "chain": "zksync-era"
     },
     {
       "canonical_id": "EVM-CHAIN-012",
@@ -8493,6 +8589,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "zksync-evm-differences",
+          "label": "ZKsync Era EVM instruction differences",
+          "url": "https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions",
+          "kind": "official",
+          "locator": "EXTCODESIZE and system-contract differences"
         }
       ],
       "related": [],
@@ -8506,8 +8609,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "ZKsync Era EVM instruction differences: EXTCODESIZE and system-contract differences"
       },
       "predicate": {
         "all_of": [],
@@ -8522,8 +8625,9 @@
         "uses-assembly",
         "uses-chain-specific"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30",
+      "chain": "zksync-era"
     },
     {
       "canonical_id": "EVM-CHAIN-013",
@@ -8556,6 +8660,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "zksync-evm-differences",
+          "label": "ZKsync Era EVM instruction differences",
+          "url": "https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions",
+          "kind": "official",
+          "locator": "CREATE and CREATE2 address derivation"
         }
       ],
       "related": [],
@@ -8569,8 +8680,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "ZKsync Era EVM instruction differences: CREATE and CREATE2 address derivation"
       },
       "predicate": {
         "all_of": [],
@@ -8585,8 +8696,9 @@
         "uses-chain-specific",
         "uses-create2"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30",
+      "chain": "zksync-era"
     },
     {
       "canonical_id": "EVM-CHAIN-014",
@@ -8658,7 +8770,8 @@
         "uses-force-feed"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "zksync-era"
     },
     {
       "canonical_id": "EVM-CHAIN-015",
@@ -8704,8 +8817,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -8720,8 +8833,9 @@
         "uses-chain-specific",
         "uses-msg-value"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30",
+      "chain": "zksync-era"
     },
     {
       "canonical_id": "EVM-CHAIN-016",
@@ -8730,20 +8844,20 @@
       ],
       "primary_domain": "evm-audit-chain-specific",
       "section": "Blast",
-      "title": "Native yield accrual on ETH balances",
-      "description": "On Blast, ETH held by contracts automatically earns yield. If a contract's logic depends on `address(this).balance` being stable, the balance will drift upward. Look for: precise balance checks like `require(address(this).balance == expectedAmount)`. [Blast docs]",
+      "title": "Blast contract ETH yield depends on the configured yield mode",
+      "description": "Blast smart contracts default to Void yield, so their ETH balance does not rebase. A contract balance grows only after configuring Automatic yield; Claimable mode accrues yield separately. Accounting and governor logic must match the configured mode rather than assuming every contract balance grows.",
       "trigger": [
-        "On Blast, ETH held by contracts automatically earns yield. If a contract's logic depends on `address(this).balance` being stable, the balance will drift upward. Look for: precise balance checks like `require(address(this).balance == expectedAmount)`. [Blast docs]"
+        "A Blast deployment relies on ETH yield, stable native balances, or asynchronous yield claims."
       ],
-      "risk": "On Blast, ETH held by contracts automatically earns yield. If a contract's logic depends on `address(this).balance` being stable, the balance will drift upward. Look for: precise balance checks like `require(address(this).balance == expectedAmount)`. [Blast docs]",
+      "risk": "Accounting can drift or promised yield can disappear when the implementation assumes a different ETH yield mode than the deployed configuration.",
       "detection": [
-        "On Blast, ETH held by contracts automatically earns yield. If a contract's logic depends on `address(this).balance` being stable, the balance will drift upward. Look for: precise balance checks like `require(address(this).balance == expectedAmount)`. [Blast docs]"
+        "Read the deployed contract's yield mode and governor, then trace whether accounting uses rebasing balances or separately claimable yield."
       ],
       "false_positive_gates": [
-        "Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding."
+        "The deployment remains in Void mode and assumes no yield, or its accounting and access control explicitly implement the selected mode."
       ],
       "proof": [
-        "Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation."
+        "Exercise Void, Automatic, and Claimable configurations and show that balance and claim accounting match the selected mode."
       ],
       "type": "exploit-pattern",
       "confidence": "medium",
@@ -8754,6 +8868,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "blast-eth-yield",
+          "label": "Blast ETH yield modes",
+          "url": "https://docs.blast.io/building/guides/eth-yield",
+          "kind": "official",
+          "locator": "contract ETH yield modes and default void mode"
         }
       ],
       "related": [],
@@ -8767,8 +8888,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Blast ETH yield modes: contract ETH yield modes and default void mode"
       },
       "predicate": {
         "all_of": [],
@@ -8782,7 +8903,8 @@
         "uses-chain-specific"
       ],
       "freshness": "time-sensitive",
-      "verified_at": null
+      "verified_at": "2026-08-30",
+      "chain": "blast"
     },
     {
       "canonical_id": "EVM-CHAIN-017",
@@ -8815,6 +8937,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "blast-weth-yield",
+          "label": "Blast WETH and USDB yield modes",
+          "url": "https://docs.blast.io/building/guides/weth-yield",
+          "kind": "official",
+          "locator": "WETH and USDB automatic default yield mode"
         }
       ],
       "related": [],
@@ -8828,8 +8957,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Blast WETH and USDB yield modes: WETH and USDB automatic default yield mode"
       },
       "predicate": {
         "all_of": [],
@@ -8845,7 +8974,8 @@
         "uses-erc20"
       ],
       "freshness": "time-sensitive",
-      "verified_at": null
+      "verified_at": "2026-08-30",
+      "chain": "blast"
     },
     {
       "canonical_id": "EVM-CHAIN-018",
@@ -8854,20 +8984,20 @@
       ],
       "primary_domain": "evm-audit-chain-specific",
       "section": "Blast",
-      "title": "Gas refund claim",
-      "description": "Blast refunds gas fees to contracts. If the contract doesn't implement yield/gas claiming, the refund is stuck. Look for: Blast contracts without `IBlast.claimAllGas()` functionality. [Blast docs]",
+      "title": "Blast gas fees require claimable mode and deliberate governor control",
+      "description": "Blast contracts default to Void gas mode, which leaves fees with the sequencer operator. Gas fees are claimable only after configuring Claimable mode, and the governor controls configuration and claims. Treat unclaimed gas as an optional revenue decision, not automatically stuck protocol funds.",
       "trigger": [
-        "Blast refunds gas fees to contracts. If the contract doesn't implement yield/gas claiming, the refund is stuck. Look for: Blast contracts without `IBlast.claimAllGas()` functionality. [Blast docs]"
+        "A Blast deployment promises gas-fee revenue or exposes gas-mode and governor configuration."
       ],
-      "risk": "Blast refunds gas fees to contracts. If the contract doesn't implement yield/gas claiming, the refund is stuck. Look for: Blast contracts without `IBlast.claimAllGas()` functionality. [Blast docs]",
+      "risk": "A mismatched gas mode or governor can invalidate promised revenue or give an unintended party control over gas-fee claims.",
       "detection": [
-        "Blast refunds gas fees to contracts. If the contract doesn't implement yield/gas claiming, the refund is stuck. Look for: Blast contracts without `IBlast.claimAllGas()` functionality. [Blast docs]"
+        "Inspect gas mode, governor assignment, claim authorization, recipient selection, and whether the product actually promises gas revenue."
       ],
       "false_positive_gates": [
-        "Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding."
+        "Void mode is intentional, or Claimable mode and governor permissions match the documented revenue policy."
       ],
       "proof": [
-        "Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation."
+        "Exercise configuration and claim paths from authorized and unauthorized callers and reconcile claimed value with the documented policy."
       ],
       "type": "exploit-pattern",
       "confidence": "medium",
@@ -8878,6 +9008,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "blast-gas-fees",
+          "label": "Blast gas modes",
+          "url": "https://docs.blast.io/building/guides/gas-fees",
+          "kind": "official",
+          "locator": "default void gas mode and claimable mode"
         }
       ],
       "related": [],
@@ -8891,8 +9028,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Blast gas modes: default void gas mode and claimable mode"
       },
       "predicate": {
         "all_of": [],
@@ -8906,7 +9043,8 @@
         "uses-chain-specific"
       ],
       "freshness": "time-sensitive",
-      "verified_at": null
+      "verified_at": "2026-08-30",
+      "chain": "blast"
     },
     {
       "canonical_id": "EVM-CHAIN-019",
@@ -8952,8 +9090,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -8968,8 +9106,9 @@
         "uses-chain-specific",
         "uses-erc20"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30",
+      "chain": "bnb-smart-chain"
     },
     {
       "canonical_id": "EVM-CHAIN-020",
@@ -9037,7 +9176,8 @@
         "uses-chain-specific"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "bnb-smart-chain"
     },
     {
       "canonical_id": "EVM-CHAIN-021",
@@ -9083,8 +9223,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -9099,8 +9239,9 @@
         "uses-assembly",
         "uses-bridge"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30",
+      "chain": "bnb-smart-chain"
     },
     {
       "canonical_id": "EVM-CHAIN-022",
@@ -9168,7 +9309,8 @@
         "uses-erc20"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "polygon-pos"
     },
     {
       "canonical_id": "EVM-CHAIN-023",
@@ -9214,8 +9356,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -9228,8 +9370,8 @@
       "features": [
         "uses-chain-specific"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-024",
@@ -9275,8 +9417,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -9291,8 +9433,8 @@
         "uses-chain-specific",
         "uses-erc20"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-026",
@@ -9325,6 +9467,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "eip-1559",
+          "label": "EIP-1559 fee market",
+          "url": "https://eips.ethereum.org/EIPS/eip-1559",
+          "kind": "official",
+          "locator": "fee-market parameters are protocol configuration"
         }
       ],
       "related": [],
@@ -9338,8 +9487,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "EIP-1559 fee market: fee-market parameters are protocol configuration"
       },
       "predicate": {
         "all_of": [
@@ -9352,8 +9501,8 @@
       "features": [
         "uses-chain-specific"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-027",
@@ -9399,8 +9548,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -9417,8 +9566,8 @@
         "uses-chain-specific",
         "uses-erc20"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-028",
@@ -9464,8 +9613,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -9482,8 +9631,8 @@
         "uses-bridge",
         "uses-create2"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-029",
@@ -9584,6 +9733,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "chainlink-selecting-feeds",
+          "label": "Chainlink selecting data feeds",
+          "url": "https://docs.chain.link/data-feeds/selecting-data-feeds",
+          "kind": "official",
+          "locator": "feed-specific heartbeat and deviation threshold"
         }
       ],
       "related": [],
@@ -9597,8 +9753,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Chainlink selecting data feeds: feed-specific heartbeat and deviation threshold"
       },
       "predicate": {
         "all_of": [],
@@ -9615,8 +9771,8 @@
         "uses-math",
         "uses-oracle"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-031",
@@ -9663,6 +9819,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "chainlink-selecting-feeds",
+          "label": "Chainlink selecting data feeds",
+          "url": "https://docs.chain.link/data-feeds/selecting-data-feeds",
+          "kind": "official",
+          "locator": "feed proxy and aggregator configuration"
         }
       ],
       "related": [],
@@ -9676,8 +9839,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Chainlink selecting data feeds: feed proxy and aggregator configuration"
       },
       "predicate": {
         "all_of": [],
@@ -9692,8 +9855,8 @@
         "uses-chain-specific",
         "uses-oracle"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-032",
@@ -9765,7 +9928,8 @@
         "uses-math"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum-orbit"
     },
     {
       "canonical_id": "EVM-CHAIN-033",
@@ -9798,6 +9962,13 @@
           "url": null,
           "kind": "legacy",
           "source_key": "legacy-markdown"
+        },
+        {
+          "source_key": "arbitrum-custom-gas",
+          "label": "Arbitrum custom gas token chains",
+          "url": "https://docs.arbitrum.io/arbitrum-essentials/bridging/custom-gas-token-chains",
+          "kind": "official",
+          "locator": "custom gas token denomination"
         }
       ],
       "related": [],
@@ -9811,8 +9982,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Arbitrum custom gas token chains: custom gas token denomination"
       },
       "predicate": {
         "all_of": [],
@@ -9829,8 +10000,9 @@
         "uses-erc20",
         "uses-math"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "versioned",
+      "verified_at": "2026-08-30",
+      "chain": "arbitrum-orbit"
     },
     {
       "canonical_id": "EVM-CHAIN-034",
@@ -9876,8 +10048,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -9892,8 +10064,8 @@
         "uses-chain-specific",
         "uses-low-level-call"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-035",
@@ -9939,8 +10111,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -9955,8 +10127,8 @@
         "uses-amm",
         "uses-chain-specific"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-036",
@@ -10002,8 +10174,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -10020,8 +10192,8 @@
         "uses-chain-specific",
         "uses-erc20"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-037",
@@ -10102,7 +10274,8 @@
         "uses-low-level-call"
       ],
       "freshness": "time-sensitive",
-      "verified_at": "2026-08-30"
+      "verified_at": "2026-08-30",
+      "chain": "zksync-era"
     },
     {
       "canonical_id": "EVM-CHAIN-038",
@@ -10112,7 +10285,7 @@
       "primary_domain": "evm-audit-chain-specific",
       "section": "Multichain Deployment Gotchas (Expanded from Multichain-Auditor)",
       "title": "Same-name tokens can have different callback behavior",
-      "description": "Token callback behavior is a property of the deployed token and its upgrade history, not its symbol or chain label. Historical incidents on Gnosis demonstrate why integrations must inspect the exact contract and protect accounting around arbitrary token callbacks.",
+      "description": "Token callback behavior is a property of the deployed token and its upgrade history, not its symbol or chain label. Inspect the exact contract and protect accounting around arbitrary token callbacks.",
       "trigger": [
         "A multichain integration grants trust based on a token symbol or origin chain without checking callback-capable behavior."
       ],
@@ -10148,8 +10321,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "predicate": {
         "all_of": [],
@@ -10168,8 +10341,8 @@
         "uses-erc20",
         "uses-reentrancy-callback"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-CHAIN-039",
@@ -10217,8 +10390,8 @@
         }
       ],
       "verification": {
-        "status": "qualified",
-        "basis": "legacy checklist migration; verify against the cited source before changing confidence"
+        "status": "verified",
+        "basis": "Reviewed as a deployment-specific invariant with no mutable numeric or address claim"
       },
       "origin_notes": [
         "`sanbir/solidity-auditor-skills` AV-186"
@@ -10236,8 +10409,8 @@
         "uses-chain-specific",
         "uses-time"
       ],
-      "freshness": "time-sensitive",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": "2026-08-30"
     },
     {
       "canonical_id": "EVM-AMM-001",

@@ -1,0 +1,1 @@
+{"id":"evm-audit-erc20","name":"ERC20 Integration Security","checklist_title":"Weird ERC20 Security Checklist","description":"Security review for contracts that implement or integrate ERC20-compatible tokens.","surface_features":["uses-erc20"],"related_domains":["evm-audit-general","evm-audit-precision-math"]}

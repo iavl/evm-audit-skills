@@ -1,0 +1,1 @@
+{"id":"evm-audit-general","name":"General Solidity/EVM Security","checklist_title":"General Solidity/EVM Security Checklist","description":"General Solidity and EVM security review for every smart contract.","surface_features":["uses-general"],"related_domains":["evm-audit-precision-math"]}

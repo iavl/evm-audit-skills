@@ -13,7 +13,8 @@ from datetime import date
 from pathlib import Path
 
 from scripts.check_knowledge_health import knowledge_health
-from scripts.select_checks import evaluate_group, normalize_feature_map, select, vocabulary
+from scripts.generate_checklists import load_domains, write_outputs
+from scripts.select_checks import compact_check, evaluate_group, normalize_feature_map, select, vocabulary
 from scripts.validate_checklists import validate_knowledge_claims, validate_review_ledger_text, validate_routing_manifest
 
 
@@ -51,6 +52,31 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         after = hashlib.sha256(registry_path.read_bytes()).hexdigest()
         self.assertEqual(before, after)
+
+    def test_domain_configuration_drives_generated_skills(self) -> None:
+        domains = load_domains(ROOT)
+        self.assertEqual(set(domains), {path.parent.name for path in ROOT.glob("evm-audit-*/SKILL.md") if path.parent.name != "evm-audit-master"})
+        source = (ROOT / "scripts/generate_checklists.py").read_text(encoding="utf-8")
+        self.assertNotIn("DOMAIN_CODES", source)
+        self.assertNotIn("DOMAIN_TITLES", source)
+        for domain in domains:
+            skill = (ROOT / domain / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn(f"--domain {domain}", skill)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "domains").mkdir()
+            (root / "domains/example.json").write_text(json.dumps({
+                "id": "evm-audit-example",
+                "name": "Example",
+                "checklist_title": "Example Checklist",
+                "description": "Example domain.",
+                "surface_features": ["uses-example"],
+                "related_domains": [],
+            }), encoding="utf-8")
+            write_outputs({"checks": []}, root)
+            self.assertTrue((root / "evm-audit-example/SKILL.md").exists())
+            self.assertTrue((root / "evm-audit-example/references/checklist.md").exists())
 
     def test_knowledge_claims_and_forbidden_regressions(self) -> None:
         claims = load_json(ROOT / "tests/knowledge/claims.json")["claims"]
@@ -192,6 +218,15 @@ class ChecklistTests(unittest.TestCase):
                 "schema_version": 1,
                 "features": {"a": {"status": "ABSENT_CONFIRMED"}},
             }, {"a"})
+        with self.assertRaises(ValueError):
+            normalize_feature_map({"schema_version": 2, "features": {"a": "UNKNOWN"}}, {"a"})
+
+    def test_v1_feature_evidence_is_normalized_to_typed_v2_shape(self) -> None:
+        feature_map = normalize_feature_map({
+            "schema_version": 1,
+            "features": {"a": {"status": "PRESENT", "evidence": ["A.sol:1"]}},
+        }, {"a"})
+        self.assertEqual(feature_map["a"]["evidence"], [{"kind": "legacy", "location": "unspecified", "reason": "A.sol:1"}])
 
     def test_fee_forward_inverse_algebra_and_rounding(self) -> None:
         gross = 1_000
@@ -257,13 +292,19 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(full_result.returncode, 0, full_result.stderr)
         self.assertLess(len(result.stdout), len(full_result.stdout))
 
+    def test_compact_profile_contains_only_review_fields(self) -> None:
+        compact = compact_check(self.by_id["ERC4626-ROUND-001"], "compact")
+        self.assertEqual(set(compact), {"canonical_id", "title", "trigger", "detection", "false_positive_gates", "proof"})
+        full = compact_check(self.by_id["ERC4626-ROUND-001"], "full")
+        self.assertTrue({"description", "risk", "freshness", "predicate", "verification", "provenance"} <= set(full))
+
     def test_routing_manifest_covers_scope_and_shared_owner(self) -> None:
         feature_data = load_json(ROOT / "data/features.json")
         names, _ = vocabulary(feature_data)
         feature_map = {
             name: {
                 "status": "PRESENT" if name == "uses-math" else "ABSENT_CONFIRMED",
-                "evidence": ["fixture: explicit scope evidence"],
+                "evidence": [{"kind": "manual", "location": "fixture", "reason": "explicit scope evidence"}],
             }
             for name in names
         }
@@ -273,6 +314,8 @@ class ChecklistTests(unittest.TestCase):
             names,
             ["evm-audit-general", "evm-audit-precision-math"],
         )
+        self.assertEqual(manifest["schema_version"], 3)
+        self.assertIn("target_repo_commit", manifest["audit_context"])
         shared = next(item for item in manifest["selected"] + manifest["filtered"] if item["canonical_id"] == "EVM-TIME-001")
         self.assertEqual(shared["owner_domain"], "evm-audit-precision-math")
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -299,6 +342,11 @@ class ChecklistTests(unittest.TestCase):
                             "- **Evidence**: fixture\n\n"
                         )
                 ledgers.append(ledger_path)
+            self.assertEqual(validate_routing_manifest(ROOT, manifest_path, ledgers), [])
+            legacy_manifest = json.loads(json.dumps(manifest))
+            legacy_manifest["schema_version"] = 2
+            legacy_manifest["audit_context"]["target_commit"] = legacy_manifest["audit_context"].pop("target_repo_commit")
+            manifest_path.write_text(json.dumps(legacy_manifest), encoding="utf-8")
             self.assertEqual(validate_routing_manifest(ROOT, manifest_path, ledgers), [])
 
     def test_recon_uses_slither_evidence_and_confirms_supported_absence(self) -> None:
@@ -332,8 +380,24 @@ class ChecklistTests(unittest.TestCase):
         ):
             with self.subTest(feature=feature):
                 self.assertEqual(feature_map[feature]["status"], "PRESENT")
-                self.assertTrue(all(item.startswith("slither:") for item in feature_map[feature]["evidence"]))
+                self.assertTrue(all(item["kind"].startswith("slither-") for item in feature_map[feature]["evidence"]))
         self.assertEqual(feature_map["uses-flash-loan"]["status"], "UNKNOWN")
+        self.assertEqual(feature_map["uses-arbitrary-external-call"]["status"], "PRESENT")
+        self.assertEqual(feature_map["uses-access-control"]["status"], "PRESENT")
+
+    def test_recon_only_confirms_structurally_safe_absence(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "scripts/recon.py", "tests/fixtures/recon/Empty.sol", "--solc", str(Path("/usr/local/bin/solc")) if Path("/usr/local/bin/solc").exists() else "solc"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        features = json.loads(result.stdout)["features"]
+        for feature in ("uses-assembly", "uses-dynamic-loop", "uses-msg-value", "uses-payable"):
+            self.assertEqual(features[feature]["status"], "ABSENT_CONFIRMED")
+        for feature in ("uses-delegatecall", "uses-proxy", "uses-oracle", "uses-signature", "uses-reentrancy-callback", "uses-arbitrary-external-call", "uses-multicall"):
+            self.assertEqual(features[feature]["status"], "UNKNOWN")
 
     def test_routing_manifest_reports_invalid_feature_map_without_crashing(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as manifest_file:
@@ -362,7 +426,7 @@ class ChecklistTests(unittest.TestCase):
                 self.assertIn("Pattern matches are candidates, not findings", text)
                 self.assertIn("reachable path", text)
                 self.assertIn("tri-state predicate router", text)
-                self.assertIn("Do not load `../data/canonical-checks.json`", text)
+                self.assertIn("Do not load `<suite-root>/data/canonical-checks.json`", text)
 
     def test_review_contract_keeps_suspicious_out_of_severity(self) -> None:
         text = (ROOT / "evm-audit-master/references/check-review-contract.md").read_text(encoding="utf-8")
@@ -374,10 +438,12 @@ class ChecklistTests(unittest.TestCase):
     def test_knowledge_claim_coverage_is_complete(self) -> None:
         self.assertEqual(validate_knowledge_claims(ROOT), [])
 
-    def test_freshness_health_flags_unverified_versioned_knowledge(self) -> None:
+    def test_freshness_health_keeps_unverified_versioned_knowledge_advisory(self) -> None:
         report = knowledge_health(ROOT, today=date(2026, 8, 30), check_links=False, timeout=1)
-        ids = {finding.get("canonical_id") for finding in report["findings"]}
-        self.assertIn("EVM-CHAIN-004", ids)
+        finding = next(item for item in report["findings"] if item.get("canonical_id") == "EVM-BRIDGE-001")
+        self.assertEqual(finding["severity"], "advisory")
+        self.assertEqual(report["error_count"], 0)
+        ids = {item.get("canonical_id") for item in report["findings"]}
         self.assertNotIn("EVM-CHAIN-010", ids)
         self.assertNotIn("EVM-CHAIN-020", ids)
         self.assertNotIn("EVM-CHAIN-022", ids)

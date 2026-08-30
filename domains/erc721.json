@@ -1,0 +1,1 @@
+{"id":"evm-audit-erc721","name":"ERC721 and ERC1155 Security","checklist_title":"ERC721/ERC1155 Security Checklist","description":"Security review for ERC721, ERC1155, NFT implementations, and NFT integrations.","surface_features":["uses-erc721"],"related_domains":["evm-audit-general","evm-audit-access-control"]}

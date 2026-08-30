@@ -1,18 +1,22 @@
 ---
 name: evm-audit-erc721
-description: EVM smart contract audit checklist for ERC721/ERC1155 tokens. Covers weird NFT behaviors, dual-standard tokens, wrapped/legacy collections, permit issues, fractionalization, pausability, blacklists, and upgradeable NFTs. Use when auditing protocols that interact with arbitrary ERC721/ERC1155 tokens; consume routed selected-check bodies at runtime.
+description: Security review for ERC721, ERC1155, NFT implementations, and NFT integrations. Consume routed selected-check bodies at runtime.
 ---
-
-# ERC721/ERC1155 Audit Skill
-
-## Overview
-Non-obvious security edge cases for protocols interacting with ERC721 and ERC1155 tokens. Based on real-world token behaviors that have caused exploits.
+# ERC721 and ERC1155 Security
 
 ## Audit Contract
-When this skill is invoked directly or via the master skill:
-1. Read `../evm-audit-master/references/check-review-contract.md` and use canonical IDs embedded in the routed selected-check output.
-2. Do not load `../data/canonical-checks.json` into model context; it is a machine-only source. Pattern matches are candidates, not findings; apply the tri-state predicate router before deep review.
-3. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and PoC or deterministic invariant evidence.
+When invoked directly, run the shared pipeline for `evm-audit-erc721` only:
 
-## Reference Files
-- **references/checklist.md** — Generated maintenance/compatibility view; review selected check bodies emitted by the router instead of loading it wholesale.
+Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
+
+1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
+2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-erc721 --format json > routing-manifest.json`.
+3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-erc721 --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
+4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-evm-audit-erc721.md`.
+
+Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
+
+Related domains (advisory only; never auto-expand direct scope): `evm-audit-general`, `evm-audit-access-control`.
+
+## Maintenance View
+- `references/checklist.md` is generated for maintenance and compatibility.

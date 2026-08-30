@@ -9,7 +9,6 @@ rewrites canonical records. Historical transformations live under
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import sys
 from pathlib import Path
@@ -19,59 +18,27 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "data" / "canonical-checks.json"
 
-DOMAIN_CODES = {
-    "evm-audit-general": "GEN",
-    "evm-audit-precision-math": "MATH",
-    "evm-audit-erc20": "ERC20",
-    "evm-audit-defi-amm": "AMM",
-    "evm-audit-defi-lending": "LEND",
-    "evm-audit-defi-staking": "STK",
-    "evm-audit-erc4626": "ERC4626",
-    "evm-audit-erc4337": "ERC4337",
-    "evm-audit-bridges": "BRIDGE",
-    "evm-audit-proxies": "PROXY",
-    "evm-audit-signatures": "SIG",
-    "evm-audit-governance": "GOV",
-    "evm-audit-oracles": "ORACLE",
-    "evm-audit-assembly": "ASM",
-    "evm-audit-chain-specific": "CHAIN",
-    "evm-audit-flashloans": "FLASH",
-    "evm-audit-erc721": "ERC721",
-    "evm-audit-dos": "DOS",
-    "evm-audit-access-control": "ACCESS",
-}
-
-DOMAIN_TITLES = {
-    "evm-audit-general": "General Solidity/EVM Security Checklist",
-    "evm-audit-precision-math": "Precision & Math Security Checklist",
-    "evm-audit-erc20": "Weird ERC20 Security Checklist",
-    "evm-audit-defi-amm": "AMM & DEX Security Checklist",
-    "evm-audit-defi-lending": "Lending & Liquidation Security Checklist",
-    "evm-audit-defi-staking": "Staking & LSD Security Checklist",
-    "evm-audit-erc4626": "ERC4626 Vault Security Checklist",
-    "evm-audit-erc4337": "ERC4337 Account Abstraction Security Checklist",
-    "evm-audit-bridges": "Bridge & Cross-Chain Security Checklist",
-    "evm-audit-proxies": "Proxy & Upgrade Security Checklist",
-    "evm-audit-signatures": "Signature Security Checklist",
-    "evm-audit-governance": "Governance & DAO Security Checklist",
-    "evm-audit-oracles": "Oracle & Pricing Security Checklist",
-    "evm-audit-assembly": "Assembly & Opcode Security Checklist",
-    "evm-audit-chain-specific": "Chain-Specific Security Checklist",
-    "evm-audit-flashloans": "Flash Loan Security Checklist",
-    "evm-audit-erc721": "ERC721/ERC1155 Security Checklist",
-    "evm-audit-dos": "DoS & Griefing Security Checklist",
-    "evm-audit-access-control": "Access Control Security Checklist",
-}
-
 
 def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def normalize_registry(registry: dict[str, Any]) -> dict[str, Any]:
-    """Compatibility helper that isolates input without changing knowledge."""
+    """Compatibility helper retained for callers; canonical data is untouched."""
 
-    return copy.deepcopy(registry)
+    return registry
+
+
+def load_domains(root: Path = ROOT) -> dict[str, dict[str, Any]]:
+    domains: dict[str, dict[str, Any]] = {}
+    for path in sorted((root / "domains").glob("*.json")):
+        if path.name == "domain.schema.json":
+            continue
+        domain = json.loads(path.read_text(encoding="utf-8"))
+        if domain["id"] in domains:
+            raise ValueError(f"duplicate domain id: {domain['id']}")
+        domains[domain["id"]] = domain
+    return domains
 
 
 def one_line(value: Any) -> str:
@@ -122,12 +89,13 @@ def render_alias(item: dict[str, Any]) -> list[str]:
     ]
 
 
-def render_domain(registry: dict[str, Any], domain: str) -> str:
+def render_domain(registry: dict[str, Any], config: dict[str, Any]) -> str:
+    domain = config["id"]
     items = [item for item in registry["checks"] if domain in item.get("domains", [])]
     sections = list(dict.fromkeys(item.get("section", "Uncategorized") for item in items))
     output = [
         "<!-- GENERATED FILE: source is ../../data/canonical-checks.json; do not edit by hand. -->",
-        f"# {DOMAIN_TITLES.get(domain, domain)}",
+        f"# {config['checklist_title']}",
         "",
         "Each entry has a stable canonical ID, a type/confidence label, and an explicit evidence path. Shared entries are deduplicated by canonical ID.",
         "",
@@ -142,15 +110,63 @@ def render_domain(registry: dict[str, Any], domain: str) -> str:
     return "\n".join(output).rstrip() + "\n"
 
 
+def render_skill(config: dict[str, Any]) -> str:
+    domain = config["id"]
+    related = ", ".join(f"`{value}`" for value in config["related_domains"]) or "none"
+    return f"""---
+name: {domain}
+description: {config['description']} Consume routed selected-check bodies at runtime.
+---
+# {config['name']}
+
+## Audit Contract
+When invoked directly, run the shared pipeline for `{domain}` only:
+
+Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
+
+1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
+2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain {domain} --format json > routing-manifest.json`.
+3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain {domain} --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
+4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-{domain}.md`.
+
+Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
+
+Related domains (advisory only; never auto-expand direct scope): {related}.
+
+## Maintenance View
+- `references/checklist.md` is generated for maintenance and compatibility.
+"""
+
+
+def render_domain_catalog(registry: dict[str, Any], domains: dict[str, dict[str, Any]]) -> str:
+    lines = [
+        "<!-- GENERATED FILE: source is domains/*.json and data/canonical-checks.json; do not edit by hand. -->",
+        "# Domain Catalog",
+        "",
+        "| Domain | Purpose | Surface features | Related domains | Runtime entries |",
+        "|---|---|---|---|---:|",
+    ]
+    for domain, config in domains.items():
+        count = sum(domain in check.get("domains", []) for check in registry["checks"])
+        features = ", ".join(f"`{value}`" for value in config["surface_features"])
+        related = ", ".join(f"`{value}`" for value in config["related_domains"]) or "—"
+        lines.append(f"| `{domain}` | {config['description']} | {features} | {related} | {count} |")
+    return "\n".join(lines) + "\n"
+
+
 def generated_outputs(registry: dict[str, Any], root: Path) -> dict[Path, str]:
-    return {
-        root / domain / "references" / "checklist.md": render_domain(registry, domain)
-        for domain in DOMAIN_CODES
-    }
+    domains = load_domains(root)
+    outputs: dict[Path, str] = {}
+    for domain, config in domains.items():
+        outputs[root / domain / "references" / "checklist.md"] = render_domain(registry, config)
+        outputs[root / domain / "SKILL.md"] = render_skill(config)
+    outputs[root / "evm-audit-master" / "references" / "domains.md"] = render_domain_catalog(registry, domains)
+    return outputs
 
 
 def write_outputs(registry: dict[str, Any], root: Path) -> None:
     for path, content in generated_outputs(registry, root).items():
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 
 
@@ -180,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"canonical_checks={len(registry.get('checks', []))} generated_errors={len(errors)}")
             return 1 if errors else 0
         write_outputs(registry, root)
-        print(f"canonical_checks={len(registry.get('checks', []))} generated={len(DOMAIN_CODES)}")
+        print(f"canonical_checks={len(registry.get('checks', []))} generated={len(load_domains(root))}")
         return 0
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)

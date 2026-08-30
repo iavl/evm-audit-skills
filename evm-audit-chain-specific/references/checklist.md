@@ -28,10 +28,13 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Provenance:** multichain-auditor; [Arbitrum gas and fees](https://docs.arbitrum.io/how-arbitrum-works/deep-dives/gas-and-fees)
   - **Notes:** ### Sequencer & Retryable Tickets
 
-- [ ] **[EVM-CHAIN-004] Sequencer downtime = stale oracle prices + delayed liquidations/auctions** _(exploit-pattern; medium)_: When the sequencer is down, no new transactions execute. When it resumes, oracle prices are stale, positions may have gone deeply underwater, and auctions started immediately after restart can give the first bidder an unfair catch-up window. Check the Chainlink sequencer uptime feed and apply grace periods before liquidation or auction start. Look for: L2 liquidation or auction paths without sequencer uptime and restart-grace checks. [multichain-auditor, beirao ARB-02]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor, beirao ARB-02
+- [ ] **[EVM-CHAIN-004] Gate L2 liquidations and auctions on sequencer status and recovery** _(exploit-pattern; medium)_: A sequencer outage can prevent timely user and keeper transactions while external markets continue moving. On recovery, stale state and queued actions can make immediate liquidations or auctions unsafe. Use the target network's supported uptime signal and a documented recovery grace period when the protocol depends on continuous sequencing.
+  - **Trigger:** An L2 liquidation, auction, or time-sensitive keeper path assumes continuous sequencer availability.
+  - **Risk:** Outage and recovery can concentrate stale liquidations, auctions, or keeper actions into the first executable blocks and violate assumptions about timely intervention.
+  - **Detection:** Trace the target chain's sequencer status signal, recovery behavior, oracle updates, and the first executable liquidation or auction after recovery.
+  - **FP:** The target has no centralized sequencer dependency, or the operation remains safe under a bounded outage and documented recovery procedure.
+  - **Proof:** Simulate an outage and recovery with adverse external price movement and show whether the first executable actions preserve the protocol invariant.
+  - **Provenance:** multichain-auditor, beirao ARB-02; [Chainlink L2 sequencer uptime feeds](https://docs.chain.link/data-feeds/l2-sequencer-feeds)
 
 - [ ] **[EVM-CHAIN-005] Retryable ticket failure, expiry, and refunds require explicit handling** _(exploit-pattern; medium)_: An Arbitrum retryable ticket can fail automatic redemption and require manual redemption before its configured lifetime expires. Expiry and refund destinations are part of the value-flow model; do not summarize every failed auto-redeem as permanent fund loss.
   - **Trigger:** A parent-to-child flow assumes auto-redemption always succeeds or does not track the ticket lifecycle and refund addresses.
@@ -47,13 +50,13 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Detection:** Resolve the exact chain, bridge, challenge configuration, and finality signal used by the withdrawal path.
   - **FP:** The integration consumes the bridge's current finality state and separately handles configured expiry and retry behavior.
   - **Proof:** Measure the message lifecycle on the declared chain and bridge and compare the release condition with the configured finality requirement.
-  - **Provenance:** Arbitrum docs
+  - **Provenance:** Arbitrum docs; [Arbitrum child-to-parent messaging](https://docs.arbitrum.io/how-arbitrum-works/deep-dives/l2-to-l1-messaging)
   - **Notes:** ### Address Aliasing
 
 - [ ] **[EVM-CHAIN-007] L1→L2 msg.sender is aliased** _(exploit-pattern; medium)_: When an L1 contract sends a message to L2, the `msg.sender` on L2 is `L1_address + 0x1111000000000000000000000000000000001111`. If access control on L2 checks the raw L1 address, it will ALWAYS fail. Must un-alias the sender. Look for: L1→L2 access control that compares `msg.sender` directly with an L1 contract address. [multichain-auditor, beirao ARB-03]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor, beirao ARB-03
+  - **Provenance:** multichain-auditor, beirao ARB-03; [Arbitrum parent-to-child messaging](https://docs.arbitrum.io/how-arbitrum-works/deep-dives/l1-to-l2-messaging)
 
 ## Optimism / Base / OP Stack
 
@@ -71,7 +74,7 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Detection:** Trace the Gas Price Oracle or equivalent fee parameters and verify units, compression, and the target chain's current formula.
   - **FP:** The integration uses the chain's documented fee oracle or RPC estimate for the exact transaction payload.
   - **Proof:** Compare the implementation's estimate with the target chain's fee components for representative calldata sizes and parameter changes.
-  - **Provenance:** multichain-auditor
+  - **Provenance:** multichain-auditor; [OP Stack transaction fees](https://docs.optimism.io/stack/transactions/fees)
 
 - [ ] **[EVM-CHAIN-010] OP Stack PREVRANDAO reflects the current L1 origin** _(exploit-pattern; medium)_: On OP Stack, `block.prevrandao` returns the PREVRANDAO value from the current L1 origin block rather than an independently generated per-L2-block randomness source. Do not assume that it provides fresh entropy for every L2 block.
   - **Trigger:** An OP Stack deployment uses `block.prevrandao` or `block.difficulty` for randomness, uniqueness, lotteries, or commit selection.
@@ -86,17 +89,17 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 - [ ] **[EVM-CHAIN-011] `msg.sender == tx.origin` is not an EOA proof on L2s** _(exploit-pattern; medium)_: zkSync Era has native account abstraction, and L2 message paths on other stacks can also make `tx.origin == msg.sender` appear true for a contract-originated action. This breaks EOA-only checks. Look for: `require(msg.sender == tx.origin)` as a contract-blocking mechanism on any supported L2. [multichain-auditor]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+  - **Provenance:** multichain-auditor; [ZKsync native account abstraction](https://docs.zksync.io/zksync-protocol/account-abstraction)
 
 - [ ] **[EVM-CHAIN-012] `EXTCODESIZE` returns 0 for non-EVM contracts** _(exploit-pattern; medium)_: zkSync has system contracts and native AA accounts that are contracts but return 0 for `extcodesize`. Look for: `extcodesize`-based contract detection. [multichain-auditor]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+  - **Provenance:** multichain-auditor; [ZKsync Era EVM instruction differences](https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions)
 
 - [ ] **[EVM-CHAIN-013] Different CREATE/CREATE2 address derivation** _(exploit-pattern; medium)_: zkSync uses a different formula for CREATE/CREATE2 addresses than EVM. Counterfactual addresses computed using the EVM formula will be wrong. Look for: off-chain address pre-computation using standard EVM CREATE2 formula. [multichain-auditor]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+  - **Provenance:** multichain-auditor; [ZKsync Era EVM instruction differences](https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions)
 
 - [ ] **[EVM-CHAIN-014] Opcode support and SELFDESTRUCT semantics are chain- and fork-specific** _(semantic; high)_: Do not assume that an opcode's availability or behavior is identical across EVM-compatible chains. In particular, SELFDESTRUCT behavior depends on the chain's adopted fork rules, while custom execution environments may differ in supported opcodes or precompiles.
   - **Trigger:** The contract uses an opcode whose support or semantics may differ on the declared target chain.
@@ -116,20 +119,26 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 
 ## Blast
 
-- [ ] **[EVM-CHAIN-016] Native yield accrual on ETH balances** _(exploit-pattern; medium)_: On Blast, ETH held by contracts automatically earns yield. If a contract's logic depends on `address(this).balance` being stable, the balance will drift upward. Look for: precise balance checks like `require(address(this).balance == expectedAmount)`. [Blast docs]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** Blast docs
+- [ ] **[EVM-CHAIN-016] Blast contract ETH yield depends on the configured yield mode** _(exploit-pattern; medium)_: Blast smart contracts default to Void yield, so their ETH balance does not rebase. A contract balance grows only after configuring Automatic yield; Claimable mode accrues yield separately. Accounting and governor logic must match the configured mode rather than assuming every contract balance grows.
+  - **Trigger:** A Blast deployment relies on ETH yield, stable native balances, or asynchronous yield claims.
+  - **Risk:** Accounting can drift or promised yield can disappear when the implementation assumes a different ETH yield mode than the deployed configuration.
+  - **Detection:** Read the deployed contract's yield mode and governor, then trace whether accounting uses rebasing balances or separately claimable yield.
+  - **FP:** The deployment remains in Void mode and assumes no yield, or its accounting and access control explicitly implement the selected mode.
+  - **Proof:** Exercise Void, Automatic, and Claimable configurations and show that balance and claim accounting match the selected mode.
+  - **Provenance:** Blast docs; [Blast ETH yield modes](https://docs.blast.io/building/guides/eth-yield)
 
 - [ ] **[EVM-CHAIN-017] USDB/WETH rebasing** _(exploit-pattern; medium)_: Blast-native tokens (USDB, WETH) are rebasing by default. Protocols that assume stable balances will have accounting errors. Opt for non-rebasing mode via `IERC20Rebasing(token).configure(YieldMode.CLAIMABLE)` or `YieldMode.VOID`. Look for: Blast deployments using USDB/WETH without configuring yield mode. [Blast docs]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** Blast docs
+  - **Provenance:** Blast docs; [Blast WETH and USDB yield modes](https://docs.blast.io/building/guides/weth-yield)
 
-- [ ] **[EVM-CHAIN-018] Gas refund claim** _(exploit-pattern; medium)_: Blast refunds gas fees to contracts. If the contract doesn't implement yield/gas claiming, the refund is stuck. Look for: Blast contracts without `IBlast.claimAllGas()` functionality. [Blast docs]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** Blast docs
+- [ ] **[EVM-CHAIN-018] Blast gas fees require claimable mode and deliberate governor control** _(exploit-pattern; medium)_: Blast contracts default to Void gas mode, which leaves fees with the sequencer operator. Gas fees are claimable only after configuring Claimable mode, and the governor controls configuration and claims. Treat unclaimed gas as an optional revenue decision, not automatically stuck protocol funds.
+  - **Trigger:** A Blast deployment promises gas-fee revenue or exposes gas-mode and governor configuration.
+  - **Risk:** A mismatched gas mode or governor can invalidate promised revenue or give an unintended party control over gas-fee claims.
+  - **Detection:** Inspect gas mode, governor assignment, claim authorization, recipient selection, and whether the product actually promises gas revenue.
+  - **FP:** Void mode is intentional, or Claimable mode and governor permissions match the documented revenue policy.
+  - **Proof:** Exercise configuration and claim paths from authorized and unauthorized callers and reconcile claimed value with the documented policy.
+  - **Provenance:** Blast docs; [Blast gas modes](https://docs.blast.io/building/guides/gas-fees)
 
 ## BNB Chain (BSC)
 
@@ -185,7 +194,7 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 - [ ] **[EVM-CHAIN-026] EIP-1559 parameters differ** _(exploit-pattern; medium)_: Each chain has its own base fee calculation, fee markets, and priority fee handling. Hardcoded gas parameters from mainnet will be wrong. Look for: hardcoded gas prices, base fee assumptions, or priority fee calculations. [multichain-auditor]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+  - **Provenance:** multichain-auditor; [EIP-1559 fee market](https://eips.ethereum.org/EIPS/eip-1559)
 
 - [ ] **[EVM-CHAIN-027] Bridged token addresses differ** _(exploit-pattern; medium)_: USDC on Ethereum ≠ USDC on Arbitrum ≠ USDC on Optimism. Each is a different contract address. Native USDC vs bridged USDC.e are completely different contracts. Look for: hardcoded token addresses in multi-chain config. [multichain-auditor]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
@@ -213,7 +222,7 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Detection:** Read the selected feed's current metadata and compare `updatedAt`, decimals, heartbeat, and deviation policy with the use case.
   - **FP:** The feed address is allowlisted and its current parameters are validated at deployment and monitored for change.
   - **Proof:** Exercise the price path at the feed's heartbeat, deviation, and stale boundaries and verify the protocol's fail-safe behavior.
-  - **Provenance:** Arbitrum Checklist
+  - **Provenance:** Arbitrum Checklist; [Chainlink selecting data feeds](https://docs.chain.link/data-feeds/selecting-data-feeds)
 
 - [ ] **[EVM-CHAIN-031] Chainlink answer bounds are feed- and deployment-specific** _(exploit-pattern; medium)_: Chainlink answer bounds and circuit-breaker configuration are feed-specific and may change with aggregator or proxy updates. Do not hardcode minAnswer/maxAnswer values from one Arbitrum feed; inspect the selected aggregator and define behavior for bounded or invalid answers.
   - **Trigger:** The protocol uses a Chainlink answer without reading or validating the selected feed's current bounds and status.
@@ -221,7 +230,7 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Detection:** Resolve the proxy and aggregator, inspect bounds and answer status, and test negative, zero, clipped, and extreme values.
   - **FP:** The feed's current bounds are enforced by a trusted adapter with monitoring and an explicit fallback policy.
   - **Proof:** Inject or observe boundary answers on a fork and show the resulting accounting, liquidation, or pause behavior.
-  - **Provenance:** $10, $1M; $0.01, $1000; Arbitrum Checklist
+  - **Provenance:** $10, $1M; $0.01, $1000; Arbitrum Checklist; [Chainlink selecting data feeds](https://docs.chain.link/data-feeds/selecting-data-feeds)
 
 - [ ] **[EVM-CHAIN-032] Orbit chains with custom fee tokens** _(semantic; high)_: Orbit chains (L3s built on Arbitrum) can use any ERC20 as the fee token instead of ETH. If the fee token has non-18 decimals (e.g., USDC = 6), amounts are scaled between L1 decimals and L2 native currency (18 decimals). Rounding losses occur during conversion. Look for: Orbit chain integrations assuming ETH-denominated fees. [Arbitrum Checklist]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
@@ -231,7 +240,7 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 - [ ] **[EVM-CHAIN-033] Retryable ticket parameters use mixed denominations on Orbit** _(exploit-pattern; medium)_: `tokenTotalFeeAmount` uses the fee token's decimals (e.g., 6 for USDC), but `l2CallValue`, `maxSubmissionCost`, and `maxFeePerGas` use 18-decimal native currency denomination. Mixing these causes incorrect fee calculations. Look for: retryable ticket creation on Orbit chains where parameters aren't properly denominated. [Arbitrum Checklist]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** Arbitrum Checklist
+  - **Provenance:** Arbitrum Checklist; [Arbitrum custom gas token chains](https://docs.arbitrum.io/arbitrum-essentials/bridging/custom-gas-token-chains)
 
 ## Multichain Deployment Gotchas (Expanded from Multichain-Auditor)
 
@@ -267,7 +276,7 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Proof:** Compile and execute the exact artifact on the declared ZKsync environment and compare each relied-upon behavior with the EVM baseline.
   - **Provenance:** multichain-auditor, beirao MC-11; [ZKsync Era EVM instruction differences](https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions)
 
-- [ ] **[EVM-CHAIN-038] Same-name tokens can have different callback behavior** _(exploit-pattern; medium)_: Token callback behavior is a property of the deployed token and its upgrade history, not its symbol or chain label. Historical incidents on Gnosis demonstrate why integrations must inspect the exact contract and protect accounting around arbitrary token callbacks.
+- [ ] **[EVM-CHAIN-038] Same-name tokens can have different callback behavior** _(exploit-pattern; medium)_: Token callback behavior is a property of the deployed token and its upgrade history, not its symbol or chain label. Inspect the exact contract and protect accounting around arbitrary token callbacks.
   - **Trigger:** A multichain integration grants trust based on a token symbol or origin chain without checking callback-capable behavior.
   - **Risk:** Assuming a same-name token is callback-free can expose reentrancy, unexpected control flow, or transfer-accounting errors.
   - **Detection:** Inspect bytecode, interfaces, hooks, proxy implementation, and transfer traces for every supported token address.

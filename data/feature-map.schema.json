@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:feature-map:v1",
+  "$id": "urn:evm-audit-skills:feature-map:v2",
   "title": "EVM audit reconnaissance feature map",
   "type": "object",
   "required": ["schema_version", "features"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "features": {
       "type": "object",
       "additionalProperties": {
@@ -13,7 +13,19 @@
         "required": ["status"],
         "properties": {
           "status": {"enum": ["PRESENT", "ABSENT_CONFIRMED", "UNKNOWN"]},
-          "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["kind", "location", "reason"],
+              "properties": {
+                "kind": {"enum": ["slither-ast", "slither-ir", "compiler-ast", "source", "deployment", "manual", "legacy"]},
+                "location": {"type": "string", "minLength": 1},
+                "reason": {"type": "string", "minLength": 1}
+              },
+              "additionalProperties": false
+            }
+          },
           "reason": {"type": "string"}
         },
         "allOf": [

@@ -1,0 +1,1 @@
+{"id":"evm-audit-erc4626","name":"ERC4626 Vault Security","checklist_title":"ERC4626 Vault Security Checklist","description":"Security review for ERC4626 vaults and vault integrations.","surface_features":["uses-erc4626"],"related_domains":["evm-audit-precision-math","evm-audit-erc20"]}

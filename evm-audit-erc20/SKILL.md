@@ -1,17 +1,22 @@
 ---
 name: evm-audit-erc20
-description: Weird ERC20 token edge cases that break protocols. Covers fee-on-transfer, rebasing, missing return values, blocklists, multiple addresses, flash minting, ERC777 hooks, approval race conditions, and more. Load when the contract interacts with ANY ERC20 tokens.
+description: Security review for contracts that implement or integrate ERC20-compatible tokens. Consume routed selected-check bodies at runtime.
 ---
-
-# EVM Audit — Weird ERC20 Edge Cases
-
-Load when the contract interacts with **any** ERC20 tokens via transfers, approvals, or balances.
+# ERC20 Integration Security
 
 ## Audit Contract
-When this skill is invoked directly or via the master skill:
-1. Read `../evm-audit-master/references/check-review-contract.md` and use canonical IDs embedded in the routed selected-check output.
-2. Do not load `../data/canonical-checks.json` into model context; it is a machine-only source. Pattern matches are candidates, not findings; apply the tri-state predicate router before deep review.
-3. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and PoC or deterministic invariant evidence.
+When invoked directly, run the shared pipeline for `evm-audit-erc20` only:
 
-## Reference Files
-- `references/checklist.md` — Generated maintenance/compatibility view; review selected check bodies emitted by the router instead of loading it wholesale.
+Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
+
+1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
+2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-erc20 --format json > routing-manifest.json`.
+3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-erc20 --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
+4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-evm-audit-erc20.md`.
+
+Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
+
+Related domains (advisory only; never auto-expand direct scope): `evm-audit-general`, `evm-audit-precision-math`.
+
+## Maintenance View
+- `references/checklist.md` is generated for maintenance and compatibility.

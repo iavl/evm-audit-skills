@@ -40,6 +40,10 @@
           "kind": "official",
           "url": "https://docs.soliditylang.org/en/latest/types.html#explicit-conversions",
           "locator": "source URL recorded by prior regression"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::testSignedToUnsignedConversionPreservesTwosComplementBits"
         }
       ]
     },
@@ -83,6 +87,10 @@
           "kind": "official",
           "url": "https://eips.ethereum.org/EIPS/eip-4626",
           "locator": "source URL recorded by prior regression"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::testERC4626CanonicalRoundingDirections"
         }
       ]
     },
@@ -190,6 +198,10 @@
           "kind": "official",
           "url": "https://eips.ethereum.org/EIPS/eip-6780",
           "locator": "SELFDESTRUCT lifecycle"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::testEIP6780RetainsOldCodeAndBlocksCreate2Redeploy"
         }
       ],
       "required_terms": [
@@ -1089,6 +1101,56 @@
           "kind": "official",
           "url": "https://docs.polygon.technology/pos/concepts/tokens/pol",
           "locator": "current official protocol documentation"
+        },
+        {
+          "kind": "text-regression",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ]
+    },
+    {
+      "id": "FRESH-EVM-CHAIN-016",
+      "canonical_id": "EVM-CHAIN-016",
+      "supplemental": true,
+      "source_url": "https://docs.blast.io/building/guides/eth-yield",
+      "required_terms": [
+        "default to Void yield",
+        "configuring Automatic yield",
+        "Claimable mode accrues yield separately"
+      ],
+      "forbidden_terms": [
+        "ETH held by contracts automatically earns yield"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.blast.io/building/guides/eth-yield",
+          "locator": "contract ETH yield modes and default void mode"
+        },
+        {
+          "kind": "text-regression",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ]
+    },
+    {
+      "id": "FRESH-EVM-CHAIN-018",
+      "canonical_id": "EVM-CHAIN-018",
+      "supplemental": true,
+      "source_url": "https://docs.blast.io/building/guides/gas-fees",
+      "required_terms": [
+        "default to Void gas mode",
+        "only after configuring Claimable mode",
+        "governor controls configuration and claims"
+      ],
+      "forbidden_terms": [
+        "refund is stuck"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.blast.io/building/guides/gas-fees",
+          "locator": "default void gas mode and claimable mode"
         },
         {
           "kind": "text-regression",

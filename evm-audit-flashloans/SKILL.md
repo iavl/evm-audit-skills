@@ -1,18 +1,22 @@
 ---
 name: evm-audit-flashloans
-description: EVM smart contract audit checklist for flash loan attack patterns. Covers flash loan governance attacks, oracle manipulation via flash loans, flash deposit-withdraw attacks, and flash mint inflation. Use when auditing DeFi protocols vulnerable to single-transaction economic attacks; consume routed selected-check bodies at runtime.
+description: Security review for flash loans, flash minting, and atomic economic attacks. Consume routed selected-check bodies at runtime.
 ---
-
-# Flash Loan Attack Patterns Audit Skill
-
-## Overview
-Flash loan attack vectors for DeFi protocols. Focuses on how single-transaction unlimited capital changes the threat model.
+# Flash-Loan Security
 
 ## Audit Contract
-When this skill is invoked directly or via the master skill:
-1. Read `../evm-audit-master/references/check-review-contract.md` and use canonical IDs embedded in the routed selected-check output.
-2. Do not load `../data/canonical-checks.json` into model context; it is a machine-only source. Pattern matches are candidates, not findings; apply the tri-state predicate router before deep review.
-3. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and PoC or deterministic invariant evidence.
+When invoked directly, run the shared pipeline for `evm-audit-flashloans` only:
 
-## Reference Files
-- **references/checklist.md** — Generated maintenance/compatibility view; review selected check bodies emitted by the router instead of loading it wholesale.
+Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
+
+1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
+2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-flashloans --format json > routing-manifest.json`.
+3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-flashloans --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
+4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-evm-audit-flashloans.md`.
+
+Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
+
+Related domains (advisory only; never auto-expand direct scope): `evm-audit-governance`, `evm-audit-oracles`, `evm-audit-defi-amm`.
+
+## Maintenance View
+- `references/checklist.md` is generated for maintenance and compatibility.

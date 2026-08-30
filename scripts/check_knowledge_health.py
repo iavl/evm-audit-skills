@@ -60,6 +60,7 @@ def knowledge_health(
             findings.append(
                 {
                     "kind": "unverified-freshness",
+                    "severity": "error" if freshness == "time-sensitive" else "advisory",
                     "canonical_id": check.get("canonical_id"),
                     "message": f"{freshness} knowledge has no verified_at date",
                 }
@@ -71,6 +72,7 @@ def knowledge_health(
             findings.append(
                 {
                     "kind": "invalid-freshness-date",
+                    "severity": "error",
                     "canonical_id": check.get("canonical_id"),
                     "message": f"invalid verified_at={verified_at!r}",
                 }
@@ -80,6 +82,7 @@ def knowledge_health(
             findings.append(
                 {
                     "kind": "stale-knowledge",
+                    "severity": "error",
                     "canonical_id": check.get("canonical_id"),
                     "message": f"verified {age} days ago; limit is {MAX_AGE_DAYS[freshness]}",
                 }
@@ -96,6 +99,7 @@ def knowledge_health(
                 findings.append(
                     {
                         "kind": "broken-official-source",
+                        "severity": "error",
                         "source_key": source_key,
                         "url": source.get("url"),
                         "message": detail,
@@ -104,6 +108,7 @@ def knowledge_health(
             elif ok is None:
                 skipped_sources.append({"source_key": source_key, "url": str(source.get("url", "")), "message": detail})
 
+    error_count = sum(finding["severity"] == "error" for finding in findings)
     return {
         "schema_version": 1,
         "checked_at": today.isoformat(),
@@ -112,6 +117,8 @@ def knowledge_health(
         "official_urls_checked": checked_urls,
         "official_urls_skipped": skipped_sources,
         "finding_count": len(findings),
+        "error_count": error_count,
+        "advisory_count": len(findings) - error_count,
         "findings": findings,
     }
 
@@ -137,12 +144,12 @@ def main(argv: list[str] | None = None) -> int:
             args.output_json.write_text(rendered, encoding="utf-8")
         for finding in report["findings"]:
             subject = finding.get("canonical_id") or finding.get("source_key")
-            print(f"{finding['kind']}\t{subject}\t{finding['message']}")
+            print(f"{finding['severity']}\t{finding['kind']}\t{subject}\t{finding['message']}")
         print(
             f"canonical_checks={report['canonical_checks']} official_urls_checked={report['official_urls_checked']} "
-            f"official_urls_skipped={len(report['official_urls_skipped'])} findings={report['finding_count']}"
+            f"official_urls_skipped={len(report['official_urls_skipped'])} errors={report['error_count']} advisories={report['advisory_count']}"
         )
-        return 1 if report["findings"] else 0
+        return 1 if report["error_count"] else 0
     except (OSError, ValueError, json.JSONDecodeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2

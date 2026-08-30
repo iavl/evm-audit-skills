@@ -7,37 +7,17 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 ## How To Use
 1. **Always load this skill first** for any EVM smart contract audit
 2. Read the contract(s) under audit
-3. Build a reconnaissance feature map and use the routing table plus
+3. Build a reconnaissance feature map and use the selector plus
    `../data/features.json` to select relevant canonical checks
 4. Read [the per-check review contract](references/check-review-contract.md)
 5. Run the `FAST_FILTER`, `DEEP_REVIEW`, and `PROOF` stages in that contract
 6. Put only `CONFIRMED` items into the final audit report and assign severity
    during synthesis
 
-## All 20 Skills — Definitive Index
+## Domain Index
 
-| # | Skill | Description | Runtime entries |
-|---|-------|-------------|-------|
-| 1 | **evm-audit-master** | This file. Routing table, methodology, source attribution. Load first. | — |
-| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID/array validation, Unicode source review, inheritance semantics, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 109 |
-| 3 | **evm-audit-precision-math** | Division-before-multiplication, rounding to zero, precision scaling mismatches, downcast overflow, rounding direction (protocol vs user), decimal assumption errors | 36 |
-| 4 | **evm-audit-erc20** | Fee-on-transfer, rebasing, ERC777 hooks, approve race conditions, zero-transfer reverts, pausable tokens, deny lists (USDC), deflationary/inflationary tokens, multiple-address tokens | 40 |
-| 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, wrong slippage bases and token-vs-value bounds, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 66 |
-| 6 | **evm-audit-defi-lending** | Auction and liquidation vulnerabilities (self-bidding, incentives, bad debt, partial liquidation, reward ordering), lending/borrowing attacks, oracle-manipulation economics, liquidity/cap/LTV stress modeling, front-run prevention, collateral hiding, insurance fund edge cases, non-18 decimal failures | 88 |
-| 7 | **evm-audit-defi-staking** | Liquid staking, restaking, EigenLayer integration, stakedButUnverified accounting, Beacon Chain proof verification (Deneb), validator front-running, cooldown exploitation, reward calculation precision | 57 |
-| 8 | **evm-audit-erc4626** | Share/asset conversion, inflation attack, virtual shares, deposit/withdraw rounding, first depositor attack, multi-step operations, 85+ patterns from Dacian's ERC4626 primer | 53 |
-| 9 | **evm-audit-erc4337** | Account abstraction, smart wallet security, UserOperation hash integrity, bundler ordering/censorship assumptions, paymaster attacks, session key exploits, gas griefing | 40 |
-| 10 | **evm-audit-bridges** | Cross-chain bridge security, LayerZero V2, CCIP, Wormhole, Across, message replay, finality assumptions, relayer trust, adapter pattern issues | 58 |
-| 11 | **evm-audit-proxies** | UUPS deep dive (uninitialized implementation, delegatecall to selfdestruct, broken upgrade chain, authorization schema changes), Transparent proxy, Beacon, Diamond, storage collision, immutable variable loss | 32 |
-| 12 | **evm-audit-signatures** | Signature replay (missing nonce, cross-chain, missing parameter, no expiration), ecrecover return check, signature malleability, EIP-712 conformance, ECDSA library version requirements | 21 |
-| 13 | **evm-audit-governance** | DAO attacks (flash-loan + delegation bypass, voting power destruction, totalPower manipulation, snapshot staleness, quorum impossibility, treasury delegation abuse, restriction bypass, token recycling, proposal deadlines, pre-mint exploitation), proposal execution ordering, fake proposals via CREATE2, multi-sig quorum failure | 54 |
-| 14 | **evm-audit-oracles** | Chainlink integration (stale prices, L2 sequencer, per-feed heartbeats, decimal assumptions, wrong addresses, front-running, unhandled reverts, depeg detection, minAnswer/maxAnswer), predictable randomness, Sigma Prime pricing patterns | 48 |
-| 15 | **evm-audit-assembly** | Inline assembly memory corruption, user-controlled storage writes, EIP-1153 transient storage isolation, call to non-existent contracts, overflow/underflow without protection, uint128 overflow evading 256-bit detection | 39 |
-| 16 | **evm-audit-chain-specific** | L2/alt-chain quirks — Arbitrum, Optimism, zkSync, Blast, BSC, Polygon. Sequencer downtime, different opcodes, gas pricing differences, precompile availability, block time assumptions | 39 |
-| 17 | **evm-audit-flashloans** | Flash loan attack patterns, oracle manipulation via flash loans, governance flash loan voting, flash mint issues, composability risks | 14 |
-| 18 | **evm-audit-erc721** | NFT-specific issues: onERC721Received callbacks, enumeration DoS, royalty enforcement, metadata manipulation, batch mint edge cases | 39 |
-| 19 | **evm-audit-dos** | Denial of service patterns: unbounded loops, block gas limit, self-destruct force-send, storage deletion costs, griefing via revert, return data bombs | 18 |
-| 20 | **evm-audit-access-control** | Access control patterns: missing modifiers, `tx.origin` authorization, off-chain signer/frontend trust, 2-step ownership, role-based permissions, emergency pause, time delays, admin overpowers | 21 |
+Domain definitions, routing surfaces, relationships, and current runtime counts
+are generated from `../domains/*.json` in [the domain catalog](references/domains.md).
 
 **Total: 869 canonical checks and 872 generated runtime entries across 19 specialized skills + 1 master index**
 
@@ -65,15 +45,15 @@ SolidityGuard's 104-pattern index was used only for coverage comparison at commi
 The editable registry is `../data/canonical-checks.json`; run
 `python3 ../scripts/generate_checklists.py` to regenerate the domain views. The
 generator is a pure renderer: it must not infer, repair, or override canonical
-knowledge. One-time transformations belong under `../scripts/migrations/`. The
-current checkout can be migrated with
-`python3 ../scripts/migrations/001_registry_v3.py`; do not run migrations as
+knowledge. One-time transformations belong under `../scripts/migrations/` and
+the checked-in migrations have already been applied; do not run migrations as
 part of ordinary rendering. The registry is machine-only at audit time: domain
 agents consume selected check
 bodies emitted by the router and must not load the full JSON database. Each
 canonical check has an `all_of`/`any_of`/`none_of` predicate over the vocabulary
-in `../data/features.json`. The reconnaissance input shape is defined by
-`../data/feature-map.schema.json`. Predicates marked `inferred` came from
+in `../data/features.json`. The v2 reconnaissance input shape is defined by
+`../data/feature-map.schema.json`; evidence uses typed `kind`, `location`, and
+`reason` objects. Predicates marked `inferred` came from
 keyword inference; `curated` predicates are hand-reviewed. A false inferred
 predicate is not exclusion evidence and is downgraded to `UNKNOWN`; only a
 curated `FALSE` may fast-filter. The legacy `features` list is retained only as
@@ -92,36 +72,18 @@ selected check bodies. Record `--target-root`, `--chain-id`, `--fork-block`, and
 `UNKNOWN` are distinct: unknown evidence is conservatively selected. The legacy
 `--features` shorthand remains safe but treats omitted features as unknown.
 
-The routing manifest accounts for every canonical ID in scope. Filtered IDs
+The v3 routing manifest accounts for every canonical ID in scope. Filtered IDs
 remain in the manifest and do not receive per-check Markdown `NOT_APPLICABLE`
 records; selected IDs receive exactly one deep/proof ledger record in the file
 named for their manifest `owner_domain`. It also records the registry digest,
-selector version, knowledge/target commits, chain/fork/compiler context, and
+selector version, knowledge/target repository commits, chain/fork/compiler context, and
 audit timestamp for reproducibility.
 
-## Routing Table — Which Skills and Features To Load
+## Domain Routing
 
-| If the contract involves... | Load skill |
-|---|---|
-| **Any EVM contract** (always) | `evm-audit-general` |
-| **Any math/pricing/fees** (always) | `evm-audit-precision-math` |
-| Accepts ERC20 tokens (deposits, swaps, collateral) | `evm-audit-erc20` |
-| AMM, DEX, swap router, Uniswap V3/V4 hooks, liquidity pools, CLMs | `evm-audit-defi-amm` |
-| Lending, borrowing, CDP, liquidation, AAVE/Compound fork | `evm-audit-defi-lending` |
-| Staking, liquid staking (stETH/rETH/cbETH), restaking, EigenLayer | `evm-audit-defi-staking` |
-| ERC4626 vaults, share/asset conversion, yield vaults | `evm-audit-erc4626` |
-| Account abstraction, smart wallets, paymasters, session keys | `evm-audit-erc4337` |
-| Cross-chain bridges, LayerZero, CCIP, Wormhole, Across | `evm-audit-bridges` |
-| Upgradeable contracts, proxies (UUPS/Transparent/Beacon/Diamond) | `evm-audit-proxies` |
-| Off-chain signatures, EIP-712, permits, meta-transactions | `evm-audit-signatures` |
-| DAO governance, voting, timelocks, multi-sig, proposal execution | `evm-audit-governance` |
-| Price oracles (Chainlink, TWAP, Pyth), VRF, external data | `evm-audit-oracles` |
-| Inline assembly, Yul, CREATE2, low-level calls, precompiles | `evm-audit-assembly` |
-| Non-mainnet (Arbitrum, OP, zkSync, Blast, BSC, Polygon) | `evm-audit-chain-specific` |
-| Flash loans, composability attacks | `evm-audit-flashloans` |
-| NFTs, ERC721, ERC1155, metadata, royalties | `evm-audit-erc721` |
-| DoS vectors, gas griefing, unbounded operations | `evm-audit-dos` |
-| Access control, roles, ownership, emergency controls | `evm-audit-access-control` |
+Use the machine selector for global routing. The generated
+[domain catalog](references/domains.md) is the human-readable domain index;
+`related_domains` is advisory and never expands a direct domain invocation.
 
 ## Audit Methodology
 

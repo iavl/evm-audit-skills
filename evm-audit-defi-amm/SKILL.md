@@ -1,14 +1,22 @@
 ---
 name: evm-audit-defi-amm
-description: AMM-specific vulnerabilities including Uniswap V3/V4 hooks, concentrated liquidity, swap routing, TWAMM, slippage, and DEX integration pitfalls. Load when auditing any AMM, DEX, swap router, or Uniswap V4 hook.
+description: Security review for AMMs, DEXs, swap routers, liquidity pools, and hooks. Consume routed selected-check bodies at runtime.
 ---
-# EVM Audit — AMM & DEX Vulnerabilities
-Load when auditing AMMs, DEXes, swap routers, Uniswap V4 hooks, or concentrated liquidity managers.
-## Audit Contract
-When this skill is invoked directly or via the master skill:
-1. Read `../evm-audit-master/references/check-review-contract.md` and use canonical IDs embedded in the routed selected-check output.
-2. Do not load `../data/canonical-checks.json` into model context; it is a machine-only source. Pattern matches are candidates, not findings; apply the tri-state predicate router before deep review.
-3. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and PoC or deterministic invariant evidence.
+# AMM and DEX Security
 
-## Reference Files
-- `references/checklist.md` — Generated maintenance/compatibility view; review selected check bodies emitted by the router instead of loading it wholesale.
+## Audit Contract
+When invoked directly, run the shared pipeline for `evm-audit-defi-amm` only:
+
+Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
+
+1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
+2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-defi-amm --format json > routing-manifest.json`.
+3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-defi-amm --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
+4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-evm-audit-defi-amm.md`.
+
+Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
+
+Related domains (advisory only; never auto-expand direct scope): `evm-audit-precision-math`, `evm-audit-erc20`, `evm-audit-oracles`.
+
+## Maintenance View
+- `references/checklist.md` is generated for maintenance and compatibility.

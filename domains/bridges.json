@@ -1,0 +1,1 @@
+{"id":"evm-audit-bridges","name":"Bridge and Cross-Chain Security","checklist_title":"Bridge & Cross-Chain Security Checklist","description":"Security review for cross-chain bridges, messaging, relayers, and adapters.","surface_features":["uses-bridge"],"related_domains":["evm-audit-signatures","evm-audit-chain-specific"]}

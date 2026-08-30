@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:domain:v1",
+  "type": "object",
+  "required": ["id", "name", "checklist_title", "description", "surface_features", "related_domains"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
+    "name": {"type": "string", "minLength": 1},
+    "checklist_title": {"type": "string", "minLength": 1},
+    "description": {"type": "string", "minLength": 1},
+    "surface_features": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+    "related_domains": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"}}
+  },
+  "additionalProperties": false
+}

@@ -1,14 +1,22 @@
 ---
 name: evm-audit-bridges
-description: Cross-chain bridge vulnerabilities for LayerZero V2, Chainlink CCIP, Wormhole, Across, and general bridge security. Covers message ordering, fee handling, relayer trust, dust/normalization, and configuration pitfalls. Load when auditing any cross-chain protocol.
+description: Security review for cross-chain bridges, messaging, relayers, and adapters. Consume routed selected-check bodies at runtime.
 ---
-# EVM Audit — Bridge & Cross-Chain Vulnerabilities
-Load when auditing cross-chain bridges, messaging protocols, or any LayerZero/CCIP/Wormhole/Across integration.
-## Audit Contract
-When this skill is invoked directly or via the master skill:
-1. Read `../evm-audit-master/references/check-review-contract.md` and use canonical IDs embedded in the routed selected-check output.
-2. Do not load `../data/canonical-checks.json` into model context; it is a machine-only source. Pattern matches are candidates, not findings; apply the tri-state predicate router before deep review.
-3. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and PoC or deterministic invariant evidence.
+# Bridge and Cross-Chain Security
 
-## Reference Files
-- `references/checklist.md` — Generated maintenance/compatibility view; review selected check bodies emitted by the router instead of loading it wholesale.
+## Audit Contract
+When invoked directly, run the shared pipeline for `evm-audit-bridges` only:
+
+Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
+
+1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
+2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-bridges --format json > routing-manifest.json`.
+3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-bridges --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
+4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-evm-audit-bridges.md`.
+
+Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
+
+Related domains (advisory only; never auto-expand direct scope): `evm-audit-signatures`, `evm-audit-chain-specific`.
+
+## Maintenance View
+- `references/checklist.md` is generated for maintenance and compatibility.

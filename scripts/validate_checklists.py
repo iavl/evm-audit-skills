@@ -21,7 +21,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 try:
-    from generate_checklists import DOMAIN_CODES, check_outputs, load_registry, normalize_registry
+    from generate_checklists import check_outputs, load_domains, load_registry, normalize_registry
     from select_checks import (
         FEATURE_STATES,
         PREDICATE_KEYS,
@@ -32,7 +32,7 @@ try:
         vocabulary as feature_vocabulary,
     )
 except ImportError:  # pragma: no cover - supports importing this file from another cwd
-    from scripts.generate_checklists import DOMAIN_CODES, check_outputs, load_registry, normalize_registry
+    from scripts.generate_checklists import check_outputs, load_domains, load_registry, normalize_registry
     from scripts.select_checks import (
         FEATURE_STATES,
         PREDICATE_KEYS,
@@ -47,9 +47,6 @@ except ImportError:  # pragma: no cover - supports importing this file from anot
 ITEM_RE = re.compile(r"^- \[ \] \*\*(.*?)\*\*")
 SOURCE_ID_RE = re.compile(r"\b(?:SAS-AV-\d{3}|DROZER-[A-Z0-9-]+|AUDITMOS-[A-Z0-9-]+)\b")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-MASTER_ROW_RE = re.compile(
-    r"^\|\s*\d+\s*\|\s*\*\*(evm-audit-[^*]+)\*\*.*\|\s*(\d+)\s*\|\s*$"
-)
 README_CANONICAL_RE = re.compile(r"(\d[\d,]*)\s+canonical checks")
 README_RUNTIME_RE = re.compile(r"(\d[\d,]*)\s+generated runtime entries")
 MASTER_CANONICAL_RE = re.compile(r"Total:\s+(\d[\d,]*)\s+canonical checks")
@@ -66,7 +63,7 @@ URL_VALUE_RE = re.compile(r"^https?://[^\s]+$")
 CHECK_TYPES = {"normative", "semantic", "exploit-pattern", "heuristic"}
 CONFIDENCES = {"high", "medium", "contextual"}
 VERIFICATION_STATUSES = {"verified", "qualified"}
-ROUTING_MANIFEST_VERSION = 2
+ROUTING_MANIFEST_VERSION = 3
 CLAIMS_SCHEMA_VERSION = 3
 CLAIM_EVIDENCE_KINDS = {"official", "executable", "text-regression"}
 FRESHNESS_CLASSES = {"static", "versioned", "time-sensitive"}
@@ -214,7 +211,7 @@ def validate_registry(root: Path) -> list[str]:
     else:
         try:
             feature_schema = json.loads(feature_schema_path.read_text(encoding="utf-8"))
-            if not isinstance(feature_schema, dict) or feature_schema.get("properties", {}).get("schema_version", {}).get("const") != 1:
+            if not isinstance(feature_schema, dict) or feature_schema.get("properties", {}).get("schema_version", {}).get("const") != 2:
                 errors.append(f"{feature_schema_path}: invalid feature-map schema")
         except (OSError, json.JSONDecodeError) as error:
             errors.append(f"{feature_schema_path}: cannot parse JSON: {error}")
@@ -239,6 +236,26 @@ def validate_registry(root: Path) -> list[str]:
         except (OSError, json.JSONDecodeError) as error:
             errors.append(f"{feature_path}: cannot parse JSON: {error}")
             feature_names = set()
+
+    try:
+        domain_configs = load_domains(root)
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as error:
+        errors.append(f"{root / 'domains'}: invalid domain configuration: {error}")
+        domain_configs = {}
+    valid_domains = set(domain_configs)
+    required_domain_fields = {"id", "name", "checklist_title", "description", "surface_features", "related_domains"}
+    for domain, config in domain_configs.items():
+        prefix = f"{root / 'domains'}:{domain}"
+        if set(config) != required_domain_fields:
+            errors.append(f"{prefix}: fields must be {sorted(required_domain_fields)}")
+        if not all(isinstance(config.get(field), str) and config[field].strip() for field in ("id", "name", "checklist_title", "description")):
+            errors.append(f"{prefix}: id/name/checklist_title/description must be non-empty strings")
+        if not isinstance(config.get("surface_features"), list) or not config["surface_features"]:
+            errors.append(f"{prefix}: surface_features must be a non-empty list")
+        if not isinstance(config.get("related_domains"), list):
+            errors.append(f"{prefix}: related_domains must be a list")
+        if not (root / domain / "SKILL.md").exists():
+            errors.append(f"{prefix}: missing skill directory")
 
     try:
         registry = normalize_registry(load_registry(path))
@@ -278,7 +295,6 @@ def validate_registry(root: Path) -> list[str]:
     ids: set[str] = set()
     alias_keys: set[tuple[str, int]] = set()
     source_ids: dict[str, str] = {}
-    valid_domains = set(DOMAIN_CODES)
     for index, check in enumerate(checks, 1):
         prefix = f"{path}:checks[{index}]"
         if not isinstance(check, dict):
@@ -387,6 +403,10 @@ def validate_registry(root: Path) -> list[str]:
                         errors.append(f"{prefix}: verified_at cannot be in the future")
                 except ValueError:
                     errors.append(f"{prefix}: verified_at must be an ISO date or null")
+        for metadata_field in ("chain", "protocol_version", "hardfork_from", "hardfork_until"):
+            metadata_value = check.get(metadata_field)
+            if metadata_value is not None and (not isinstance(metadata_value, str) or not metadata_value.strip()):
+                errors.append(f"{prefix}: {metadata_field} must be a non-empty string or null")
 
         aliases = check.get("aliases")
         if not isinstance(aliases, list) or not aliases:
@@ -423,6 +443,15 @@ def validate_registry(root: Path) -> list[str]:
     missing_domains = sorted(valid_domains - {domain for check in checks for domain in check.get("domains", [])})
     if missing_domains:
         errors.append(f"{path}: no checks routed to domains {missing_domains}")
+    for domain, config in domain_configs.items():
+        unknown_features = sorted(set(config.get("surface_features", [])) - feature_names)
+        unknown_related = sorted(set(config.get("related_domains", [])) - valid_domains)
+        if unknown_features:
+            errors.append(f"{root / 'domains'}:{domain}: unknown surface features {unknown_features}")
+        if unknown_related:
+            errors.append(f"{root / 'domains'}:{domain}: unknown related domains {unknown_related}")
+        if domain in config.get("related_domains", []):
+            errors.append(f"{root / 'domains'}:{domain}: domain cannot relate to itself")
     return errors
 
 
@@ -523,7 +552,8 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
         return [f"{manifest_path}: cannot parse routing manifest: {error}"]
     if not isinstance(manifest, dict):
         return [f"{manifest_path}: routing manifest root must be an object"]
-    if manifest.get("schema_version") != ROUTING_MANIFEST_VERSION:
+    manifest_version = manifest.get("schema_version")
+    if manifest_version not in {2, ROUTING_MANIFEST_VERSION}:
         errors.append(f"{manifest_path}: unsupported routing manifest schema_version {manifest.get('schema_version')!r}")
     if manifest.get("stage") != "FAST_FILTER":
         errors.append(f"{manifest_path}: stage must be FAST_FILTER")
@@ -534,12 +564,12 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
         "registry_sha256",
         "knowledge_commit",
         "knowledge_dirty",
-        "target_commit",
         "chain_id",
         "fork_block",
         "compiler_version",
         "audit_timestamp",
     }
+    audit_fields.add("target_commit" if manifest_version == 2 else "target_repo_commit")
     if not isinstance(audit, dict):
         errors.append(f"{manifest_path}: audit_context must be an object")
         audit = {}
@@ -917,25 +947,6 @@ def validate_counts(root: Path, counts: dict[str, int]) -> list[str]:
 
     master = root / "evm-audit-master" / "SKILL.md"
     master_text = master.read_text(encoding="utf-8")
-    master_counts: dict[str, int] = {}
-    for line in master_text.splitlines():
-        match = MASTER_ROW_RE.match(line)
-        if match:
-            master_counts[match.group(1)] = int(match.group(2))
-
-    if master_counts != counts:
-        missing = sorted(set(counts) - set(master_counts))
-        extra = sorted(set(master_counts) - set(counts))
-        changed = sorted(
-            domain
-            for domain in set(counts) & set(master_counts)
-            if counts[domain] != master_counts[domain]
-        )
-        errors.append(
-            "evm-audit-master/SKILL.md: table counts differ "
-            f"(missing={missing}, extra={extra}, changed={changed})"
-        )
-
     master_canonical_match = MASTER_CANONICAL_RE.search(master_text)
     if not master_canonical_match:
         errors.append("evm-audit-master/SKILL.md: missing canonical total")
@@ -1052,8 +1063,9 @@ def main(argv: list[str]) -> int:
     source_occurrences: dict[str, list[str]] = {}
 
     checklist_paths = sorted(root.glob("evm-audit-*/references/checklist.md"))
-    if len(checklist_paths) != 19:
-        errors.append(f"expected 19 domain checklists, found {len(checklist_paths)}")
+    expected_checklists = len(load_domains(root))
+    if len(checklist_paths) != expected_checklists:
+        errors.append(f"expected {expected_checklists} domain checklists, found {len(checklist_paths)}")
 
     errors.extend(validate_registry(root))
     registry_path = root / "data" / "canonical-checks.json"

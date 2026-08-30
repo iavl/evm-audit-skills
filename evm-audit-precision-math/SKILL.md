@@ -1,14 +1,22 @@
 ---
 name: evm-audit-precision-math
-description: Precision loss, rounding errors, division ordering, fixed-point math, and mathematical edge cases in Solidity. Load this for EVERY audit — math bugs are the #1 source of DeFi exploits.
+description: Precision, rounding, fixed-point math, conversion, and arithmetic security review for EVM contracts. Consume routed selected-check bodies at runtime.
 ---
-# EVM Audit — Precision & Math Vulnerabilities
-Load for **every** audit. Math issues are the most common source of critical DeFi bugs.
-## Audit Contract
-When this skill is invoked directly or via the master skill:
-1. Read `../evm-audit-master/references/check-review-contract.md` and use canonical IDs embedded in the routed selected-check output.
-2. Do not load `../data/canonical-checks.json` into model context; it is a machine-only source. Pattern matches are candidates, not findings; apply the tri-state predicate router before deep review.
-3. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and PoC or deterministic invariant evidence.
+# Precision and Math Security
 
-## Reference Files
-- `references/checklist.md` — Generated maintenance/compatibility view; review selected check bodies emitted by the router instead of loading it wholesale.
+## Audit Contract
+When invoked directly, run the shared pipeline for `evm-audit-precision-math` only:
+
+Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
+
+1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
+2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-precision-math --format json > routing-manifest.json`.
+3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-precision-math --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
+4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-evm-audit-precision-math.md`.
+
+Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
+
+Related domains (advisory only; never auto-expand direct scope): `evm-audit-general`.
+
+## Maintenance View
+- `references/checklist.md` is generated for maintenance and compatibility.

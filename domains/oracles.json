@@ -1,0 +1,1 @@
+{"id":"evm-audit-oracles","name":"Oracle and Pricing Security","checklist_title":"Oracle & Pricing Security Checklist","description":"Security review for price feeds, TWAPs, VRF, and external data inputs.","surface_features":["uses-oracle"],"related_domains":["evm-audit-chain-specific","evm-audit-precision-math"]}

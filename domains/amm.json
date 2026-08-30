@@ -1,0 +1,1 @@
+{"id":"evm-audit-defi-amm","name":"AMM and DEX Security","checklist_title":"AMM & DEX Security Checklist","description":"Security review for AMMs, DEXs, swap routers, liquidity pools, and hooks.","surface_features":["uses-amm"],"related_domains":["evm-audit-precision-math","evm-audit-erc20","evm-audit-oracles"]}

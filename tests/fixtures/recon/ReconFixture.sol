@@ -23,14 +23,21 @@ library MerkleProof {
 }
 
 contract ReconFixture is ERC1967Proxy, EIP712 {
+    address public owner;
     IERC20 public token;
     IERC4626 public vault;
     AggregatorV3Interface public oracle;
 
     constructor(IERC20 token_, IERC4626 vault_, AggregatorV3Interface oracle_) payable {
+        owner = msg.sender;
         token = token_;
         vault = vault_;
         oracle = oracle_;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner);
+        _;
     }
 
     function multicall(bytes[] calldata calls) external payable returns (bytes[] memory results) {
@@ -42,7 +49,7 @@ contract ReconFixture is ERC1967Proxy, EIP712 {
         }
     }
 
-    function useSurface(bytes32[] calldata proof, bytes32 root, bytes32 leaf) external payable {
+    function useSurface(bytes32[] calldata proof, bytes32 root, bytes32 leaf) external payable onlyOwner {
         token.transferFrom(msg.sender, address(this), msg.value);
         oracle.latestRoundData();
         MerkleProof.verify(proof, root, leaf);

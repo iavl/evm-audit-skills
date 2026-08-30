@@ -29,6 +29,18 @@ contract ZeroBalanceCreate {
     }
 }
 
+contract SelfdestructTarget {
+    function destroy(address payable recipient) external {
+        selfdestruct(recipient);
+    }
+}
+
+contract Create2Factory {
+    function deploy(bytes32 salt) external returns (SelfdestructTarget target) {
+        target = new SelfdestructTarget{salt: salt}();
+    }
+}
+
 contract DelegateTarget {
     function record() external payable {
         assembly {
@@ -115,6 +127,16 @@ contract InheritanceBA is InheritanceB, InheritanceA {
 contract SemanticsTest {
     address private storedSender;
     uint256 private storedValue;
+    Create2Factory private create2Factory;
+    SelfdestructTarget private persistentTarget;
+    SelfdestructTarget private create2Target;
+    bytes32 private constant CREATE2_SALT = keccak256("semantic-create2");
+
+    function setUp() external {
+        create2Factory = new Create2Factory();
+        persistentTarget = new SelfdestructTarget();
+        create2Target = create2Factory.deploy(CREATE2_SALT);
+    }
 
     function testYulDivisionByZeroReturnsZero() external pure {
         uint256 quotient;
@@ -285,6 +307,30 @@ contract SemanticsTest {
         }
         require(wrapped == 44, "uint8 expression should not upcast to uint256");
         require(uint8(uint256(300)) == 44, "explicit downcast should truncate instead of reverting");
+    }
+
+    function testSignedToUnsignedConversionPreservesTwosComplementBits() external pure {
+        int256 negative = -1;
+        require(uint256(negative) == type(uint256).max, "signed conversion should preserve the bit pattern");
+    }
+
+    function testERC4626CanonicalRoundingDirections() external pure {
+        uint256 supply = 3;
+        uint256 assets = 2;
+        require(5 * supply / assets == 7, "deposit and convertToShares round down");
+        require((8 * assets + supply - 1) / supply == 6, "mint rounds assets up");
+        require((5 * supply + assets - 1) / assets == 8, "withdraw rounds shares up");
+        require(8 * assets / supply == 5, "redeem and convertToAssets round down");
+    }
+
+    function testEIP6780RetainsOldCodeAndBlocksCreate2Redeploy() external {
+        persistentTarget.destroy(payable(address(this)));
+        require(address(persistentTarget).code.length != 0, "pre-existing code should survive SELFDESTRUCT");
+
+        create2Target.destroy(payable(address(this)));
+        require(address(create2Target).code.length != 0, "CREATE2 target code should survive SELFDESTRUCT");
+        (bool redeployed,) = address(create2Factory).call(abi.encodeCall(Create2Factory.deploy, (CREATE2_SALT)));
+        require(!redeployed, "CREATE2 must not redeploy over retained code");
     }
 
     function testIntegerDivisionRoundsTowardZero() external pure {

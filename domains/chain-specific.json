@@ -1,0 +1,1 @@
+{"id":"evm-audit-chain-specific","name":"Chain-Specific Security","checklist_title":"Chain-Specific Security Checklist","description":"Security review for non-mainnet EVM deployments and chain-specific execution assumptions.","surface_features":["uses-chain-specific"],"related_domains":["evm-audit-oracles","evm-audit-assembly"]}

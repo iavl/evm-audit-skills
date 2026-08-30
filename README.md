@@ -12,28 +12,9 @@ Each skill is a structured, sourced checklist of **non-obvious** security vulner
 
 ## Skills
 
-| Skill | What It Covers |
-|-------|---------------|
-| `evm-audit-master` | **Start here.** Routing table, methodology, standard finding format |
-| `evm-audit-general` | Cross-cutting EVM footguns — applies to every contract |
-| `evm-audit-precision-math` | Division ordering, rounding direction, downcast overflow, decimal mismatches |
-| `evm-audit-erc20` | Fee-on-transfer, rebasing, ERC777 hooks, approve races, weird tokens |
-| `evm-audit-defi-amm` | Uniswap V3/V4, slippage attacks, CLM vulnerabilities, TWAP manipulation |
-| `evm-audit-defi-lending` | Liquidation patterns, bad debt, oracle-manipulation economics, liquidity/cap/LTV stress modeling, collateral hiding, non-18 decimal failures |
-| `evm-audit-defi-staking` | Liquid staking, restaking, EigenLayer, cooldown exploitation |
-| `evm-audit-erc4626` | Vault share math, inflation attack, rounding direction, 85+ patterns |
-| `evm-audit-erc4337` | Account abstraction, paymasters, session keys, bundler trust |
-| `evm-audit-bridges` | LayerZero V2, CCIP, Wormhole, Across, message replay, finality |
-| `evm-audit-proxies` | UUPS, Transparent, Beacon, Diamond, storage collisions, initializer bugs |
-| `evm-audit-signatures` | Replay attacks, ecrecover, EIP-712, permit edge cases, malleability |
-| `evm-audit-governance` | Flash loan voting, totalPower manipulation, proposal ordering, CREATE2 fake proposals |
-| `evm-audit-oracles` | Chainlink staleness, minAnswer/maxAnswer, L2 sequencer, TWAP limits |
-| `evm-audit-assembly` | Memory corruption, FMPA bugs, non-existent contract calls, uint128 overflow |
-| `evm-audit-chain-specific` | Arbitrum, Optimism, zkSync, Blast, BSC — L2 quirks and opcode differences |
-| `evm-audit-flashloans` | Flash loan attack patterns, oracle manipulation, governance exploits |
-| `evm-audit-erc721` | NFT callbacks, enumeration DoS, royalty bypass, wrapped collections |
-| `evm-audit-dos` | Unbounded loops, return data bombs, force-send, griefing via revert |
-| `evm-audit-access-control` | Centralization risks, 2-step ownership, role escalation, timelock bypass |
+Start with `evm-audit-master`. Domain definitions and relationships live in
+`domains/*.json`; the generated [domain catalog](evm-audit-master/references/domains.md)
+lists every independently invokable domain skill and its current runtime count.
 
 ## Repository Sources and Lineage
 
@@ -56,7 +37,7 @@ The table distinguishes repositories whose checklist content was merged from rep
 
 The three rows marked “Merged and adapted” represent external repository content incorporated into the runtime checklists; the base row records the original lineage. The SolidityGuard comparison used commit `35645e8ba76cdacbeec40f347c758de2077e2ecd`; resulting gap checks were independently written from public EIP, SWC, and ERC-4337 references.
 
-External source integration is preserved as provenance, not counted as separate attack vectors. Edit [`data/canonical-checks.json`](data/canonical-checks.json), then run `python3 scripts/generate_checklists.py` to update the 19 generated runtime views. Semantic merges require the same root cause, trigger, proof obligation, and impact; otherwise related contextual checks remain distinct.
+External source integration is preserved as provenance, not counted as separate attack vectors. Edit [`data/canonical-checks.json`](data/canonical-checks.json) for security knowledge or `domains/*.json` for domain metadata, then run `python3 scripts/generate_checklists.py` to update the generated checklists, Skill wrappers, and domain catalog. Semantic merges require the same root cause, trigger, proof obligation, and impact; otherwise related contextual checks remain distinct.
 
 ---
 
@@ -96,15 +77,15 @@ If sub-agents are unavailable:
 The editable source is [`data/canonical-checks.json`](data/canonical-checks.json).
 The generator is a pure renderer and never repairs or overrides registry
 knowledge; one-time schema/knowledge transformations live in
-[`scripts/migrations/`](scripts/migrations/).
-This checkout's v3 migration is reproducible with
-`python3 scripts/migrations/001_registry_v3.py`; subsequent edits should be
-made directly in the registry and rendered without a migration step.
+[`scripts/migrations/`](scripts/migrations/). The checked-in migrations have
+already been applied; ordinary maintenance edits the registry or domain config
+and renders without a migration step.
 It is a machine database and should not be loaded into model context. Feature
 definitions live in [`data/features.json`](data/features.json); the input shape
 is documented in [`data/feature-map.schema.json`](data/feature-map.schema.json).
-A reconnaissance feature map uses `PRESENT`, `ABSENT_CONFIRMED`, or `UNKNOWN` plus concrete
-evidence for the first two states:
+A v2 reconnaissance feature map uses `PRESENT`, `ABSENT_CONFIRMED`, or `UNKNOWN`.
+Evidence for confirmed states is typed with `kind`, `location`, and `reason`;
+legacy v1 string evidence remains accepted as input.
 
 Each canonical check stores an explicit `all_of`/`any_of`/`none_of` predicate.
 Historically keyword-derived predicates are marked `inferred`; hand-reviewed
@@ -127,10 +108,10 @@ python3 scripts/select_checks.py --feature-map recon-features.json --emit-checks
   --profile compact --format markdown > selected-checks.runtime.md
 ```
 
-The manifest records the registry SHA-256, selector version, knowledge and
-target commits, chain/fork/compiler context, and audit timestamp. The compact
-profile removes provenance and repeated metadata from model input while the
-full profile preserves it for evidence review.
+The v3 manifest records the registry SHA-256, selector version, knowledge and
+target repository commits, chain/fork/compiler context, and audit timestamp.
+The compact profile contains only ID, title, routing basis, trigger, detection,
+false-positive gates, and proof; the full profile adds maintenance metadata.
 
 The legacy `--features uses-erc20,uses-oracle` shorthand is retained for
 compatibility; omitted features remain `UNKNOWN` and are never fast-filtered.

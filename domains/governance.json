@@ -1,0 +1,1 @@
+{"id":"evm-audit-governance","name":"Governance and DAO Security","checklist_title":"Governance & DAO Security Checklist","description":"Security review for governance, voting, proposals, timelocks, and treasury control.","surface_features":["uses-governance"],"related_domains":["evm-audit-access-control","evm-audit-flashloans"]}
