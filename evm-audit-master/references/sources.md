@@ -50,7 +50,7 @@ Date fetched: 2026-02-27
 | Source | URL | Status |
 |--------|-----|--------|
 | EVM profile checklists (177 checks) | https://github.com/gdroz3r/drozer-lite/tree/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists | ✅ pinned to commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`; Solana and ICP profiles excluded |
-| MIT license | https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/LICENSE | ✅ included in `LICENCE.md` |
+| MIT license | https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/LICENSE | ✅ included in `THIRD_PARTY_NOTICES.md` |
 
 The per-check deduplication map is maintained in [drozer-lite-provenance.md](drozer-lite-provenance.md). It is audit metadata and is not a runtime checklist.
 
@@ -58,7 +58,7 @@ The per-check deduplication map is maintained in [drozer-lite-provenance.md](dro
 | Source | URL | Status |
 |--------|-----|--------|
 | Attack-vector reference patterns and slippage skill extras | https://github.com/auditmos/skills/tree/c9583babb0ce189d9f39a05caf94b5a5da655010/skills | ✅ pinned to commit `c9583babb0ce189d9f39a05caf94b5a5da655010`; 112 `reference.md` patterns plus 4 slippage patterns listed in `SKILL.md` |
-| MIT license | https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/LICENSE | ✅ included in `LICENCE.md` |
+| MIT license | https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/LICENSE | ✅ included in `THIRD_PARTY_NOTICES.md` |
 
 The per-pattern deduplication map is maintained in [auditmos-provenance.md](auditmos-provenance.md). It is audit metadata and is not a runtime checklist.
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "claims": [
     {
       "id": "SOL-TIME-001",
@@ -234,8 +234,12 @@
       "canonical_id": "EVM-ASM-009",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testYulDivisionByZeroReturnsZero"
         }
       ],
       "required_terms": [
@@ -248,8 +252,12 @@
       "canonical_id": "EVM-ASM-010",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testYulArithmeticWrapsAt256Bits"
         }
       ],
       "required_terms": [
@@ -262,8 +270,12 @@
       "canonical_id": "EVM-ASM-014",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testFreeMemoryPointerIsNotAdvancedByMstore"
         }
       ],
       "required_terms": [
@@ -276,8 +288,12 @@
       "canonical_id": "EVM-ASM-015",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testReturndataBufferIsReplacedAfterEachCall"
         }
       ],
       "required_terms": [
@@ -290,8 +306,12 @@
       "canonical_id": "EVM-ASM-018",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testTransientStorageIsSharedThroughDelegatecall"
         }
       ],
       "required_terms": [
@@ -304,8 +324,12 @@
       "canonical_id": "EVM-ASM-019",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testTransientStorageIsSharedThroughDelegatecall"
         }
       ],
       "required_terms": [
@@ -318,8 +342,12 @@
       "canonical_id": "EVM-ASM-021",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testCallToNoCodeReturnsSuccessWithEmptyData"
         }
       ],
       "required_terms": [
@@ -332,8 +360,12 @@
       "canonical_id": "EVM-ASM-022",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testDelegatecallPreservesSenderAndValue"
         }
       ],
       "required_terms": [
@@ -346,8 +378,12 @@
       "canonical_id": "EVM-ASM-023",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testReturndataCanBeArbitrarilyLarge"
         }
       ],
       "required_terms": [
@@ -360,8 +396,12 @@
       "canonical_id": "EVM-ASM-027",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testNarrowAssemblyValueCanCarryDirtyUpperBits"
         }
       ],
       "required_terms": [
@@ -374,8 +414,12 @@
       "canonical_id": "EVM-ASM-032",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testChainidAndCodeLengthHaveHighLevelSyntax"
         }
       ],
       "required_terms": [
@@ -388,8 +432,12 @@
       "canonical_id": "EVM-ASM-033",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testExternalCallWritesToCallerSelectedMemory"
         }
       ],
       "required_terms": [
@@ -402,8 +450,12 @@
       "canonical_id": "EVM-ASM-034",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testFreeMemoryPointerIsNotAdvancedByMstore"
         }
       ],
       "required_terms": [
@@ -416,8 +468,12 @@
       "canonical_id": "EVM-ASM-035",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testFreeMemoryPointerIsNotAdvancedByMstore"
         }
       ],
       "required_terms": [
@@ -430,8 +486,12 @@
       "canonical_id": "EVM-ASM-036",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testYulArithmeticWrapsAt256Bits"
         }
       ],
       "required_terms": [
@@ -444,8 +504,12 @@
       "canonical_id": "EVM-ASM-037",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testCreateFailureReturnsZeroInYul"
         }
       ],
       "required_terms": [
@@ -458,8 +522,12 @@
       "canonical_id": "EVM-ASM-038",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testAssemblyCanReadNonCanonicalTrailingCalldata"
         }
       ],
       "required_terms": [
@@ -472,8 +540,12 @@
       "canonical_id": "EVM-ASM-039",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testHardcodedCalldataOffsetReadsDynamicHead"
         }
       ],
       "required_terms": [
@@ -486,42 +558,64 @@
       "canonical_id": "EVM-CHAIN-001",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time",
+          "locator": "block.number behavior"
         }
       ],
       "required_terms": [
         "`block.number` returns L1 block number on Arbitrum"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time"
     },
     {
       "id": "REG-EVM-CHAIN-002",
       "canonical_id": "EVM-CHAIN-002",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time",
+          "locator": "multiple child blocks per parent block"
         }
       ],
       "required_terms": [
         "Multiple L2 transactions per L1 block"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time"
     },
     {
       "id": "REG-EVM-CHAIN-008",
       "canonical_id": "EVM-CHAIN-008",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.optimism.io/op-stack/protocol/differences",
+          "locator": "NUMBER opcode behavior"
         }
       ],
       "required_terms": [
-        "`block.number` is L2 block number"
+        "identifies the L2 block",
+        "historically observed OP cadence"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [
+        "produced every 2 seconds",
+        "will run 6x faster"
+      ],
+      "source_url": "https://docs.optimism.io/op-stack/protocol/differences"
     },
     {
       "id": "REG-EVM-CHAIN-014",
@@ -544,36 +638,56 @@
       "canonical_id": "EVM-CHAIN-032",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.arbitrum.io/arbitrum-essentials/bridging/custom-gas-token-chains",
+          "locator": "custom gas token behavior"
         }
       ],
       "required_terms": [
         "Orbit chains with custom fee tokens"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.arbitrum.io/arbitrum-essentials/bridging/custom-gas-token-chains"
     },
     {
       "id": "REG-EVM-CHAIN-037",
       "canonical_id": "EVM-CHAIN-037",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions",
+          "locator": "EraVM instruction differences"
         }
       ],
       "required_terms": [
-        "zkSync ERA has fundamentally different opcode behavior"
+        "EraVM is source-compatible",
+        "documented instruction"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [
+        "all behave differently",
+        "fundamentally different opcode behavior"
+      ],
+      "source_url": "https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions"
     },
     {
       "id": "REG-EVM-GEN-002",
       "canonical_id": "EVM-GEN-002",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testReturndataCanBeArbitrarilyLarge"
         }
       ],
       "required_terms": [
@@ -586,8 +700,12 @@
       "canonical_id": "EVM-GEN-003",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testFixedGasCallCanFailWhileFullGasSucceeds"
         }
       ],
       "required_terms": [
@@ -600,8 +718,12 @@
       "canonical_id": "EVM-GEN-004",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testDelegatecallPreservesSenderAndValue"
         }
       ],
       "required_terms": [
@@ -614,36 +736,52 @@
       "canonical_id": "EVM-GEN-034",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.bnbchain.org/bnb-smart-chain/introduction/",
+          "locator": "upgrade-dependent block cadence"
         }
       ],
       "required_terms": [
-        "Block time varies across chains"
+        "Block cadence varies across chains and upgrades"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.bnbchain.org/bnb-smart-chain/introduction/"
     },
     {
       "id": "REG-EVM-GEN-035",
       "canonical_id": "EVM-GEN-035",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time",
+          "locator": "block production and parent-chain timing"
         }
       ],
       "required_terms": [
-        "Block production may not be constant"
+        "Block production and timestamp progress are not uniform"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time"
     },
     {
       "id": "REG-EVM-GEN-048",
       "canonical_id": "EVM-GEN-048",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testCrossContractReentrancyOccursBeforeAccounting"
         }
       ],
       "required_terms": [
@@ -656,50 +794,72 @@
       "canonical_id": "EVM-GEN-051",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.soliditylang.org/en/latest/bugs.html",
+          "locator": "compiler known-bug list"
         }
       ],
       "required_terms": [
         "Compiler version, pragma, and known-bug risk"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.soliditylang.org/en/latest/bugs.html"
     },
     {
       "id": "REG-EVM-GEN-054",
       "canonical_id": "EVM-GEN-054",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.soliditylang.org/en/latest/050-breaking-changes.html",
+          "locator": "uninitialized storage variables are disallowed"
         }
       ],
       "required_terms": [
         "Uninitialized local storage pointer in legacy Solidity"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.soliditylang.org/en/latest/050-breaking-changes.html"
     },
     {
       "id": "REG-EVM-GEN-055",
       "canonical_id": "EVM-GEN-055",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.soliditylang.org/en/latest/layout-of-source-files.html#unicode-literals",
+          "locator": "Unicode source literal rules"
         }
       ],
       "required_terms": [
         "Bidirectional Unicode control characters can disguise source logic"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.soliditylang.org/en/latest/layout-of-source-files.html#unicode-literals"
     },
     {
       "id": "REG-EVM-GEN-056",
       "canonical_id": "EVM-GEN-056",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testC3InheritanceOrderChangesSuperResolution"
         }
       ],
       "required_terms": [
@@ -712,22 +872,32 @@
       "canonical_id": "EVM-GEN-057",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.soliditylang.org/en/latest/security-considerations.html#private-information-and-randomness",
+          "locator": "private on-chain information"
         }
       ],
       "required_terms": [
         "`private` state is not secret on-chain"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.soliditylang.org/en/latest/security-considerations.html#private-information-and-randomness"
     },
     {
       "id": "REG-EVM-GEN-059",
       "canonical_id": "EVM-GEN-059",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testExpressionWidthAndDowncastSemantics"
         }
       ],
       "required_terms": [
@@ -740,8 +910,12 @@
       "canonical_id": "EVM-GEN-061",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testExpressionWidthAndDowncastSemantics"
         }
       ],
       "required_terms": [
@@ -754,8 +928,12 @@
       "canonical_id": "EVM-GEN-065",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testReturndataCanBeArbitrarilyLarge"
         }
       ],
       "required_terms": [
@@ -768,22 +946,32 @@
       "canonical_id": "EVM-GEN-077",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "official",
+          "url": "https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time",
+          "locator": "block-number timing assumptions"
         }
       ],
       "required_terms": [
-        "Block Number as Timestamp Approximation"
+        "Block number is not a timestamp"
       ],
-      "forbidden_terms": []
+      "forbidden_terms": [],
+      "source_url": "https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time"
     },
     {
       "id": "REG-EVM-MATH-004",
       "canonical_id": "EVM-MATH-004",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testIntegerDivisionRoundsTowardZero"
         }
       ],
       "required_terms": [
@@ -821,14 +1009,92 @@
       "canonical_id": "EVM-MATH-021",
       "evidence": [
         {
-          "kind": "executable",
+          "kind": "text-regression",
           "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/semantics/test/Semantics.t.sol::SemanticsTest::testYulDivisionByZeroReturnsZero"
         }
       ],
       "required_terms": [
         "Division by zero returns 0 in assembly"
       ],
       "forbidden_terms": []
+    },
+    {
+      "id": "FRESH-EVM-CHAIN-010",
+      "canonical_id": "EVM-CHAIN-010",
+      "supplemental": true,
+      "source_url": "https://docs.optimism.io/op-stack/protocol/differences",
+      "required_terms": [
+        "current L1 origin block",
+        "fresh entropy for every L2 block"
+      ],
+      "forbidden_terms": [
+        "returns a fixed value",
+        "It's NOT random"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.optimism.io/op-stack/protocol/differences",
+          "locator": "current official protocol documentation"
+        },
+        {
+          "kind": "text-regression",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ]
+    },
+    {
+      "id": "FRESH-EVM-CHAIN-020",
+      "canonical_id": "EVM-CHAIN-020",
+      "supplemental": true,
+      "source_url": "https://docs.bnbchain.org/bnb-smart-chain/introduction/",
+      "required_terms": [
+        "must not hardcode a historical block interval",
+        "timestamp-based constraints"
+      ],
+      "forbidden_terms": [
+        "BSC produces blocks every 3 seconds",
+        "runs 4x faster"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.bnbchain.org/bnb-smart-chain/introduction/",
+          "locator": "current official protocol documentation"
+        },
+        {
+          "kind": "text-regression",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ]
+    },
+    {
+      "id": "FRESH-EVM-CHAIN-022",
+      "canonical_id": "EVM-CHAIN-022",
+      "supplemental": true,
+      "source_url": "https://docs.polygon.technology/pos/concepts/tokens/pol",
+      "required_terms": [
+        "has migrated its native gas and staking token",
+        "native POL"
+      ],
+      "forbidden_terms": [
+        "MATIC is being replaced by POL"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.polygon.technology/pos/concepts/tokens/pol",
+          "locator": "current official protocol documentation"
+        },
+        {
+          "kind": "text-regression",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ]
     }
   ]
 }

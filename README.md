@@ -72,7 +72,7 @@ audit this contract and file issues: https://github.com/owner/repo/blob/main/con
 
 The workflow will:
 1. Load `evm-audit-master` and build a source, dependency, chain, and evidence-backed feature map.
-2. Use the domain routing table and `data/features.json` to emit a routing manifest; only predicates proven false are filtered.
+2. Use Slither-backed reconnaissance and `data/features.json` to emit a routing manifest; only curated predicates proven false are filtered.
 3. Inject selected check bodies into domain reviews, then prove candidates with a PoC or deterministic invariant.
 4. Write exactly one deep/proof record per selected ID; filtered IDs remain only in the machine manifest.
 5. Synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
@@ -94,6 +94,12 @@ If sub-agents are unavailable:
 ### Canonical source and validation
 
 The editable source is [`data/canonical-checks.json`](data/canonical-checks.json).
+The generator is a pure renderer and never repairs or overrides registry
+knowledge; one-time schema/knowledge transformations live in
+[`scripts/migrations/`](scripts/migrations/).
+This checkout's v3 migration is reproducible with
+`python3 scripts/migrations/001_registry_v3.py`; subsequent edits should be
+made directly in the registry and rendered without a migration step.
 It is a machine database and should not be loaded into model context. Feature
 definitions live in [`data/features.json`](data/features.json); the input shape
 is documented in [`data/feature-map.schema.json`](data/feature-map.schema.json).
@@ -101,15 +107,30 @@ A reconnaissance feature map uses `PRESENT`, `ABSENT_CONFIRMED`, or `UNKNOWN` pl
 evidence for the first two states:
 
 Each canonical check stores an explicit `all_of`/`any_of`/`none_of` predicate.
-Keyword-derived predicates are marked `inferred`; hand-reviewed combinations
-are marked `curated` and are preserved by the generator. The flat `features`
-list remains as a derived compatibility union; routing always evaluates the
-predicate.
+Historically keyword-derived predicates are marked `inferred`; hand-reviewed
+combinations are marked `curated`. A `FALSE` result can filter only a curated
+predicate. An inferred `FALSE` is downgraded to `UNKNOWN` and remains selected,
+so keyword inference can improve recall but cannot prove non-applicability.
+
+Build the initial feature map from Slither's AST/IR, then supplement remaining
+`UNKNOWN` features from deployment evidence:
 
 ```bash
-python3 scripts/select_checks.py --feature-map recon-features.json --format json > routing-manifest.json
-python3 scripts/select_checks.py --feature-map recon-features.json --emit-checks --format markdown > selected-checks.runtime.md
+python3 scripts/recon.py <target-project-or-solidity-file> --output recon-features.json
 ```
+
+```bash
+python3 scripts/select_checks.py --feature-map recon-features.json --target-root <target-repo> \
+  --chain-id <id> --fork-block <block> --compiler-version <version> \
+  --format json > routing-manifest.json
+python3 scripts/select_checks.py --feature-map recon-features.json --emit-checks \
+  --profile compact --format markdown > selected-checks.runtime.md
+```
+
+The manifest records the registry SHA-256, selector version, knowledge and
+target commits, chain/fork/compiler context, and audit timestamp. The compact
+profile removes provenance and repeated metadata from model input while the
+full profile preserves it for evidence review.
 
 The legacy `--features uses-erc20,uses-oracle` shorthand is retained for
 compatibility; omitted features remain `UNKNOWN` and are never fast-filtered.
@@ -120,9 +141,21 @@ Regenerate and validate the runtime views with:
 python3 scripts/generate_checklists.py --check
 python3 scripts/validate_checklists.py --strict
 python3 -m unittest discover -s tests -v
+forge test --root tests/semantics -vv
 # When an audit run is complete, also validate global selected/filtered coverage:
 python3 scripts/validate_checklists.py --routing-manifest routing-manifest.json --review-ledger audits/<run>/review-*.md
 ```
+
+Knowledge claims distinguish `official`, genuinely `executable`, and
+`text-regression` evidence. Text regression protects wording but cannot by
+itself establish factual correctness. Versioned and time-sensitive checks carry
+`verified_at` metadata; the scheduled knowledge-health workflow reports stale
+or unverified entries, broken official sources, and semantic-test regressions in
+one deduplicated issue.
+
+Third-party license text lives in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). It does not declare a
+license for independently authored repository content.
 
 ### Installation layout
 

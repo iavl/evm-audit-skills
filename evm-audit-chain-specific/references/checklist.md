@@ -12,17 +12,20 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 - [ ] **[EVM-CHAIN-001] `block.number` returns L1 block number on Arbitrum** _(semantic; high)_: On Arbitrum, `block.number` returns the approximate L1 block number, not the L2 block number; it can update in jumps and has much lower short-term resolution than expected. Use the Arbitrum system contract for L2 block number when required. Look for: `block.number` used for timing, deadlines, uniqueness, or block-frequency calculations on Arbitrum. [multichain-auditor, beirao ARB-01, Arbitrum Checklist]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor, beirao ARB-01, Arbitrum Checklist
+  - **Provenance:** multichain-auditor, beirao ARB-01, Arbitrum Checklist; [Arbitrum block numbers and time](https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time)
 
 - [ ] **[EVM-CHAIN-002] Multiple L2 transactions per L1 block** _(semantic; high)_: Unlike mainnet (1 tx can change `block.number`), many Arbitrum transactions share the same `block.number`. This breaks assumptions like "different block = different transaction". Look for: `require(block.number > lastBlock)` for uniqueness checks. [multichain-auditor]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+  - **Provenance:** multichain-auditor; [Arbitrum block numbers and time](https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time)
 
-- [ ] **[EVM-CHAIN-003] `block.basefee` returns L1 basefee on Arbitrum** _(exploit-pattern; medium)_: Use `ArbGasInfo.getL1BaseFeeEstimate()` for L1 fees, and `ArbGasInfo` precompile methods for L2 gas prices. Look for: `block.basefee` used for gas calculations on Arbitrum. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+- [ ] **[EVM-CHAIN-003] Arbitrum L2 base fee and parent-chain data fee are separate** _(exploit-pattern; medium)_: On Arbitrum, the child-chain base fee used for L2 execution is distinct from the estimated parent-chain base fee used for data-posting costs. Use NodeInterface or ArbGasInfo components rather than treating `block.basefee` as the L1 base fee.
+  - **Trigger:** Arbitrum code uses `block.basefee` as an L1 data-price input or assumes one base-fee value covers both components.
+  - **Risk:** Conflating the two fee components produces incorrect gas estimation, reimbursement, or fee caps.
+  - **Detection:** Trace each fee variable to its documented L2 execution or parent-chain posting component and verify units before combining them.
+  - **FP:** The formula intentionally consumes the child-chain base fee and obtains parent-chain components from the documented interface.
+  - **Proof:** Compare the contract's computed fee with NodeInterface or ArbGasInfo component values for the same transaction.
+  - **Provenance:** multichain-auditor; [Arbitrum gas and fees](https://docs.arbitrum.io/how-arbitrum-works/deep-dives/gas-and-fees)
   - **Notes:** ### Sequencer & Retryable Tickets
 
 - [ ] **[EVM-CHAIN-004] Sequencer downtime = stale oracle prices + delayed liquidations/auctions** _(exploit-pattern; medium)_: When the sequencer is down, no new transactions execute. When it resumes, oracle prices are stale, positions may have gone deeply underwater, and auctions started immediately after restart can give the first bidder an unfair catch-up window. Check the Chainlink sequencer uptime feed and apply grace periods before liquidation or auction start. Look for: L2 liquidation or auction paths without sequencer uptime and restart-grace checks. [multichain-auditor, beirao ARB-02]
@@ -30,14 +33,20 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
   - **Provenance:** multichain-auditor, beirao ARB-02
 
-- [ ] **[EVM-CHAIN-005] Retryable ticket auto-redeem failure** _(exploit-pattern; medium)_: If a retryable ticket's auto-redeem fails (insufficient gas), it must be manually redeemed within 7 days or funds are permanently lost. Look for: L1→L2 message passing that assumes auto-redemption always succeeds. [Arbitrum docs]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** Arbitrum docs
+- [ ] **[EVM-CHAIN-005] Retryable ticket failure, expiry, and refunds require explicit handling** _(exploit-pattern; medium)_: An Arbitrum retryable ticket can fail automatic redemption and require manual redemption before its configured lifetime expires. Expiry and refund destinations are part of the value-flow model; do not summarize every failed auto-redeem as permanent fund loss.
+  - **Trigger:** A parent-to-child flow assumes auto-redemption always succeeds or does not track the ticket lifecycle and refund addresses.
+  - **Risk:** Ignoring retry, expiry, and refund ownership can leave messages unexecuted or make refunds inaccessible to the intended party.
+  - **Detection:** Trace ticket creation, auto-redeem status, manual redemption, lifetime extension, expiry, and both refund addresses.
+  - **FP:** The integration monitors the complete lifecycle and proves that execution or refunds remain recoverable by the intended owner.
+  - **Proof:** Force auto-redemption failure and record the manual redemption and expiry/refund outcomes on the target Arbitrum configuration.
+  - **Provenance:** Arbitrum docs; [Arbitrum parent-to-child messaging](https://docs.arbitrum.io/how-arbitrum-works/deep-dives/l1-to-l2-messaging)
 
-- [ ] **[EVM-CHAIN-006] L2→L1 message delay is 7+ days** _(exploit-pattern; medium)_: Withdrawals and messages from Arbitrum to L1 are subject to the challenge period (~7 days). Protocols that need faster finality should use a bridge/liquidity network. Look for: UX flows that assume fast L2→L1 message delivery. [Arbitrum docs]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-006] Arbitrum L2-to-L1 delay is deployment- and bridge-specific** _(exploit-pattern; medium)_: Arbitrum withdrawals and L2-to-L1 messages can be subject to a configured challenge or finality period; the historical Arbitrum One window is commonly described as about a week. Do not hardcode a universal seven-day value across Arbitrum chains or bridge providers.
+  - **Trigger:** A protocol treats an Arbitrum L2-to-L1 message as finalized after a hardcoded duration or without reading the bridge state.
+  - **Risk:** Assuming a shorter or fixed finality period can release funds or advance state before the selected bridge's security window has elapsed.
+  - **Detection:** Resolve the exact chain, bridge, challenge configuration, and finality signal used by the withdrawal path.
+  - **FP:** The integration consumes the bridge's current finality state and separately handles configured expiry and retry behavior.
+  - **Proof:** Measure the message lifecycle on the declared chain and bridge and compare the release condition with the configured finality requirement.
   - **Provenance:** Arbitrum docs
   - **Notes:** ### Address Aliasing
 
@@ -48,20 +57,29 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 
 ## Optimism / Base / OP Stack
 
-- [ ] **[EVM-CHAIN-008] `block.number` is L2 block number** _(semantic; high)_: Unlike Arbitrum, Optimism returns the L2 block number from `block.number`. But L2 blocks on OP stack are produced every 2 seconds, not 12. Code calibrated for mainnet block times will run 6x faster. Look for: block-number-based timing with mainnet assumptions on OP Stack chains. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-008] OP Stack `block.number` is an L2 block number with deployment-specific cadence** _(semantic; high)_: On OP Stack chains, `block.number` identifies the L2 block. Do not convert L2 block counts to elapsed time using an Ethereum or historically observed OP cadence; protocol upgrades and chain configuration can change block production behavior.
+  - **Trigger:** Time-sensitive logic on an OP Stack deployment derives elapsed time from `block.number` deltas.
+  - **Risk:** Block-count deadlines, accrual, and cooldowns can run for the wrong wall-clock duration when calibrated to a fixed cadence.
+  - **Detection:** Identify every block-count-to-time conversion and compare it with the target deployment's current documented cadence and upgrade policy.
+  - **FP:** The logic intentionally measures L2 blocks rather than elapsed time, or uses timestamp-based bounds with documented drift assumptions.
+  - **Proof:** Run the logic against the declared OP Stack deployment parameters and show the resulting wall-clock window across relevant upgrades.
+  - **Provenance:** multichain-auditor; [OP Stack opcode differences](https://docs.optimism.io/op-stack/protocol/differences)
+
+- [ ] **[EVM-CHAIN-009] OP Stack execution and L1 data fees are separate components** _(exploit-pattern; medium)_: OP Stack transactions account for L2 execution gas and an L1 data-posting component whose formula and parameters are deployment-specific. Do not use a fixed percentage or `gasleft()` alone to estimate the total fee.
+  - **Trigger:** Gas accounting on OP Stack derives a total cost solely from L2 execution gas or a historical percentage of the total.
+  - **Risk:** Ignoring or mispricing the parent-chain component can underfund relayed calls, misallocate reimbursements, or make a supposedly bounded operation fail.
+  - **Detection:** Trace the Gas Price Oracle or equivalent fee parameters and verify units, compression, and the target chain's current formula.
+  - **FP:** The integration uses the chain's documented fee oracle or RPC estimate for the exact transaction payload.
+  - **Proof:** Compare the implementation's estimate with the target chain's fee components for representative calldata sizes and parameter changes.
   - **Provenance:** multichain-auditor
 
-- [ ] **[EVM-CHAIN-009] L1 data fees** _(exploit-pattern; medium)_: Transactions on OP Stack pay both L2 execution gas AND L1 data posting gas. The L1 portion can be 90%+ of total cost. Protocols must account for this in gas estimation. Look for: gas estimation using only `gasleft()` without L1 data fee component. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
-
-- [ ] **[EVM-CHAIN-010] No `prevrandao` / `difficulty`** _(exploit-pattern; medium)_: On OP Stack L2s, `block.prevrandao` (formerly `block.difficulty`) returns a fixed value. It's NOT random. Look for: `block.prevrandao` or `block.difficulty` used as randomness source. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+- [ ] **[EVM-CHAIN-010] OP Stack PREVRANDAO reflects the current L1 origin** _(exploit-pattern; medium)_: On OP Stack, `block.prevrandao` returns the PREVRANDAO value from the current L1 origin block rather than an independently generated per-L2-block randomness source. Do not assume that it provides fresh entropy for every L2 block.
+  - **Trigger:** An OP Stack deployment uses `block.prevrandao` or `block.difficulty` for randomness, uniqueness, lotteries, or commit selection.
+  - **Risk:** Several L2 blocks can inherit the same or predictably related L1-origin value, breaking uniqueness or randomness assumptions.
+  - **Detection:** Trace the L1 origin used by each relevant L2 block and determine whether repeated or known PREVRANDAO values let an actor influence the outcome.
+  - **FP:** The value is mixed with an independent, manipulation-resistant randomness source and no per-L2-block entropy assumption remains.
+  - **Proof:** Demonstrate repeated L1-origin PREVRANDAO across the relevant L2 sequence or prove that independent entropy preserves the security invariant.
+  - **Provenance:** multichain-auditor; [OP Stack opcode differences](https://docs.optimism.io/op-stack/protocol/differences)
 
 ## zkSync Era
 
@@ -88,9 +106,12 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Proof:** Execute the relevant opcode path against the target chain or a matching fork and record the observed result.
   - **Provenance:** multichain-auditor; [EIP-6780 SELFDESTRUCT](https://eips.ethereum.org/EIPS/eip-6780)
 
-- [ ] **[EVM-CHAIN-015] No `receive()` / `fallback()` for ETH transfers** _(exploit-pattern; medium)_: On zkSync, receiving ETH may require explicit function handling. The default receive/fallback may not work as expected for system-level transfers. Look for: contracts expecting ETH via `receive()` on zkSync. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-015] Native-value reception paths are chain- and system-contract-specific** _(exploit-pattern; medium)_: Native-value delivery on zkSync and other execution environments can involve system contracts, account abstraction, or bridge-specific paths. Do not assume that a Solidity `receive()` or `fallback()` path is the only way funds arrive or that it has identical behavior on every chain.
+  - **Trigger:** A multichain contract assumes all native ETH/POL/ETH-like value arrives through one ordinary EVM entry point.
+  - **Risk:** A missing or misclassified reception path can strand native value, bypass accounting, or make a bridge callback fail.
+  - **Detection:** Enumerate direct calls, system-contract transfers, bridge callbacks, and account-abstraction paths on the declared deployment.
+  - **FP:** The target environment documents the exact reception path and the contract accounts for every reachable native-value source.
+  - **Proof:** Execute each documented value-delivery path and compare balances, events, and accounting state with the intended invariant.
   - **Provenance:** multichain-auditor
 
 ## Blast
@@ -112,15 +133,21 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 
 ## BNB Chain (BSC)
 
-- [ ] **[EVM-CHAIN-019] BNB token quirks** _(exploit-pattern; medium)_: BNB reverts on `approve(addr, 0)` but requires approval reset for USDT pattern. There's no universal approve pattern that works for both BNB and USDT. Look for: generic approve-to-zero patterns on BSC. [weird-erc20]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-019] BEP-20 allowance behavior is token-specific** _(exploit-pattern; medium)_: BNB Smart Chain does not make all BEP-20 tokens share one allowance-reset behavior. Some deployed tokens may reject zero-to-nonzero or nonzero-to-nonzero approvals, so inspect the actual token instead of attributing a universal rule to BNB.
+  - **Trigger:** A BSC integration applies one approval sequence to arbitrary BEP-20 tokens.
+  - **Risk:** A generic approval wrapper can revert, strand funds, or leave an unexpected allowance when used with a token-specific implementation.
+  - **Detection:** Inspect the deployed token bytecode and exercise zero, nonzero, and repeated approval transitions.
+  - **FP:** The token set is allowlisted and each allowance path is tested against its deployed implementation.
+  - **Proof:** Run the wrapper against every supported token and record return data, reverts, and final allowance state.
   - **Provenance:** weird-erc20
 
-- [ ] **[EVM-CHAIN-020] 3-second block times** _(exploit-pattern; medium)_: BSC produces blocks every 3 seconds. Block-number-based timing runs 4x faster than Ethereum mainnet. Look for: block-count timing calibrated for 12-second blocks. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+- [ ] **[EVM-CHAIN-020] Do not hardcode BNB Chain block cadence** _(exploit-pattern; medium)_: BNB Smart Chain block cadence has changed across protocol upgrades. Time-sensitive logic must not hardcode a historical block interval; use timestamp-based constraints or deployment-specific documented parameters when the operation truly depends on elapsed time.
+  - **Trigger:** A BNB Chain deployment converts blocks to seconds or embeds a fixed number of blocks for a wall-clock requirement.
+  - **Risk:** A later network upgrade can shorten or lengthen block-count-based windows, changing cooldowns, auctions, rewards, or governance timing without a contract change.
+  - **Detection:** Locate fixed block-time constants and compare the intended duration with current BNB Chain documentation and the deployment's upgrade assumptions.
+  - **FP:** The invariant is explicitly block-count based, or elapsed-time logic uses timestamps with documented tolerance.
+  - **Proof:** Calculate the effective window under the current and at least one historical cadence and show whether the security requirement still holds.
+  - **Provenance:** multichain-auditor; [BNB Smart Chain introduction](https://docs.bnbchain.org/bnb-smart-chain/introduction/)
 
 - [ ] **[EVM-CHAIN-021] Precompile addresses differ across chains** _(exploit-pattern; medium)_: BSC and other chains may add or relocate precompiles, so a hardcoded address can call an empty account or different contract. Look for: precompile address assumptions in multi-chain deployments. [multichain-auditor]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
@@ -129,19 +156,28 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 
 ## Polygon
 
-- [ ] **[EVM-CHAIN-022] MATIC → POL migration** _(exploit-pattern; medium)_: MATIC is being replaced by POL as the native gas token. Protocols hardcoding WMATIC addresses or assuming MATIC will need updates. Look for: hardcoded MATIC/WMATIC addresses. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-022] Polygon PoS native gas token is POL** _(exploit-pattern; medium)_: Polygon PoS has migrated its native gas and staking token from MATIC to POL. Integrations must distinguish native POL, POL on Ethereum, legacy MATIC, and wrapped or bridged token contracts instead of treating the migration as pending.
+  - **Trigger:** A Polygon PoS integration hardcodes MATIC/WMATIC symbols, addresses, bridge behavior, or migration-state branches.
+  - **Risk:** Stale symbols, addresses, bridge assumptions, or accounting branches can route funds incorrectly or reject the current native asset.
+  - **Detection:** Trace native and ERC-20 asset identifiers on every supported chain and verify current POL bridge and wrapping behavior against the deployed contracts.
+  - **FP:** The integration intentionally supports a legacy Ethereum-side MATIC migration path and separately handles Polygon PoS native POL.
+  - **Proof:** Exercise native and token paths on the declared Polygon deployment and show that every address, symbol, and accounting branch resolves to the intended asset.
+  - **Provenance:** multichain-auditor; [Polygon POL documentation](https://docs.polygon.technology/pos/concepts/tokens/pol)
+
+- [ ] **[EVM-CHAIN-023] Confirmation depth and reorg risk are chain-specific** _(exploit-pattern; medium)_: Reorganization frequency, finality signals, validator/sequencer behavior, and confirmation recommendations differ across chains and deployments. Do not label one chain universally more or less reorganizable than another without a declared observation window and finality model.
+  - **Trigger:** A bridge, indexer, or protocol uses one hardcoded confirmation depth across chains.
+  - **Risk:** A fixed confirmation count can accept reversible state or delay safe settlement beyond the intended liveness bound.
+  - **Detection:** Document the target chain's probabilistic/economic finality and use its finalized tag or deployment-specific threshold where available.
+  - **FP:** The operation waits for the documented finality signal and handles reorg/replay recovery.
+  - **Proof:** Simulate a reorg or delayed finality event and verify that the state transition remains safe and recoverable.
   - **Provenance:** multichain-auditor
 
-- [ ] **[EVM-CHAIN-023] Reorgs are more common** _(exploit-pattern; medium)_: Polygon has more frequent chain reorganizations than Ethereum mainnet. Protocols that rely on block finality with fewer confirmations are at risk. Look for: single-block confirmation assumptions. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
-
-- [ ] **[EVM-CHAIN-024] USDT on Polygon returns bool (unlike Ethereum)** _(exploit-pattern; medium)_: Ethereum USDT has no return value; Polygon USDT returns bool. SafeERC20 handles both, but custom transfer wrappers may not. Look for: custom token interaction code that assumes no return value. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-024] Token return conventions are deployment-specific on Polygon** _(exploit-pattern; medium)_: A token's return-data convention is a property of the deployed token contract, not a guaranteed consequence of its chain or symbol. Polygon deployments can include tokens and proxies whose transfer methods return data, omit it, or change through upgrades.
+  - **Trigger:** A Polygon integration branches on a token symbol or chain rather than handling the deployed call's return-data convention.
+  - **Risk:** A wrapper that assumes one return shape can treat a failed transfer as success or revert on a valid token implementation.
+  - **Detection:** Inspect the exact token implementation and use a wrapper with an explicit success and return-data policy.
+  - **FP:** The supported token addresses are immutable and their return behavior is covered by integration tests.
+  - **Proof:** Call transfer and transferFrom against each supported deployment and verify state deltas for empty, boolean, and malformed return data.
   - **Provenance:** multichain-auditor
 
 ## General L2 Considerations
@@ -161,27 +197,36 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
   - **Provenance:** multichain-auditor
 
-- [ ] **[EVM-CHAIN-029] `block.chainid` must be checked dynamically** _(exploit-pattern; medium)_: After hard forks, `block.chainid` changes. If cached at deploy time and used for signatures, the cached value is wrong on one fork. Look for: `immutable CHAIN_ID` set in constructor vs runtime `block.chainid` check. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor
+- [ ] **[EVM-CHAIN-029] Signature domains must handle a possible chain ID change** _(exploit-pattern; medium)_: `block.chainid` exposes the current chain ID. A contentious split or governance decision can change chain identity; a cached EIP-712 domain separator must either be intentionally fixed or rebuilt when the runtime chain ID differs. Ordinary hard forks do not inherently change the chain ID.
+  - **Trigger:** A signature domain caches the deployment chain ID without defining behavior for a later runtime mismatch.
+  - **Risk:** A stale cached chain ID can enable cross-fork replay or invalidate signatures after a chain identity change.
+  - **Detection:** Compare cached and runtime chain IDs in the signing and verification paths and document the intended fork/replay policy.
+  - **FP:** The domain separator is recomputed on mismatch, or the protocol intentionally pins one chain identity and safely rejects the other.
+  - **Proof:** Simulate a chain ID mismatch and show whether signatures replay, fail safely, or rebuild the expected domain.
+  - **Provenance:** multichain-auditor; [EIP-1344 ChainID opcode](https://eips.ethereum.org/EIPS/eip-1344)
 
 ## Arbitrum Deep Dive (Expanded from Arbitrum Checklist)
 
-- [ ] **[EVM-CHAIN-030] Chainlink price feed staleness thresholds differ on Arbitrum** _(exploit-pattern; medium)_: LINK/ETH feed has 24h heartbeat with 18 decimals, while LINK/USD has 1h heartbeat with 8 decimals. Wrong threshold = stale prices accepted. Look for: hardcoded staleness thresholds or decimal values that don't match the specific Arbitrum feed. [Arbitrum Checklist]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-030] Chainlink feed heartbeat and staleness are feed-specific** _(exploit-pattern; medium)_: Chainlink heartbeat, deviation threshold, decimals, and sequencer behavior are properties of the selected feed and deployment. Do not copy a historical Arbitrum heartbeat or decimal value into another feed or assume it remains unchanged.
+  - **Trigger:** An integration hardcodes one Chainlink freshness interval or decimal scale for multiple chains or feeds.
+  - **Risk:** A fixed threshold can accept stale prices or reject fresh ones, distorting collateral, liquidation, or settlement logic.
+  - **Detection:** Read the selected feed's current metadata and compare `updatedAt`, decimals, heartbeat, and deviation policy with the use case.
+  - **FP:** The feed address is allowlisted and its current parameters are validated at deployment and monitored for change.
+  - **Proof:** Exercise the price path at the feed's heartbeat, deviation, and stale boundaries and verify the protocol's fail-safe behavior.
   - **Provenance:** Arbitrum Checklist
 
-- [ ] **[EVM-CHAIN-031] Chainlink minAnswer/maxAnswer on Arbitrum feeds** _(exploit-pattern; medium)_: ETH/USD limited to [$10, $1M], USDC/USD limited to [$0.01, $1000], USDT/USD limited to [$0.01, $1000]. During flash crashes or extreme events, the feed returns min/max instead of real price. Look for: Chainlink integrations without checking `answer > minAnswer && answer < maxAnswer`. [Arbitrum Checklist]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-031] Chainlink answer bounds are feed- and deployment-specific** _(exploit-pattern; medium)_: Chainlink answer bounds and circuit-breaker configuration are feed-specific and may change with aggregator or proxy updates. Do not hardcode minAnswer/maxAnswer values from one Arbitrum feed; inspect the selected aggregator and define behavior for bounded or invalid answers.
+  - **Trigger:** The protocol uses a Chainlink answer without reading or validating the selected feed's current bounds and status.
+  - **Risk:** A stale bound can accept a clipped price, reject a valid extreme price, or make liquidation and solvency checks behave incorrectly.
+  - **Detection:** Resolve the proxy and aggregator, inspect bounds and answer status, and test negative, zero, clipped, and extreme values.
+  - **FP:** The feed's current bounds are enforced by a trusted adapter with monitoring and an explicit fallback policy.
+  - **Proof:** Inject or observe boundary answers on a fork and show the resulting accounting, liquidation, or pause behavior.
   - **Provenance:** $10, $1M; $0.01, $1000; Arbitrum Checklist
 
 - [ ] **[EVM-CHAIN-032] Orbit chains with custom fee tokens** _(semantic; high)_: Orbit chains (L3s built on Arbitrum) can use any ERC20 as the fee token instead of ETH. If the fee token has non-18 decimals (e.g., USDC = 6), amounts are scaled between L1 decimals and L2 native currency (18 decimals). Rounding losses occur during conversion. Look for: Orbit chain integrations assuming ETH-denominated fees. [Arbitrum Checklist]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** Arbitrum Checklist
+  - **Provenance:** Arbitrum Checklist; [Arbitrum custom gas token chains](https://docs.arbitrum.io/arbitrum-essentials/bridging/custom-gas-token-chains)
 
 - [ ] **[EVM-CHAIN-033] Retryable ticket parameters use mixed denominations on Orbit** _(exploit-pattern; medium)_: `tokenTotalFeeAmount` uses the fee token's decimals (e.g., 6 for USDC), but `l2CallValue`, `maxSubmissionCost`, and `maxFeePerGas` use 18-decimal native currency denomination. Mixing these causes incorrect fee calculations. Look for: retryable ticket creation on Orbit chains where parameters aren't properly denominated. [Arbitrum Checklist]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
@@ -190,29 +235,44 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 
 ## Multichain Deployment Gotchas (Expanded from Multichain-Auditor)
 
-- [ ] **[EVM-CHAIN-034] `transfer()` and `send()` fail on chains with different gas costs** _(exploit-pattern; medium)_: These forward 2300 gas, which may not be enough on chains with different gas pricing (zkSync Era). Use `.call{value: amount}("")` instead. Look for: `.transfer()` or `.send()` in multichain contracts. [multichain-auditor, beirao MC-04]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-034] The 2300-gas stipend is not portable across execution environments** _(exploit-pattern; medium)_: Solidity `transfer()` and `send()` forward a fixed 2300-gas stipend. Whether that stipend is sufficient depends on the target chain's gas schedule and the recipient's execution path; use an explicit call pattern with checked success when portability is required.
+  - **Trigger:** A multichain path relies on `transfer()` or `send()` for recipients whose fallback or receive logic may vary.
+  - **Risk:** A recipient that needs more than the stipend can make withdrawals or callbacks fail, creating a denial of service or stuck funds.
+  - **Detection:** Trace the recipient code, gas schedule, and failure handling on every target chain.
+  - **FP:** The recipient is code-free or intentionally stipend-compatible and failed sends are handled without corrupting state.
+  - **Proof:** Execute the transfer against a recipient that consumes the target stipend and verify success handling and accounting rollback.
   - **Provenance:** multichain-auditor, beirao MC-04
 
-- [ ] **[EVM-CHAIN-035] Frontrunning impossible on some L2s but trivial on others** _(exploit-pattern; medium)_: Optimism has a private mempool making frontrunning very difficult. Polygon has a public mempool making it cheap. Threat models must be chain-specific. Look for: frontrunning protections assumed unnecessary based on single-chain behavior. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-035] Transaction ordering and order-flow visibility are chain-specific** _(exploit-pattern; medium)_: Mempool visibility, sequencer policy, private order flow, forced inclusion, and proposer capabilities vary by chain and can change over time. Never classify front-running or ordering manipulation as impossible solely because one public mempool is absent.
+  - **Trigger:** A protocol omits slippage, commit-reveal, or ordering defenses based on an assumed private or nonexistent mempool.
+  - **Risk:** An incomplete ordering threat model can miss sequencer, builder, RPC, or delayed-inclusion strategies that reorder security-sensitive transactions.
+  - **Detection:** Document every party that can observe, delay, insert, or reorder transactions on the target deployment and its fallback paths.
+  - **FP:** The invariant is order-independent or a deployment-specific mechanism cryptographically prevents the relevant ordering attack.
+  - **Proof:** Construct the strongest ordering capability available to sequencers, builders, RPC operators, and users and test the protected operation.
   - **Provenance:** multichain-auditor
 
-- [ ] **[EVM-CHAIN-036] Hardcoded WETH/token addresses invalid across chains** _(exploit-pattern; medium)_: WETH is 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 on Ethereum but 0x7ceb23fd6bc0add59e62ac25578270cff1b9f619 on Polygon. Look for: any hardcoded contract address that's assumed same across chains. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-036] Wrapped-native and token addresses are chain-specific** _(exploit-pattern; medium)_: Wrapped-native assets and token representations use deployment-specific addresses. Do not copy an Ethereum or historical Polygon WETH address into a multichain configuration; resolve and validate the address for each chain and environment.
+  - **Trigger:** A multichain deployment embeds one wrapped-native or token address in shared logic or configuration.
+  - **Risk:** A stale address can send funds to an unintended contract, an empty account, or a token with different decimals and trust assumptions.
+  - **Detection:** Compare every configured address with the target chain's official deployment registry and verify code, decimals, and role configuration.
+  - **FP:** Addresses are chain-keyed, immutable after review, and checked for code and expected interface before use.
+  - **Proof:** Run deposits, withdrawals, and balance reads against every configured chain and compare the resolved contract with the intended asset.
   - **Provenance:** multichain-auditor
 
-- [ ] **[EVM-CHAIN-037] zkSync ERA has fundamentally different opcode behavior** _(semantic; high)_: CREATE, CREATE2, CALL, STATICCALL, DELEGATECALL, MSTORE, MLOAD, CALLDATALOAD, CALLDATACOPY all behave differently on zkSync. Direct EVM contract deployment often fails. Look for: contracts deployed to zkSync without ERA-specific adaptation. [multichain-auditor, beirao MC-11]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor, beirao MC-11
+- [ ] **[EVM-CHAIN-037] ZKsync EraVM compatibility must be checked per instruction and deployment path** _(semantic; high)_: ZKsync EraVM is source-compatible with much Solidity code but differs from the EVM in documented instruction, bytecode, address-derivation, and deployment behavior. Do not claim that every common opcode behaves differently; review only the documented differences reached by the target code and toolchain.
+  - **Trigger:** A deployment targets ZKsync Era and uses low-level instructions, bytecode inspection, CREATE/CREATE2, system contracts, or EVM-specific tooling.
+  - **Risk:** EVM-specific bytecode, factory dependencies, address calculations, or call assumptions can fail or produce different results on EraVM.
+  - **Detection:** Map the reached instructions and deployment artifacts to the current EraVM differences documentation and compiler mode.
+  - **FP:** The target uses the supported EVM interpreter path or the reached instructions are documented as equivalent under the declared compiler and protocol version.
+  - **Proof:** Compile and execute the exact artifact on the declared ZKsync environment and compare each relied-upon behavior with the EVM baseline.
+  - **Provenance:** multichain-auditor, beirao MC-11; [ZKsync Era EVM instruction differences](https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions)
 
-- [ ] **[EVM-CHAIN-038] XDai/Gnosis chain token contracts have callbacks** _(exploit-pattern; medium)_: On Gnosis chain, USDC/WBTC/WETH had post-transfer callbacks unlike their Ethereum counterparts. This enabled reentrancy attacks and led to a chain hard fork. Look for: same-name tokens assumed to behave identically across chains. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-CHAIN-038] Same-name tokens can have different callback behavior** _(exploit-pattern; medium)_: Token callback behavior is a property of the deployed token and its upgrade history, not its symbol or chain label. Historical incidents on Gnosis demonstrate why integrations must inspect the exact contract and protect accounting around arbitrary token callbacks.
+  - **Trigger:** A multichain integration grants trust based on a token symbol or origin chain without checking callback-capable behavior.
+  - **Risk:** Assuming a same-name token is callback-free can expose reentrancy, unexpected control flow, or transfer-accounting errors.
+  - **Detection:** Inspect bytecode, interfaces, hooks, proxy implementation, and transfer traces for every supported token address.
+  - **FP:** The token set is immutable/allowlisted and all external control paths are protected by checks-effects-interactions or reentrancy guards.
+  - **Proof:** Use a callback-capable fixture or the deployed token trace to demonstrate whether transfer control can reenter before accounting finalizes.
   - **Provenance:** multichain-auditor
 
 ## Supplemental Attack Vectors (SAS-AV)

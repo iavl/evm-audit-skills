@@ -8,6 +8,7 @@
     "uses-delegatecall": "Delegatecall or shared execution context",
     "uses-multicall": "Multicall, batch, or repeated execution",
     "uses-msg-value": "Payable or native ETH value flow",
+    "uses-payable": "Payable functions or constructors, whether or not they currently read msg.value",
     "uses-merkle": "Merkle proof or claim verification",
     "uses-force-feed": "Unexpected native or token balance changes",
     "uses-reentrancy-callback": "Callback, hook, or reentrant external control flow",

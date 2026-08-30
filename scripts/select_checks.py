@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Route canonical checks from an evidence-backed reconnaissance feature map.
 
-The selector is deliberately conservative: a predicate is filtered only when
-its result is ``FALSE``. Missing or uncertain reconnaissance evidence is
-represented as ``UNKNOWN`` and therefore remains selected for inspection.
+The selector is deliberately conservative: only a curated predicate can
+fast-filter on ``FALSE``. A false keyword-inferred predicate is downgraded to
+``UNKNOWN`` and remains selected for inspection.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +21,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 FEATURE_STATES = {"PRESENT", "ABSENT_CONFIRMED", "UNKNOWN"}
 PREDICATE_KEYS = ("all_of", "any_of", "none_of")
+SELECTOR_VERSION = "2"
+ROUTING_MANIFEST_VERSION = 2
 
 
 class SelectionInputError(ValueError):
@@ -32,6 +37,47 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise SelectionInputError(f"JSON root must be an object: {path}")
     return value
+
+
+def registry_sha256(registry: dict[str, Any]) -> str:
+    encoded = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def git_value(root: Path, *args: str) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    value = result.stdout.strip()
+    return value if result.returncode == 0 and value else None
+
+
+def audit_context(
+    root: Path,
+    registry: dict[str, Any],
+    *,
+    target_root: Path | None = None,
+    target_commit: str | None = None,
+    chain_id: int | None = None,
+    fork_block: int | None = None,
+    compiler_version: str | None = None,
+    audit_timestamp: str | None = None,
+) -> dict[str, Any]:
+    resolved_target = target_root.resolve() if target_root else None
+    return {
+        "selector_version": SELECTOR_VERSION,
+        "registry_sha256": registry_sha256(registry),
+        "knowledge_commit": git_value(root, "rev-parse", "HEAD"),
+        "knowledge_dirty": bool(git_value(root, "status", "--short")),
+        "target_commit": target_commit or (git_value(resolved_target, "rev-parse", "HEAD") if resolved_target else None),
+        "chain_id": chain_id,
+        "fork_block": fork_block,
+        "compiler_version": compiler_version,
+        "audit_timestamp": audit_timestamp or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
 
 
 def vocabulary(feature_data: dict[str, Any]) -> tuple[set[str], dict[str, str]]:
@@ -172,6 +218,8 @@ def evaluate_check(check: dict[str, Any], feature_map: dict[str, dict[str, Any]]
             raise SelectionInputError(f"{check.get('canonical_id')}: always_screen cannot accompany a non-empty predicate")
         return {
             "result": "TRUE",
+            "predicate_result": "TRUE",
+            "predicate_source": check.get("predicate_source", "curated"),
             "predicate": {"all_of": [], "any_of": [], "none_of": []},
             "matched_features": [],
             "unknown_features": [],
@@ -179,7 +227,9 @@ def evaluate_check(check: dict[str, Any], feature_map: dict[str, dict[str, Any]]
         }
     predicate = check_predicate(check, names)
     groups = {key: evaluate_group(predicate[key], key, feature_map) for key in PREDICATE_KEYS}
-    result = "FALSE" if "FALSE" in groups.values() else "TRUE" if all(value == "TRUE" for value in groups.values()) else "UNKNOWN"
+    predicate_result = "FALSE" if "FALSE" in groups.values() else "TRUE" if all(value == "TRUE" for value in groups.values()) else "UNKNOWN"
+    predicate_source = check.get("predicate_source", "inferred")
+    result = "UNKNOWN" if predicate_result == "FALSE" and predicate_source != "curated" else predicate_result
     referenced = {feature for values in predicate.values() for feature in values}
     matched = sorted(feature for feature in referenced if status_for(feature, feature_map) == "PRESENT")
     unknown = sorted(feature for feature in referenced if status_for(feature, feature_map) == "UNKNOWN")
@@ -188,10 +238,14 @@ def evaluate_check(check: dict[str, Any], feature_map: dict[str, dict[str, Any]]
         basis.append("present=" + ",".join(matched))
     if unknown:
         basis.append("unknown=" + ",".join(unknown))
-    if result == "FALSE":
+    if predicate_result == "FALSE":
         basis.append("failed=" + ",".join(key for key, value in groups.items() if value == "FALSE"))
+    if predicate_result == "FALSE" and result == "UNKNOWN":
+        basis.append("inferred-false-downgraded=UNKNOWN")
     return {
         "result": result,
+        "predicate_result": predicate_result,
+        "predicate_source": predicate_source,
         "predicate": predicate,
         "matched_features": matched,
         "unknown_features": unknown,
@@ -199,7 +253,7 @@ def evaluate_check(check: dict[str, Any], feature_map: dict[str, dict[str, Any]]
     }
 
 
-def compact_check(check: dict[str, Any]) -> dict[str, Any]:
+def compact_check(check: dict[str, Any], include_provenance: bool = True) -> dict[str, Any]:
     """Return only the fields needed by a domain agent for deep review."""
 
     result = {
@@ -207,17 +261,20 @@ def compact_check(check: dict[str, Any]) -> dict[str, Any]:
         "title": check["title"],
         "type": check.get("type"),
         "confidence": check.get("confidence"),
+        "freshness": check.get("freshness"),
+        "verified_at": check.get("verified_at"),
         "predicate": check.get("predicate", {"all_of": [], "any_of": [], "none_of": []}),
         "trigger": check.get("trigger", []),
         "risk": check.get("risk", []),
         "detection": check.get("detection", []),
         "false_positive_gates": check.get("false_positive_gates", []),
         "proof": check.get("proof", []),
-        "provenance": [
+    }
+    if include_provenance:
+        result["provenance"] = [
             {key: value for key, value in entry.items() if key in {"label", "url", "kind", "locator"}}
             for entry in check.get("provenance", [])
-        ],
-    }
+        ]
     if check.get("related"):
         result["related"] = check["related"]
     return result
@@ -229,7 +286,7 @@ def one_line(value: Any) -> str:
     return str(value).strip()
 
 
-def selected_markdown(manifest: dict[str, Any], checks: list[dict[str, Any]]) -> str:
+def selected_markdown(manifest: dict[str, Any], checks: list[dict[str, Any]], profile: str = "full") -> str:
     lines = [
         "<!-- GENERATED ROUTED CHECKS: source is data/canonical-checks.json; do not edit by hand. -->",
         "# Selected EVM Audit Checks",
@@ -238,12 +295,16 @@ def selected_markdown(manifest: dict[str, Any], checks: list[dict[str, Any]]) ->
         "",
     ]
     for check in checks:
-        entry = compact_check(check)
+        entry = compact_check(check, include_provenance=profile == "full")
         selected = next(item for item in manifest["selected"] if item["canonical_id"] == check["canonical_id"])
+        lines.append(f"## [{entry['canonical_id']}] {entry['title']}")
+        if profile == "full":
+            lines.extend([
+                f"- **Type / confidence:** {entry['type']} / {entry['confidence']}",
+                f"- **Predicate:** all_of={','.join(entry['predicate']['all_of']) or '-'}; any_of={','.join(entry['predicate']['any_of']) or '-'}; none_of={','.join(entry['predicate']['none_of']) or '-'}",
+            ])
         lines.extend([
-            f"## [{entry['canonical_id']}] {entry['title']}",
-            f"- **Type / confidence:** {entry['type']} / {entry['confidence']}",
-            f"- **Predicate:** all_of={','.join(entry['predicate']['all_of']) or '-'}; any_of={','.join(entry['predicate']['any_of']) or '-'}; none_of={','.join(entry['predicate']['none_of']) or '-'}",
+            f"- **Freshness:** {entry['freshness']} / verified_at={entry['verified_at'] or 'unverified'}",
             f"- **Routing basis:** {one_line(selected['basis'])}",
             f"- **Trigger:** {one_line(entry['trigger'])}",
             f"- **Risk:** {one_line(entry['risk'])}",
@@ -266,6 +327,7 @@ def select(
     feature_map: dict[str, dict[str, Any]],
     names: set[str],
     scope_domains: list[str] | None,
+    context: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     selected: list[dict[str, Any]] = []
     filtered: list[dict[str, Any]] = []
@@ -283,7 +345,11 @@ def select(
             "title": check.get("title", ""),
             "domains": domains,
             "owner_domain": owner_domain,
+            "freshness": check.get("freshness"),
+            "verified_at": check.get("verified_at"),
             "predicate": evaluation["predicate"],
+            "predicate_source": evaluation["predicate_source"],
+            "predicate_evaluation": evaluation["predicate_result"],
             "evaluation": evaluation["result"],
             "matched_features": evaluation["matched_features"],
             "unknown_features": evaluation["unknown_features"],
@@ -296,8 +362,19 @@ def select(
             selected_checks.append(check)
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": ROUTING_MANIFEST_VERSION,
         "stage": "FAST_FILTER",
+        "audit_context": context or {
+            "selector_version": SELECTOR_VERSION,
+            "registry_sha256": registry_sha256(registry),
+            "knowledge_commit": None,
+            "knowledge_dirty": None,
+            "target_commit": None,
+            "chain_id": None,
+            "fork_block": None,
+            "compiler_version": None,
+            "audit_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        },
         "scope": {"domains": scope_domains, "candidate_count": len(selected) + len(filtered)},
         "feature_map": {"schema_version": 1, "features": feature_map},
         "features": feature_map,
@@ -366,6 +443,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--domain", help="limit selection to one domain skill")
     parser.add_argument("--domains", help="comma-separated in-scope domains for a global manifest")
     parser.add_argument("--emit-checks", action="store_true", help="include selected check bodies in JSON or render them in Markdown")
+    parser.add_argument("--profile", choices=("full", "compact"), default="full", help="selected-check body profile; compact omits provenance and repeated metadata")
+    parser.add_argument("--target-root", type=Path, help="target repository used to resolve target_commit")
+    parser.add_argument("--target-commit", help="explicit target repository commit")
+    parser.add_argument("--chain-id", type=int, help="deployment chain ID")
+    parser.add_argument("--fork-block", type=int, help="fork or state snapshot block")
+    parser.add_argument("--compiler-version", help="compiler version used by the audited artifact")
+    parser.add_argument("--audit-timestamp", help="explicit ISO-8601 audit timestamp; defaults to current UTC")
     parser.add_argument("--format", choices=("text", "json", "markdown"), default="text")
     args = parser.parse_args(argv)
     root = args.root.resolve()
@@ -383,14 +467,26 @@ def main(argv: list[str] | None = None) -> int:
             for feature in sorted(names)
         }
         scope_domains = parse_domains(args, registry)
-        manifest, selected_checks = select(registry, feature_map, names, scope_domains)
+        context = audit_context(
+            root,
+            registry,
+            target_root=args.target_root,
+            target_commit=args.target_commit,
+            chain_id=args.chain_id,
+            fork_block=args.fork_block,
+            compiler_version=args.compiler_version,
+            audit_timestamp=args.audit_timestamp,
+        )
+        manifest, selected_checks = select(registry, feature_map, names, scope_domains, context)
         if args.emit_checks:
-            manifest["selected_checks"] = [compact_check(check) for check in selected_checks]
+            manifest["selected_checks"] = [
+                compact_check(check, include_provenance=args.profile == "full") for check in selected_checks
+            ]
 
         if args.format == "json":
             print(json.dumps(manifest, ensure_ascii=False, indent=2))
         elif args.format == "markdown":
-            print(selected_markdown(manifest, selected_checks), end="")
+            print(selected_markdown(manifest, selected_checks, args.profile), end="")
         else:
             print(f"stage={manifest['stage']} selected={manifest['selected_count']} filtered={manifest['filtered_count']}")
             for entry in manifest["selected"]:

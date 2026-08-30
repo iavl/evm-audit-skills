@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
+from scripts.check_knowledge_health import knowledge_health
 from scripts.select_checks import evaluate_group, normalize_feature_map, select, vocabulary
 from scripts.validate_checklists import validate_knowledge_claims, validate_review_ledger_text, validate_routing_manifest
 
@@ -35,6 +38,19 @@ class ChecklistTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+    def test_generator_is_a_pure_renderer(self) -> None:
+        registry_path = ROOT / "data/canonical-checks.json"
+        before = hashlib.sha256(registry_path.read_bytes()).hexdigest()
+        result = subprocess.run(
+            [sys.executable, "scripts/generate_checklists.py"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        after = hashlib.sha256(registry_path.read_bytes()).hexdigest()
+        self.assertEqual(before, after)
 
     def test_knowledge_claims_and_forbidden_regressions(self) -> None:
         claims = load_json(ROOT / "tests/knowledge/claims.json")["claims"]
@@ -126,8 +142,34 @@ class ChecklistTests(unittest.TestCase):
         payload = json.loads(result.stdout)
         selected = {entry["canonical_id"] for entry in payload["selected"]}
         self.assertIn("ERC4626-ROUND-001", selected)
-        self.assertNotIn("EVM-TIME-001", selected)
         self.assertIn("EVM-ERC4626-003", selected)
+        self.assertNotIn("EVM-TIME-001", selected)
+
+    def test_only_curated_false_predicates_can_filter(self) -> None:
+        feature_map = {"a": {"status": "ABSENT_CONFIRMED", "evidence": ["fixture: absent"]}}
+        registry = {
+            "checks": [
+                {
+                    "canonical_id": "TEST-INFERRED-001",
+                    "title": "inferred",
+                    "domains": ["evm-audit-general"],
+                    "primary_domain": "evm-audit-general",
+                    "predicate": {"all_of": ["a"], "any_of": [], "none_of": []},
+                    "predicate_source": "inferred",
+                },
+                {
+                    "canonical_id": "TEST-CURATED-001",
+                    "title": "curated",
+                    "domains": ["evm-audit-general"],
+                    "primary_domain": "evm-audit-general",
+                    "predicate": {"all_of": ["a"], "any_of": [], "none_of": []},
+                    "predicate_source": "curated",
+                },
+            ]
+        }
+        manifest, _ = select(registry, feature_map, {"a"}, ["evm-audit-general"])
+        self.assertEqual([entry["canonical_id"] for entry in manifest["selected"]], ["TEST-INFERRED-001"])
+        self.assertEqual([entry["canonical_id"] for entry in manifest["filtered"]], ["TEST-CURATED-001"])
 
     def test_predicate_truth_table_is_conservative_for_unknown(self) -> None:
         feature_map = normalize_feature_map({
@@ -200,13 +242,20 @@ class ChecklistTests(unittest.TestCase):
             }, feature_file)
             feature_file.flush()
             result = subprocess.run(
-                [sys.executable, "scripts/select_checks.py", "--feature-map", feature_file.name, "--domain", "evm-audit-general", "--emit-checks", "--format", "markdown"],
+                [sys.executable, "scripts/select_checks.py", "--feature-map", feature_file.name, "--domain", "evm-audit-general", "--emit-checks", "--profile", "compact", "--format", "markdown"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            full_result = subprocess.run(
+                [sys.executable, "scripts/select_checks.py", "--feature-map", feature_file.name, "--domain", "evm-audit-general", "--emit-checks", "--profile", "full", "--format", "markdown"],
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
             )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertLess(len(result.stdout), (ROOT / "evm-audit-general/references/checklist.md").stat().st_size)
+        self.assertEqual(full_result.returncode, 0, full_result.stderr)
+        self.assertLess(len(result.stdout), len(full_result.stdout))
 
     def test_routing_manifest_covers_scope_and_shared_owner(self) -> None:
         feature_data = load_json(ROOT / "data/features.json")
@@ -226,26 +275,65 @@ class ChecklistTests(unittest.TestCase):
         )
         shared = next(item for item in manifest["selected"] + manifest["filtered"] if item["canonical_id"] == "EVM-TIME-001")
         self.assertEqual(shared["owner_domain"], "evm-audit-precision-math")
-        with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as manifest_file:
-            json.dump(manifest, manifest_file)
-            manifest_file.flush()
-            with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8") as ledger_file:
-                for entry in manifest["selected"]:
-                    ledger_file.write(
-                        f"### {entry['canonical_id']} — Example\n"
-                        "- **Review stage**: DEEP_REVIEW\n"
-                        "- **Routing basis**: fixture\n"
-                        "- **Status**: REVIEWED_SAFE\n"
-                        "- **Applicability**: APPLICABLE — fixture\n"
-                        "- **Code path**: fixture\n"
-                        "- **Preconditions**: fixture\n"
-                        "- **Exploitability**: fixture\n"
-                        "- **Impact**: N/A — invariant holds\n"
-                        "- **PoC / Invariant violation**: fixture invariant holds\n"
-                        "- **Evidence**: fixture\n\n"
-                    )
-                ledger_file.flush()
-                self.assertEqual(validate_routing_manifest(ROOT, Path(manifest_file.name), [Path(ledger_file.name)]), [])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = Path(temp_dir) / "routing-manifest.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            ledgers: list[Path] = []
+            for owner in sorted({entry["owner_domain"] for entry in manifest["selected"]}):
+                ledger_path = Path(temp_dir) / f"review-{owner}.md"
+                with ledger_path.open("w", encoding="utf-8") as ledger_file:
+                    for entry in manifest["selected"]:
+                        if entry["owner_domain"] != owner:
+                            continue
+                        ledger_file.write(
+                            f"### {entry['canonical_id']} — Example\n"
+                            "- **Review stage**: DEEP_REVIEW\n"
+                            "- **Routing basis**: fixture\n"
+                            "- **Status**: REVIEWED_SAFE\n"
+                            "- **Applicability**: APPLICABLE — fixture\n"
+                            "- **Code path**: fixture\n"
+                            "- **Preconditions**: fixture\n"
+                            "- **Exploitability**: fixture\n"
+                            "- **Impact**: N/A — invariant holds\n"
+                            "- **PoC / Invariant violation**: fixture invariant holds\n"
+                            "- **Evidence**: fixture\n\n"
+                        )
+                ledgers.append(ledger_path)
+            self.assertEqual(validate_routing_manifest(ROOT, manifest_path, ledgers), [])
+
+    def test_recon_uses_slither_evidence_and_confirms_supported_absence(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/recon.py",
+                "tests/fixtures/recon/ReconFixture.sol",
+                "--solc",
+                str(Path("/usr/local/bin/solc")) if Path("/usr/local/bin/solc").exists() else "solc",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        feature_map = json.loads(result.stdout)["features"]
+        for feature in (
+            "uses-assembly",
+            "uses-create2",
+            "uses-delegatecall",
+            "uses-dynamic-loop",
+            "uses-erc20",
+            "uses-erc4626",
+            "uses-merkle",
+            "uses-msg-value",
+            "uses-oracle",
+            "uses-payable",
+            "uses-proxy",
+            "uses-signature",
+        ):
+            with self.subTest(feature=feature):
+                self.assertEqual(feature_map[feature]["status"], "PRESENT")
+                self.assertTrue(all(item.startswith("slither:") for item in feature_map[feature]["evidence"]))
+        self.assertEqual(feature_map["uses-flash-loan"]["status"], "UNKNOWN")
 
     def test_routing_manifest_reports_invalid_feature_map_without_crashing(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as manifest_file:
@@ -285,6 +373,14 @@ class ChecklistTests(unittest.TestCase):
 
     def test_knowledge_claim_coverage_is_complete(self) -> None:
         self.assertEqual(validate_knowledge_claims(ROOT), [])
+
+    def test_freshness_health_flags_unverified_versioned_knowledge(self) -> None:
+        report = knowledge_health(ROOT, today=date(2026, 8, 30), check_links=False, timeout=1)
+        ids = {finding.get("canonical_id") for finding in report["findings"]}
+        self.assertIn("EVM-CHAIN-004", ids)
+        self.assertNotIn("EVM-CHAIN-010", ids)
+        self.assertNotIn("EVM-CHAIN-020", ids)
+        self.assertNotIn("EVM-CHAIN-022", ids)
 
     def test_review_ledger_enforces_status_evidence_gate(self) -> None:
         suspicious = """### EVM-GEN-001 — Example

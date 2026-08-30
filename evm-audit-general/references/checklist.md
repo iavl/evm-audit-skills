@@ -208,15 +208,21 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
   - **Provenance:** beirao G-28
 
-- [ ] **[EVM-GEN-034] Block time varies across chains** _(semantic; high)_: `block.number` as a time proxy: 12s on mainnet, ~2s on Optimism, ~0.25s on Arbitrum. A value of `7200` blocks = 1 day on mainnet but only hours elsewhere. Look for: hardcoded block counts used as time proxies. [multichain-auditor, beirao MC-01]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor, beirao MC-01
+- [ ] **[EVM-GEN-034] Block cadence varies across chains and upgrades** _(semantic; high)_: Block production cadence and the relationship between block numbers and wall-clock time differ across chains and can change with protocol upgrades. Do not encode a chain's observed interval as a universal time unit.
+  - **Trigger:** The implementation converts block-number deltas into seconds or selects a fixed block count to represent elapsed time.
+  - **Risk:** A block-count time proxy can shorten or extend deadlines, accrual periods, auctions, or cooldowns beyond the intended security window.
+  - **Detection:** Compare every block-based duration with the target chain's documented execution model, upgrade policy, and required timestamp tolerance.
+  - **FP:** The requirement is deliberately measured in blocks, or timestamp-based bounds make cadence changes harmless.
+  - **Proof:** Evaluate the effective wall-clock interval under the declared deployment and plausible cadence changes, then test the security invariant.
+  - **Provenance:** multichain-auditor, beirao MC-01; [BNB Smart Chain introduction](https://docs.bnbchain.org/bnb-smart-chain/introduction/)
 
-- [ ] **[EVM-GEN-035] Block production may not be constant** _(semantic; high)_: Arbitrum `block.number` reflects L1 blocks, updating in ~5-block jumps per minute. On Optimism, `block.number` is the L2 block. Look for: code that assumes monotonically incrementing `block.number` with constant intervals. [multichain-auditor, Arbitrum checklist]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor, Arbitrum checklist
+- [ ] **[EVM-GEN-035] Block production and timestamp progress are not uniform** _(semantic; high)_: Block numbers, timestamps, sequencer batches, and parent-chain origins advance according to chain-specific execution rules rather than a universal constant interval. Treat monotonicity, resolution, and liveness as separate assumptions.
+  - **Trigger:** Logic uses block numbers or timestamps as if every chain emits one regularly spaced block.
+  - **Risk:** A design that assumes constant block progress can accept stale state, skip required observations, or make liveness windows unpredictable.
+  - **Detection:** Map the value to its source chain, parent origin, sequencer behavior, and documented timestamp constraints before relying on its resolution or rate.
+  - **FP:** The invariant tolerates documented drift and does not depend on a fixed block frequency.
+  - **Proof:** Replay the relevant path with delayed, batched, or irregular block production and compare the observed state transition with the intended invariant.
+  - **Provenance:** multichain-auditor, Arbitrum checklist; [Arbitrum block numbers and time](https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time)
 
 ## Comparison & Logic Operators
 
@@ -294,7 +300,7 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 - [ ] **[EVM-GEN-051] Compiler version, pragma, and known-bug risk** _(semantic; high)_: Floating or overly broad pragmas can produce different bytecode across builds, while outdated compiler versions may contain security-relevant bugs. Check the exact compiler version and its known-bug list, then verify the deployed artifact was built from that version. Look for: `pragma solidity ^...`/`>=...`, unpinned compiler settings, or a compiler release with a relevant known bug. [beirao G-16, SWC-102, SWC-103]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** beirao G-16, SWC-102, SWC-103
+  - **Provenance:** beirao G-16, SWC-102, SWC-103; [Solidity known bugs](https://docs.soliditylang.org/en/latest/bugs.html)
 
 - [ ] **[EVM-GEN-052] Updating memory struct/array doesn't update storage** _(exploit-pattern; medium)_: Copying a storage struct/array to memory creates a local copy. Modifying the memory copy doesn't persist. Look for: struct assignments like `MyStruct memory s = storageStruct; s.field = newValue;` without writing back. [Tamjid C17]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
@@ -309,12 +315,12 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 - [ ] **[EVM-GEN-054] Uninitialized local storage pointer in legacy Solidity** _(semantic; high)_: In compiler versions that accept an uninitialized local `storage` reference, it can alias an unintended storage slot and overwrite unrelated state. Look for: local storage variables declared without an assignment, and confirm whether the compiler version is vulnerable. [SWC-109]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** SWC-109
+  - **Provenance:** SWC-109; [Solidity 0.5.0 breaking changes](https://docs.soliditylang.org/en/latest/050-breaking-changes.html)
 
 - [ ] **[EVM-GEN-055] Bidirectional Unicode control characters can disguise source logic** _(semantic; high)_: RTL/LTR override and isolate characters can make reviewed source appear to execute in a different order than the compiler sees. Look for: hidden bidirectional control characters in Solidity source, comments, identifiers, or generated diffs. [SWC-130]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** SWC-130
+  - **Provenance:** SWC-130; [Solidity Unicode literals](https://docs.soliditylang.org/en/latest/layout-of-source-files.html#unicode-literals)
 
 - [ ] **[EVM-GEN-056] C3 inheritance and override order changes security semantics** _(semantic; high)_: Solidity linearization determines which base implementation, modifier, or `super` call executes; an unintended order can bypass a guard or select the wrong initialization/accounting logic. Look for: multiple inheritance with overlapping overrides or `super` calls whose linearization is not explicitly checked. [SWC-125]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
@@ -324,7 +330,7 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 - [ ] **[EVM-GEN-057] `private` state is not secret on-chain** _(semantic; high)_: Solidity visibility only restricts source-level access; storage slots and historical values remain readable by anyone. Look for: private variables containing keys, passwords, salts, unrevealed bids, or other data whose secrecy is part of the security model. [SWC-136]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** SWC-136
+  - **Provenance:** SWC-136; [Solidity private information and randomness](https://docs.soliditylang.org/en/latest/security-considerations.html#private-information-and-randomness)
 
 - [ ] **[EVM-GEN-058] Don't assume specific ETH balance** _(exploit-pattern; medium)_: Contracts can receive ETH via selfdestruct, coinbase, or pre-deployment sends. `require(address(this).balance == expectedAmount)` will break. Look for: exact balance assertions or calculations dependent on a specific ETH balance. [Tamjid C14]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
@@ -432,10 +438,13 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Provenance:** [SAS-AV-005](https://github.com/sanbir/solidity-auditor-skills)
   - **Source detail:** `sanbir/solidity-auditor-skills` AV-37
 
-- [ ] **[EVM-GEN-077] Block Number as Timestamp Approximation** _(semantic; high)_: Time computed as `(block.number - startBlock) * 13` assuming fixed block times. Variable across chains/post-Merge. Wrong interest/vesting/rewards.
-  - **FP:** `block.timestamp` used for all time-sensitive calculations.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** [SAS-AV-006](https://github.com/sanbir/solidity-auditor-skills)
+- [ ] **[EVM-GEN-077] Block number is not a timestamp** _(semantic; high)_: Multiplying a block-number delta by a fixed seconds-per-block constant is not a reliable elapsed-time measurement across chains, sequencers, or upgrades. Use `block.timestamp` with an explicit drift tolerance when the requirement is time-based.
+  - **Trigger:** Time is computed from `(block.number - startBlock) * constant` or an equivalent fixed cadence assumption.
+  - **Risk:** Hardcoded block-time arithmetic can release, accrue, or expire state earlier or later than the protocol's stated wall-clock requirement.
+  - **Detection:** Identify the source of every duration and compare the required wall-clock bound with the target chain's timestamp and block-number semantics.
+  - **FP:** The protocol intentionally counts blocks and documents that its invariant is independent of elapsed wall-clock time.
+  - **Proof:** Run boundary cases across delayed and accelerated block production and show whether the time-based invariant still holds.
+  - **Provenance:** [SAS-AV-006](https://github.com/sanbir/solidity-auditor-skills); [Arbitrum block numbers and time](https://docs.arbitrum.io/arbitrum-essentials/arbitrum-vs-ethereum/block-numbers-and-time)
   - **Source detail:** `sanbir/solidity-auditor-skills` AV-56
 
 - [ ] **[EVM-GEN-078] Nonce Gap from Reverted Transactions (CREATE Address Mismatch)** _(exploit-pattern; medium)_: Deployment script uses `CREATE` and pre-computes addresses from deployer nonce. Reverted/extra tx advances nonce — subsequent deployments land at wrong addresses.

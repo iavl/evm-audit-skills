@@ -1,4 +1,8 @@
-# LICENCE
+# Third-Party Notices
+
+This file records licenses and attribution for incorporated third-party
+material. It is not the license for this repository's independently authored
+content; the repository owner must publish that choice separately as `LICENSE`.
 
 ## sanbir/solidity-auditor-skills
 

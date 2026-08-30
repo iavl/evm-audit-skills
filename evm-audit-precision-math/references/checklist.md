@@ -30,9 +30,12 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 
 ## Rounding Direction
 
-- [ ] **[EVM-MATH-005] Protocol-favoring rounding rule** _(exploit-pattern; medium)_: Deposits/mints should round DOWN (give fewer shares), withdrawals/redeems should round DOWN in assets or UP in shares, and protocol fees should not round in the user's favor. Any deviation lets users extract rounding dust or leaks value on repeated trades. Look for: `mulDiv` or division calls without an explicit rounding direction in vault, fee, or AMM math. [ERC4626 checklist, beirao M-06, Dacian — Precision Loss Errors, Cyfrin SudoSwap Audit]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-MATH-005] Choose rounding from supplied and received quantities** _(exploit-pattern; medium)_: For every conversion, identify which quantity the caller supplies and which quantity the caller receives, then choose rounding against the value-extracting caller unless the governing standard mandates a direction. Do not infer one rule from operation names such as deposit or mint. For ERC-4626 use ERC4626-ROUND-001.
+  - **Trigger:** A conversion, fee, AMM, or vault formula divides or uses `mulDiv` without documenting the supplied quantity, received quantity, and required rounding direction.
+  - **Risk:** Rounding the wrong quantity can leak value on each conversion and can conflict with a standard's required preview and state-changing semantics.
+  - **Detection:** Name the economic input and output of each path, derive both forward and inverse formulas, and compare their rounding with the governing standard and solvency invariant.
+  - **FP:** The direction is explicitly required by the applicable standard or proven to preserve the protocol's value and round-trip invariants.
+  - **Proof:** Test boundary amounts and repeated round trips, and prove that no caller can accumulate value from the selected direction.
   - **Provenance:** ERC4626 checklist, beirao M-06, Dacian — Precision Loss Errors, Cyfrin SudoSwap Audit
 
 - [ ] **[EVM-MATH-006] Inconsistent rounding across functions** _(exploit-pattern; medium)_: If `deposit()` rounds one way and `withdraw()` rounds the same way, an attacker can loop deposits/withdrawals to extract dust each cycle. Look for: both deposit and withdraw using `Math.mulDiv` with the same rounding mode. [ERC4626 checklist M1]

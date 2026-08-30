@@ -13,6 +13,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass
+from datetime import date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ try:
         check_predicate,
         evaluate_check,
         normalize_feature_map,
+        registry_sha256,
         vocabulary as feature_vocabulary,
     )
 except ImportError:  # pragma: no cover - supports importing this file from another cwd
@@ -37,6 +39,7 @@ except ImportError:  # pragma: no cover - supports importing this file from anot
         check_predicate,
         evaluate_check,
         normalize_feature_map,
+        registry_sha256,
         vocabulary as feature_vocabulary,
     )
 
@@ -63,9 +66,10 @@ URL_VALUE_RE = re.compile(r"^https?://[^\s]+$")
 CHECK_TYPES = {"normative", "semantic", "exploit-pattern", "heuristic"}
 CONFIDENCES = {"high", "medium", "contextual"}
 VERIFICATION_STATUSES = {"verified", "qualified"}
-ROUTING_MANIFEST_VERSION = 1
-CLAIMS_SCHEMA_VERSION = 2
-CLAIM_EVIDENCE_KINDS = {"official", "executable"}
+ROUTING_MANIFEST_VERSION = 2
+CLAIMS_SCHEMA_VERSION = 3
+CLAIM_EVIDENCE_KINDS = {"official", "executable", "text-regression"}
+FRESHNESS_CLASSES = {"static", "versioned", "time-sensitive"}
 REGISTRY_REQUIRED_FIELDS = {
     "canonical_id",
     "domains",
@@ -87,6 +91,8 @@ REGISTRY_REQUIRED_FIELDS = {
     "related",
     "aliases",
     "verification",
+    "freshness",
+    "verified_at",
 }
 
 STOPWORDS = {
@@ -238,7 +244,7 @@ def validate_registry(root: Path) -> list[str]:
         registry = normalize_registry(load_registry(path))
     except (OSError, json.JSONDecodeError) as error:
         return errors + [f"{path}: cannot parse JSON: {error}"]
-    if registry.get("schema_version") != 2:
+    if registry.get("schema_version") != 3:
         errors.append(f"{path}: unsupported schema_version {registry.get('schema_version')!r}")
     source_catalog = registry.get("source_catalog")
     if not isinstance(source_catalog, dict) or not source_catalog:
@@ -366,6 +372,21 @@ def validate_registry(root: Path) -> list[str]:
         verification = check.get("verification")
         if not isinstance(verification, dict) or verification.get("status") not in VERIFICATION_STATUSES or not verification.get("basis"):
             errors.append(f"{prefix}: verification must contain a valid status and basis")
+
+        freshness = check.get("freshness")
+        if freshness not in FRESHNESS_CLASSES:
+            errors.append(f"{prefix}: freshness must be one of {sorted(FRESHNESS_CLASSES)}")
+        verified_at = check.get("verified_at")
+        if verified_at is not None:
+            if not isinstance(verified_at, str):
+                errors.append(f"{prefix}: verified_at must be an ISO date or null")
+            else:
+                try:
+                    parsed_verified_at = date.fromisoformat(verified_at)
+                    if parsed_verified_at > date.today():
+                        errors.append(f"{prefix}: verified_at cannot be in the future")
+                except ValueError:
+                    errors.append(f"{prefix}: verified_at must be an ISO date or null")
 
         aliases = check.get("aliases")
         if not isinstance(aliases, list) or not aliases:
@@ -507,6 +528,41 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
     if manifest.get("stage") != "FAST_FILTER":
         errors.append(f"{manifest_path}: stage must be FAST_FILTER")
 
+    audit = manifest.get("audit_context")
+    audit_fields = {
+        "selector_version",
+        "registry_sha256",
+        "knowledge_commit",
+        "knowledge_dirty",
+        "target_commit",
+        "chain_id",
+        "fork_block",
+        "compiler_version",
+        "audit_timestamp",
+    }
+    if not isinstance(audit, dict):
+        errors.append(f"{manifest_path}: audit_context must be an object")
+        audit = {}
+    else:
+        missing_audit = sorted(audit_fields - set(audit))
+        if missing_audit:
+            errors.append(f"{manifest_path}: audit_context missing fields {missing_audit}")
+        registry_digest = audit.get("registry_sha256")
+        if not isinstance(registry_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", registry_digest):
+            errors.append(f"{manifest_path}: audit_context.registry_sha256 must be a lowercase SHA-256")
+        timestamp = audit.get("audit_timestamp")
+        if not isinstance(timestamp, str):
+            errors.append(f"{manifest_path}: audit_context.audit_timestamp must be an ISO-8601 string")
+        else:
+            try:
+                datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                errors.append(f"{manifest_path}: audit_context.audit_timestamp must be an ISO-8601 string")
+        for integer_field in ("chain_id", "fork_block"):
+            value = audit.get(integer_field)
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0):
+                errors.append(f"{manifest_path}: audit_context.{integer_field} must be a non-negative integer or null")
+
     feature_path = root / "data" / "features.json"
     try:
         feature_data = json.loads(feature_path.read_text(encoding="utf-8"))
@@ -528,6 +584,8 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
         registry = normalize_registry(load_registry(root / "data" / "canonical-checks.json"))
     except (OSError, json.JSONDecodeError, ValueError) as error:
         return errors + [f"{manifest_path}: cannot load canonical registry: {error}"]
+    if audit.get("registry_sha256") != registry_sha256(registry):
+        errors.append(f"{manifest_path}: audit_context.registry_sha256 does not match the current canonical registry")
     checks = {check["canonical_id"]: check for check in registry.get("checks", [])}
     scope = manifest.get("scope")
     if not isinstance(scope, dict):
@@ -555,7 +613,21 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
         filtered = filtered if isinstance(filtered, list) else []
     selected_ids = [entry.get("canonical_id") for entry in selected if isinstance(entry, dict) and isinstance(entry.get("canonical_id"), str)]
     filtered_ids = [entry.get("canonical_id") for entry in filtered if isinstance(entry, dict) and isinstance(entry.get("canonical_id"), str)]
-    route_fields = {"canonical_id", "title", "domains", "owner_domain", "predicate", "evaluation", "matched_features", "unknown_features", "basis"}
+    route_fields = {
+        "canonical_id",
+        "title",
+        "domains",
+        "owner_domain",
+        "freshness",
+        "verified_at",
+        "predicate",
+        "predicate_source",
+        "predicate_evaluation",
+        "evaluation",
+        "matched_features",
+        "unknown_features",
+        "basis",
+    }
     for bucket_name, bucket in (("selected", selected), ("filtered", filtered)):
         for index, entry in enumerate(bucket, 1):
             if not isinstance(entry, dict):
@@ -597,6 +669,12 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
             continue
         if entry.get("evaluation") != expected["result"]:
             errors.append(f"{manifest_path}: {canonical_id} has stale evaluation {entry.get('evaluation')!r}")
+        if entry.get("predicate_evaluation") != expected["predicate_result"]:
+            errors.append(f"{manifest_path}: {canonical_id} has stale predicate_evaluation")
+        if entry.get("predicate_source") != expected["predicate_source"]:
+            errors.append(f"{manifest_path}: {canonical_id} has stale predicate_source")
+        if entry.get("freshness") != checks[canonical_id].get("freshness") or entry.get("verified_at") != checks[canonical_id].get("verified_at"):
+            errors.append(f"{manifest_path}: {canonical_id} has stale freshness metadata")
         if entry.get("predicate") != expected["predicate"]:
             errors.append(f"{manifest_path}: {canonical_id} has stale predicate")
         if entry.get("matched_features") != expected["matched_features"] or entry.get("unknown_features") != expected["unknown_features"]:
@@ -620,6 +698,11 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
 
     if ledger_paths:
         seen_ledger: set[str] = set()
+        owner_by_id = {
+            entry["canonical_id"]: entry.get("owner_domain")
+            for entry in selected
+            if isinstance(entry, dict) and isinstance(entry.get("canonical_id"), str)
+        }
         for ledger_path in ledger_paths:
             try:
                 ledger_text = ledger_path.read_text(encoding="utf-8")
@@ -634,6 +717,12 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
                     errors.append(f"{ledger_path}: filtered ID must not have a ledger record: {canonical_id}")
                 elif canonical_id not in selected_set:
                     errors.append(f"{ledger_path}: ledger contains non-selected/unknown ID: {canonical_id}")
+                else:
+                    expected_name = f"review-{owner_by_id[canonical_id]}.md"
+                    if ledger_path.name != expected_name:
+                        errors.append(
+                            f"{ledger_path}: {canonical_id} belongs in {expected_name} for owner_domain={owner_by_id[canonical_id]}"
+                        )
         missing = sorted(selected_set - seen_ledger)
         if missing:
             errors.append(f"{manifest_path}: selected IDs missing from review ledgers: {missing}")
@@ -683,10 +772,15 @@ def validate_knowledge_claims(root: Path, registry: dict[str, Any] | None = None
         if not isinstance(evidence, list) or not evidence:
             errors.append(f"{prefix}: evidence must be a non-empty list")
         else:
+            truth_kinds: set[str] = set()
             for evidence_index, item in enumerate(evidence, 1):
                 if not isinstance(item, dict) or item.get("kind") not in CLAIM_EVIDENCE_KINDS:
-                    errors.append(f"{prefix}.evidence[{evidence_index}]: kind must be official or executable")
+                    errors.append(
+                        f"{prefix}.evidence[{evidence_index}]: kind must be official, executable, or text-regression"
+                    )
                     continue
+                if item["kind"] in {"official", "executable"}:
+                    truth_kinds.add(item["kind"])
                 if item["kind"] == "official":
                     if not isinstance(item.get("url"), str) or not item["url"].startswith("https://") or not URL_VALUE_RE.match(item["url"]):
                         errors.append(f"{prefix}.evidence[{evidence_index}]: official evidence needs an HTTPS URL")
@@ -701,21 +795,40 @@ def validate_knowledge_claims(root: Path, registry: dict[str, Any] | None = None
                         if item.get("url") not in official_urls:
                             errors.append(f"{prefix}.evidence[{evidence_index}]: URL is not recorded as official provenance for {canonical_id}")
                 elif not isinstance(item.get("test"), str) or not item["test"].strip():
-                    errors.append(f"{prefix}.evidence[{evidence_index}]: executable evidence needs a test identifier")
+                    errors.append(f"{prefix}.evidence[{evidence_index}]: {item['kind']} evidence needs a test identifier")
                 elif "::" in item["test"]:
-                    test_path = root / item["test"].split("::", 1)[0]
+                    path_part, *identifier_parts = item["test"].split("::")
+                    test_path = root / path_part
+                    if item["kind"] == "executable" and "test_knowledge_claims_and_forbidden_regressions" in item["test"]:
+                        errors.append(
+                            f"{prefix}.evidence[{evidence_index}]: text-only regression test cannot be executable evidence"
+                        )
                     if not test_path.exists():
                         errors.append(f"{prefix}.evidence[{evidence_index}]: test file does not exist: {test_path}")
+                    elif item["kind"] == "executable" and test_path.suffix == ".sol":
+                        test_name = identifier_parts[-1] if identifier_parts else ""
+                        source_text = test_path.read_text(encoding="utf-8")
+                        if not test_name.startswith("test") or not re.search(rf"\bfunction\s+{re.escape(test_name)}\s*\(", source_text):
+                            errors.append(
+                                f"{prefix}.evidence[{evidence_index}]: Solidity executable test identifier does not exist: {test_name!r}"
+                            )
+            if not truth_kinds:
+                errors.append(f"{prefix}: text-regression evidence cannot establish factual correctness")
         for field in ("required_terms", "forbidden_terms"):
             values = claim.get(field)
             if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
                 errors.append(f"{prefix}: {field} must be a string list")
     missing = sorted(target_ids - seen)
-    extra = sorted(seen - target_ids)
+    supplemental_ids = {
+        claim.get("canonical_id")
+        for claim in claims
+        if isinstance(claim, dict) and claim.get("supplemental") is True
+    }
+    extra = sorted(seen - target_ids - supplemental_ids)
     if missing:
         errors.append(f"{path}: missing high-confidence claims for {missing}")
     if extra:
-        errors.append(f"{path}: claims include non-normative/non-semantic-high IDs {extra}")
+        errors.append(f"{path}: non-target claims must set supplemental=true: {extra}")
     return errors
 
 

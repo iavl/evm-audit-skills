@@ -37,8 +37,9 @@ Use a three-stage funnel for every routed canonical check:
 
 1. **`FAST_FILTER`** — compare the check's feature predicate with the
    reconnaissance feature map and write the machine-readable routing manifest.
-   Only a predicate proven `FALSE` is filtered. `UNKNOWN` remains selected and
-   must not become `NOT_APPLICABLE`.
+   Only a `curated` predicate proven `FALSE` is filtered. A `FALSE` result from
+   an `inferred` keyword predicate is downgraded to `UNKNOWN`; it remains
+   selected and must not become `NOT_APPLICABLE`.
 2. **`DEEP_REVIEW`** — for selected checks, trace reachability, preconditions,
    guards, and invariants. Use `REVIEWED_SAFE` or `SUSPICIOUS` when proof is not
    complete.
@@ -50,7 +51,9 @@ The routing manifest must account for every canonical ID as selected or filtered
 out, including the feature evidence used for the decision. Filtered IDs are
 machine coverage entries only; they do not receive per-check Markdown ledger
 records. Selected IDs receive exactly one deep/proof record, including shared
-IDs that are listed in more than one domain.
+IDs that are listed in more than one domain. The manifest also records the
+registry digest, selector version, knowledge/target commits, chain/fork/compiler
+context, and audit timestamp so a later review can reproduce the routing input.
 
 Validate a completed ledger with
 `python3 scripts/validate_checklists.py --review-ledger <path>`. Use
@@ -76,7 +79,9 @@ input. Preserve existing source identifiers, including `SAS-AV-*`,
 `DROZER-*`, and `AUDITMOS-*`, only as provenance. A legacy path/section/title
 alias may be included for traceability, but it is not a second review item.
 
-Each selected skill writes one `review-<skill>.md` ledger. Preserve routed order
+Each selected skill writes one `review-<skill>.md` ledger. The filename must
+match the selected record's `owner_domain` (for example,
+`review-evm-audit-erc20.md`). Preserve routed order
 and write exactly one record per selected checklist item:
 
 ```markdown

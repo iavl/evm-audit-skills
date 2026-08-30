@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/austintgriffith/evm-audit-skills/feature-map.schema.json",
+  "$id": "urn:evm-audit-skills:feature-map:v1",
   "title": "EVM audit reconnaissance feature map",
   "type": "object",
   "required": ["schema_version", "features"],

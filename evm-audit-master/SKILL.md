@@ -64,26 +64,40 @@ SolidityGuard's 104-pattern index was used only for coverage comparison at commi
 
 The editable registry is `../data/canonical-checks.json`; run
 `python3 ../scripts/generate_checklists.py` to regenerate the domain views. The
-registry is machine-only at audit time: domain agents consume selected check
+generator is a pure renderer: it must not infer, repair, or override canonical
+knowledge. One-time transformations belong under `../scripts/migrations/`. The
+current checkout can be migrated with
+`python3 ../scripts/migrations/001_registry_v3.py`; do not run migrations as
+part of ordinary rendering. The registry is machine-only at audit time: domain
+agents consume selected check
 bodies emitted by the router and must not load the full JSON database. Each
 canonical check has an `all_of`/`any_of`/`none_of` predicate over the vocabulary
 in `../data/features.json`. The reconnaissance input shape is defined by
-`../data/feature-map.schema.json`. Predicates marked `inferred` are regenerated
-from check text; `curated` predicates are hand-reviewed and stable. The legacy
-`features` list is retained only as a derived union for compatibility.
+`../data/feature-map.schema.json`. Predicates marked `inferred` came from
+keyword inference; `curated` predicates are hand-reviewed. A false inferred
+predicate is not exclusion evidence and is downgraded to `UNKNOWN`; only a
+curated `FALSE` may fast-filter. The legacy `features` list is retained only as
+a derived union for compatibility.
 
-Build an evidence-backed feature map and run
+Start reconnaissance with
+`python3 ../scripts/recon.py <target> --output <recon-features.json>` so supported
+presence and absence decisions come from Slither AST/IR evidence. Supplement
+remaining `UNKNOWN` features from deployment and source evidence; never turn an
+unresolved detector into `ABSENT_CONFIRMED`. Then run
 `python3 ../scripts/select_checks.py --feature-map <recon-features.json> --format json`
 to produce a routing manifest. Use
-`--emit-checks --format markdown` to emit only the selected check bodies.
-`PRESENT`, `ABSENT_CONFIRMED`, and `UNKNOWN` are distinct: only an explicitly
-false predicate is filtered, while unknown evidence is conservatively selected.
-The legacy `--features` shorthand remains safe but treats omitted features as
-unknown.
+`--emit-checks --profile compact --format markdown` to emit token-efficient
+selected check bodies. Record `--target-root`, `--chain-id`, `--fork-block`, and
+`--compiler-version` when available. `PRESENT`, `ABSENT_CONFIRMED`, and
+`UNKNOWN` are distinct: unknown evidence is conservatively selected. The legacy
+`--features` shorthand remains safe but treats omitted features as unknown.
 
 The routing manifest accounts for every canonical ID in scope. Filtered IDs
 remain in the manifest and do not receive per-check Markdown `NOT_APPLICABLE`
-records; selected IDs receive exactly one deep/proof ledger record.
+records; selected IDs receive exactly one deep/proof ledger record in the file
+named for their manifest `owner_domain`. It also records the registry digest,
+selector version, knowledge/target commits, chain/fork/compiler context, and
+audit timestamp for reproducibility.
 
 ## Routing Table — Which Skills and Features To Load
 
@@ -126,8 +140,8 @@ records; selected IDs receive exactly one deep/proof ledger record.
 **Entry:** Phase 1 scope and protocol surfaces are recorded.
 
 **Actions:**
-1. Build the feature map from the source inventory, entry points, dependencies, and target chain.
-2. Build the tri-state evidence map and evaluate the domain predicates with the selector. Only predicates proven false may be filtered; unknown high-risk surfaces remain selected.
+1. Build the feature map from Slither AST/IR, the source inventory, entry points, dependencies, and target chain; use manual/LLM review only to supplement `UNKNOWN`.
+2. Evaluate the tri-state evidence map with the selector. Only curated predicates proven false may be filtered; inferred false and unknown high-risk surfaces remain selected.
 3. For oracle-backed lending, select `evm-audit-oracles`; select `evm-audit-defi-amm` when the price source depends on AMM liquidity.
 4. Use the selected-check output emitted by the selector. The generated `references/checklist.md` files are maintenance compatibility views, not the default model input. Canonical IDs, not repeated source labels, define review identity.
 
