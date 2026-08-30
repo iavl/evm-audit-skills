@@ -1,1 +1,19 @@
-{"id":"evm-audit-dos","name":"Denial-of-Service and Griefing Security","checklist_title":"DoS & Griefing Security Checklist","description":"Security review for denial-of-service, gas griefing, unbounded work, and revert propagation.","surface_features":["uses-dynamic-loop"],"related_domains":["evm-audit-general"]}
+{
+  "id": "evm-audit-dos",
+  "name": "Denial-of-Service and Griefing Security",
+  "checklist_title": "DoS & Griefing Security Checklist",
+  "description": "Security review for denial-of-service, gas griefing, unbounded work, and revert propagation.",
+  "surface_features": [
+    "uses-dynamic-loop"
+  ],
+  "related_domains": [
+    "evm-audit-general"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "bounded collections, external calls, callbacks, and returndata"
+  ],
+  "review_requirements": [
+    "establish attacker-controlled work and recovery paths"
+  ]
+}

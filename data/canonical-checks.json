@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "description": "Canonical EVM audit checks. Generated Markdown is a pure runtime compatibility view.",
   "source_catalog": {
     "sanbir-solidity-auditor-skills": {
@@ -164,6 +164,13 @@
       "label": "EIP-1559 fee market",
       "url": "https://eips.ethereum.org/EIPS/eip-1559",
       "kind": "official"
+    },
+    "zksync-evm-interpreter-deployment": {
+      "label": "ZKsync EVM Interpreter contract deployment",
+      "url": "https://docs.zksync.io/zksync-protocol/era-vm/evm-interpreter/deployment-execution",
+      "kind": "official",
+      "license": null,
+      "pinned_commit": null
     }
   },
   "checks": [
@@ -2941,7 +2948,15 @@
         "uses-msg-value"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-ASM-022:select",
+          "tests/routing/curated-predicates.json#EVM-ASM-022:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-ASM-023",
@@ -4094,7 +4109,7 @@
         "uses-dynamic-loop",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4155,7 +4170,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4218,7 +4233,7 @@
         "uses-dynamic-loop",
         "uses-msg-value"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4281,7 +4296,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4349,7 +4364,7 @@
         "uses-chain-specific",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4414,7 +4429,7 @@
         "uses-erc4626",
         "uses-math"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4478,7 +4493,7 @@
       "features": [
         "uses-erc4626"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4539,7 +4554,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4600,7 +4615,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4664,7 +4679,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4725,7 +4740,7 @@
       "features": [
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4788,7 +4803,7 @@
         "uses-bridge",
         "uses-dynamic-loop"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4849,7 +4864,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4910,7 +4925,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -4975,7 +4990,7 @@
         "uses-dynamic-loop",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5036,7 +5051,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5097,7 +5112,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5158,7 +5173,7 @@
       "features": [
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5219,7 +5234,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5280,7 +5295,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5345,7 +5360,7 @@
         "uses-erc20",
         "uses-math"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5406,7 +5421,7 @@
       "features": [
         "uses-math"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5467,7 +5482,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5532,7 +5547,7 @@
         "uses-governance",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5595,7 +5610,7 @@
         "uses-bridge",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5658,7 +5673,7 @@
         "uses-amm",
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5721,7 +5736,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5782,7 +5797,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5847,7 +5862,7 @@
         "uses-erc20",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5910,7 +5925,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -5971,7 +5986,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6032,7 +6047,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6093,7 +6108,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6156,7 +6171,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6219,7 +6234,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6280,7 +6295,7 @@
       "features": [
         "uses-chain-specific"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6343,7 +6358,7 @@
         "uses-bridge",
         "uses-chain-specific"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6406,7 +6421,7 @@
         "uses-chain-specific",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6467,7 +6482,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6528,7 +6543,7 @@
       "features": [
         "uses-chain-specific"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6589,7 +6604,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6652,7 +6667,7 @@
         "uses-bridge",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6718,7 +6733,7 @@
       "features": [
         "uses-governance"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6788,7 +6803,7 @@
         "uses-erc20",
         "uses-math"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6854,7 +6869,7 @@
       "features": [
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6922,7 +6937,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -6988,7 +7003,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7061,7 +7076,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7129,7 +7144,7 @@
         "uses-bridge",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7195,7 +7210,7 @@
       "features": [
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7263,7 +7278,7 @@
         "uses-amm",
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7331,7 +7346,7 @@
         "uses-bridge",
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7399,7 +7414,7 @@
         "uses-bridge",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7471,7 +7486,7 @@
         "uses-chain-specific",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7539,7 +7554,7 @@
         "uses-bridge",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7609,7 +7624,7 @@
         "uses-bridge",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7681,7 +7696,7 @@
         "uses-oracle",
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7765,7 +7780,7 @@
         "uses-amm",
         "uses-bridge"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -7837,7 +7852,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum"
+      "chain": "arbitrum",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-002",
@@ -7910,7 +7936,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum"
+      "chain": "arbitrum",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-003",
@@ -7984,7 +8021,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum"
+      "chain": "arbitrum",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-004",
@@ -8057,7 +8105,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum"
+      "chain": "arbitrum",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-005",
@@ -8126,7 +8185,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum"
+      "chain": "arbitrum",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-006",
@@ -8202,7 +8272,18 @@
       ],
       "freshness": "versioned",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum"
+      "chain": "arbitrum",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-007",
@@ -8271,7 +8352,18 @@
       ],
       "freshness": "versioned",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum"
+      "chain": "arbitrum",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-008",
@@ -8349,7 +8441,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "op-stack"
+      "chain": "op-stack",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "op-stack"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-009",
@@ -8418,7 +8521,18 @@
       ],
       "freshness": "versioned",
       "verified_at": "2026-08-30",
-      "chain": "op-stack"
+      "chain": "op-stack",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "op-stack"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-010",
@@ -8487,7 +8601,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "op-stack"
+      "chain": "op-stack",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "op-stack"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-011",
@@ -8556,7 +8681,21 @@
       ],
       "freshness": "versioned",
       "verified_at": "2026-08-30",
-      "chain": "zksync-era"
+      "chain": "zksync-era",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "zksync-era"
+        ],
+        "execution_environments": [
+          "eravm-native",
+          "zksync-evm-interpreter"
+        ],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-012",
@@ -8627,7 +8766,21 @@
       ],
       "freshness": "versioned",
       "verified_at": "2026-08-30",
-      "chain": "zksync-era"
+      "chain": "zksync-era",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "zksync-era"
+        ],
+        "execution_environments": [
+          "eravm-native",
+          "zksync-evm-interpreter"
+        ],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-013",
@@ -8636,20 +8789,20 @@
       ],
       "primary_domain": "evm-audit-chain-specific",
       "section": "zkSync Era",
-      "title": "Different CREATE/CREATE2 address derivation",
-      "description": "zkSync uses a different formula for CREATE/CREATE2 addresses than EVM. Counterfactual addresses computed using the EVM formula will be wrong. Look for: off-chain address pre-computation using standard EVM CREATE2 formula. [multichain-auditor]",
+      "title": "ZKsync contract-address derivation depends on the execution environment",
+      "description": "Native EraVM and ContractDeployer deployments use ZKsync-specific CREATE/CREATE2 derivation. EVM-bytecode contracts executed through the EVM Bytecode Interpreter use Ethereum-compatible CREATE/CREATE2 address derivation. Determine the deployed bytecode and runtime before flagging counterfactual-address logic.",
       "trigger": [
-        "zkSync uses a different formula for CREATE/CREATE2 addresses than EVM. Counterfactual addresses computed using the EVM formula will be wrong. Look for: off-chain address pre-computation using standard EVM CREATE2 formula. [multichain-auditor]"
+        "Code computes, predicts, validates, or authorizes a contract address for a ZKsync deployment."
       ],
-      "risk": "zkSync uses a different formula for CREATE/CREATE2 addresses than EVM. Counterfactual addresses computed using the EVM formula will be wrong. Look for: off-chain address pre-computation using standard EVM CREATE2 formula. [multichain-auditor]",
+      "risk": "Applying the Ethereum formula to native EraVM deployment, or the EraVM formula to EVM-interpreter deployment, yields the wrong counterfactual address.",
       "detection": [
-        "zkSync uses a different formula for CREATE/CREATE2 addresses than EVM. Counterfactual addresses computed using the EVM formula will be wrong. Look for: off-chain address pre-computation using standard EVM CREATE2 formula. [multichain-auditor]"
+        "Determine whether the deployed artifact is native EraVM bytecode or EVM bytecode, then compare its CREATE/CREATE2 calculation with the matching documented derivation."
       ],
       "false_positive_gates": [
-        "Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding."
+        "The runtime is identified and the address formula matches that execution environment."
       ],
       "proof": [
-        "Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation."
+        "Deploy the exact artifact with the relevant CREATE/CREATE2 path and compare the observed address with the predicted address."
       ],
       "type": "exploit-pattern",
       "confidence": "medium",
@@ -8667,6 +8820,13 @@
           "url": "https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions",
           "kind": "official",
           "locator": "CREATE and CREATE2 address derivation"
+        },
+        {
+          "source_key": "zksync-evm-interpreter-deployment",
+          "label": "ZKsync EVM Interpreter contract deployment",
+          "url": "https://docs.zksync.io/zksync-protocol/era-vm/evm-interpreter/deployment-execution",
+          "kind": "official",
+          "locator": "createEVM/create2EVM and EVM-compatible address derivation"
         }
       ],
       "related": [],
@@ -8681,7 +8841,7 @@
       ],
       "verification": {
         "status": "verified",
-        "basis": "ZKsync Era EVM instruction differences: CREATE and CREATE2 address derivation"
+        "basis": "Official ZKsync native-deployment and EVM Interpreter deployment documentation."
       },
       "predicate": {
         "all_of": [],
@@ -8698,7 +8858,21 @@
       ],
       "freshness": "versioned",
       "verified_at": "2026-08-30",
-      "chain": "zksync-era"
+      "chain": "zksync-era",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "zksync-era"
+        ],
+        "execution_environments": [
+          "eravm-native",
+          "zksync-evm-interpreter"
+        ],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-014",
@@ -8771,7 +8945,21 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "zksync-era"
+      "chain": "zksync-era",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "zksync-era"
+        ],
+        "execution_environments": [
+          "eravm-native",
+          "zksync-evm-interpreter"
+        ],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-015",
@@ -8835,7 +9023,21 @@
       ],
       "freshness": "static",
       "verified_at": "2026-08-30",
-      "chain": "zksync-era"
+      "chain": "zksync-era",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "zksync-era"
+        ],
+        "execution_environments": [
+          "eravm-native",
+          "zksync-evm-interpreter"
+        ],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-016",
@@ -8904,7 +9106,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "blast"
+      "chain": "blast",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "blast"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-017",
@@ -8975,7 +9188,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "blast"
+      "chain": "blast",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "blast"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-018",
@@ -9044,7 +9268,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "blast"
+      "chain": "blast",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "blast"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-019",
@@ -9108,7 +9343,18 @@
       ],
       "freshness": "static",
       "verified_at": "2026-08-30",
-      "chain": "bnb-smart-chain"
+      "chain": "bnb-smart-chain",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "bnb-smart-chain"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-020",
@@ -9177,7 +9423,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "bnb-smart-chain"
+      "chain": "bnb-smart-chain",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "bnb-smart-chain"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-021",
@@ -9241,7 +9498,18 @@
       ],
       "freshness": "static",
       "verified_at": "2026-08-30",
-      "chain": "bnb-smart-chain"
+      "chain": "bnb-smart-chain",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "bnb-smart-chain"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-022",
@@ -9310,7 +9578,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "polygon-pos"
+      "chain": "polygon-pos",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "polygon-pos"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-023",
@@ -9929,7 +10208,18 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum-orbit"
+      "chain": "arbitrum-orbit",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum-orbit"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-033",
@@ -10002,7 +10292,18 @@
       ],
       "freshness": "versioned",
       "verified_at": "2026-08-30",
-      "chain": "arbitrum-orbit"
+      "chain": "arbitrum-orbit",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "arbitrum-orbit"
+        ],
+        "execution_environments": [],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-034",
@@ -10275,7 +10576,21 @@
       ],
       "freshness": "time-sensitive",
       "verified_at": "2026-08-30",
-      "chain": "zksync-era"
+      "chain": "zksync-era",
+      "applicability": {
+        "chain_ids": [],
+        "chain_families": [
+          "zksync-era"
+        ],
+        "execution_environments": [
+          "eravm-native",
+          "zksync-evm-interpreter"
+        ],
+        "compiler": null,
+        "evm_fork_from": null,
+        "evm_fork_until": null,
+        "protocol_versions": []
+      }
     },
     {
       "canonical_id": "EVM-CHAIN-038",
@@ -10735,7 +11050,15 @@
         "uses-arbitrary-external-call"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-AMM-005:select",
+          "tests/routing/curated-predicates.json#EVM-AMM-005:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-AMM-006",
@@ -12074,7 +12397,15 @@
         "uses-oracle"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-AMM-026:select",
+          "tests/routing/curated-predicates.json#EVM-AMM-026:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-AMM-027",
@@ -17023,7 +17354,15 @@
         "uses-oracle"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-LEND-033:select",
+          "tests/routing/curated-predicates.json#EVM-LEND-033:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-LEND-034",
@@ -26677,7 +27016,15 @@
         "uses-erc20"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-ERC20-020:select",
+          "tests/routing/curated-predicates.json#EVM-ERC20-020:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-ERC20-021",
@@ -26740,7 +27087,15 @@
         "uses-erc20"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-ERC20-021:select",
+          "tests/routing/curated-predicates.json#EVM-ERC20-021:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-ERC20-022",
@@ -27899,7 +28254,15 @@
         "uses-erc20"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-ERC20-039:select",
+          "tests/routing/curated-predicates.json#EVM-ERC20-039:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-ERC20-040",
@@ -28027,7 +28390,7 @@
         "uses-create2",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28088,7 +28451,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28151,7 +28514,7 @@
         "uses-create2",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28212,7 +28575,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28275,7 +28638,7 @@
         "uses-force-feed",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28338,7 +28701,7 @@
         "uses-erc4337",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28412,7 +28775,7 @@
         "uses-erc4626",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28482,7 +28845,7 @@
         "uses-erc4337",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28545,7 +28908,7 @@
         "uses-erc4337",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28610,7 +28973,7 @@
         "uses-erc4626",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28671,7 +29034,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28732,7 +29095,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28795,7 +29158,7 @@
         "uses-erc4337",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28860,7 +29223,7 @@
         "uses-erc4337",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28921,7 +29284,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -28984,7 +29347,7 @@
         "uses-dynamic-loop",
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29045,7 +29408,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29108,7 +29471,7 @@
         "uses-delegatecall",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29169,7 +29532,7 @@
       "features": [
         "uses-dynamic-loop"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29230,7 +29593,7 @@
       "features": [
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29300,7 +29663,7 @@
         "uses-erc4337",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29368,7 +29731,7 @@
         "uses-force-feed",
         "uses-time"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29434,7 +29797,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29502,7 +29865,7 @@
         "uses-erc20",
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29568,7 +29931,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29636,7 +29999,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29702,7 +30065,7 @@
       "features": [
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29770,7 +30133,7 @@
         "uses-erc20",
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29836,7 +30199,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29904,7 +30267,7 @@
         "uses-erc4337",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -29972,7 +30335,7 @@
         "uses-assembly",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30040,7 +30403,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30110,7 +30473,7 @@
         "uses-erc721",
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30182,7 +30545,7 @@
         "uses-lending",
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30250,7 +30613,7 @@
         "uses-lending",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30316,7 +30679,7 @@
       "features": [
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30382,7 +30745,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30448,7 +30811,7 @@
       "features": [
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30514,7 +30877,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -30580,7 +30943,7 @@
       "features": [
         "uses-erc4337"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -33031,7 +33394,15 @@
         "uses-erc4626"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-ERC4626-043:select",
+          "tests/routing/curated-predicates.json#EVM-ERC4626-043:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-ERC4626-044",
@@ -37904,7 +38275,15 @@
         "uses-multicall"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-GEN-004:select",
+          "tests/routing/curated-predicates.json#EVM-GEN-004:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-GEN-005",
@@ -37972,7 +38351,15 @@
         "uses-external-call"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-GEN-005:select",
+          "tests/routing/curated-predicates.json#EVM-GEN-005:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-GEN-006",
@@ -38094,7 +38481,15 @@
         "uses-delegatecall"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-GEN-007:select",
+          "tests/routing/curated-predicates.json#EVM-GEN-007:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-GEN-008",
@@ -38844,7 +39239,15 @@
         "uses-erc20"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-GEN-019:select",
+          "tests/routing/curated-predicates.json#EVM-GEN-019:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-GEN-020",
@@ -38905,7 +39308,15 @@
         "uses-reentrancy-callback"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-GEN-020:select",
+          "tests/routing/curated-predicates.json#EVM-GEN-020:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-GEN-021",
@@ -38968,7 +39379,15 @@
         "uses-merkle"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-GEN-021:select",
+          "tests/routing/curated-predicates.json#EVM-GEN-021:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-GEN-022",
@@ -46284,7 +46703,15 @@
         "uses-merkle"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-GOV-026:select",
+          "tests/routing/curated-predicates.json#EVM-GOV-026:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-GOV-027",
@@ -48224,7 +48651,7 @@
         "uses-oracle",
         "uses-time"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48287,7 +48714,7 @@
         "uses-bridge",
         "uses-chain-specific"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48350,7 +48777,7 @@
         "uses-math",
         "uses-time"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48414,7 +48841,7 @@
       "features": [
         "uses-math"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48477,7 +48904,7 @@
         "uses-lending",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48538,7 +48965,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48606,7 +49033,7 @@
         "uses-math",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48669,7 +49096,7 @@
         "uses-chain-specific",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48733,7 +49160,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48796,7 +49223,7 @@
         "uses-lending",
         "uses-math"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48857,7 +49284,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48918,7 +49345,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -48985,7 +49412,7 @@
         "uses-lending",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49048,7 +49475,7 @@
         "uses-amm",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49111,7 +49538,7 @@
         "uses-lending",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49174,7 +49601,7 @@
         "uses-erc20",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49237,7 +49664,7 @@
         "uses-amm",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49300,8 +49727,16 @@
         "uses-amm",
         "uses-oracle"
       ],
-      "freshness": "versioned",
-      "verified_at": null
+      "freshness": "static",
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-ORACLE-018:select",
+          "tests/routing/curated-predicates.json#EVM-ORACLE-018:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-ORACLE-019",
@@ -49363,7 +49798,7 @@
         "uses-amm",
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49424,7 +49859,7 @@
       "features": [
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49485,7 +49920,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49546,7 +49981,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49607,7 +50042,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49672,7 +50107,7 @@
         "uses-staking",
         "uses-time"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49733,7 +50168,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49794,7 +50229,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49855,7 +50290,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49920,7 +50355,7 @@
         "uses-lending",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -49981,7 +50416,7 @@
       "features": [
         "uses-lending"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50042,7 +50477,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50105,7 +50540,7 @@
         "uses-lending",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50166,7 +50601,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50231,7 +50666,7 @@
         "uses-external-call",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50294,7 +50729,7 @@
         "uses-chain-specific",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50355,7 +50790,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50426,7 +50861,7 @@
         "uses-oracle",
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50491,7 +50926,7 @@
         "uses-reentrancy-callback",
         "uses-time"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50552,7 +50987,7 @@
       "features": [
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50615,7 +51050,7 @@
         "uses-amm",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50678,7 +51113,7 @@
         "uses-chain-specific",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50741,7 +51176,7 @@
         "uses-lending",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50806,7 +51241,7 @@
         "uses-lending",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50871,7 +51306,7 @@
         "uses-oracle",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -50934,7 +51369,7 @@
         "uses-amm",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -51000,7 +51435,7 @@
       "features": [
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -51068,7 +51503,7 @@
         "uses-amm",
         "uses-lending"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -51136,7 +51571,7 @@
         "uses-lending",
         "uses-oracle"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -51220,7 +51655,7 @@
         "uses-reentrancy-callback",
         "uses-time"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -51683,7 +52118,15 @@
         "uses-erc4626"
       ],
       "freshness": "static",
-      "verified_at": null
+      "verified_at": null,
+      "routing_verification": {
+        "basis": "The curated feature predicate was reviewed against positive and negative routing fixtures.",
+        "verified_at": "2026-08-30",
+        "tests": [
+          "tests/routing/curated-predicates.json#EVM-MATH-007:select",
+          "tests/routing/curated-predicates.json#EVM-MATH-007:filter"
+        ]
+      }
     },
     {
       "canonical_id": "EVM-MATH-008",
@@ -53684,7 +54127,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -53749,7 +54192,7 @@
         "uses-force-feed",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -53814,7 +54257,7 @@
         "uses-force-feed",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -53877,7 +54320,7 @@
         "uses-bridge",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -53940,7 +54383,7 @@
         "uses-bridge",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54001,7 +54444,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54062,7 +54505,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54127,7 +54570,7 @@
         "uses-proxy",
         "uses-reentrancy-callback"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54188,7 +54631,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54249,7 +54692,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54310,7 +54753,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54375,7 +54818,7 @@
         "uses-force-feed",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54436,7 +54879,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54499,7 +54942,7 @@
         "uses-assembly",
         "uses-create2"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54560,7 +55003,7 @@
       "features": [
         "uses-assembly"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54621,7 +55064,7 @@
       "features": [
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54684,7 +55127,7 @@
         "uses-bridge",
         "uses-erc20"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54745,7 +55188,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54813,7 +55256,7 @@
         "uses-chain-specific",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54874,7 +55317,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -54935,7 +55378,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55000,7 +55443,7 @@
         "uses-governance",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55068,7 +55511,7 @@
         "uses-amm",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55134,7 +55577,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55200,7 +55643,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55268,7 +55711,7 @@
         "uses-delegatecall",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55336,7 +55779,7 @@
         "uses-bridge",
         "uses-signature"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55402,7 +55845,7 @@
       "features": [
         "uses-create2"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55468,7 +55911,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55536,7 +55979,7 @@
         "uses-delegatecall",
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55602,7 +56045,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {
@@ -55668,7 +56111,7 @@
       "features": [
         "uses-proxy"
       ],
-      "freshness": "versioned",
+      "freshness": "static",
       "verified_at": null
     },
     {

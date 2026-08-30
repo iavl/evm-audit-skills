@@ -113,21 +113,37 @@ def render_domain(registry: dict[str, Any], config: dict[str, Any]) -> str:
 def render_skill(config: dict[str, Any]) -> str:
     domain = config["id"]
     related = ", ".join(f"`{value}`" for value in config["related_domains"]) or "none"
+    required_context = "\n".join(f"- {value}" for value in config["required_context"])
+    review_requirements = "\n".join(f"- {value}" for value in config["review_requirements"])
     return f"""---
 name: {domain}
 description: {config['description']} Consume routed selected-check bodies at runtime.
 ---
 # {config['name']}
 
-## Audit Contract
-When invoked directly, run the shared pipeline for `{domain}` only:
+## Runtime Modes
 
 Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
 
-1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
-2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain {domain} --format json > routing-manifest.json`.
-3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain {domain} --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
-4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-{domain}.md`.
+### Standalone
+
+When invoked directly, create `audits/<repo>-<UTC timestamp>/` with `recon/`, `routing/`, `runtime/`, and `reviews/`, then run the shared pipeline for `{domain}` once:
+
+1. `python3 <suite-root>/scripts/recon.py <target> --audit-root <target-root> --output <run-dir>/recon/feature-map.json`
+2. `python3 <suite-root>/scripts/select_checks.py --feature-map <run-dir>/recon/feature-map.json --target-root <target-root> --domain {domain} --profile compact --manifest-out <run-dir>/routing/manifest.json --checks-out <run-dir>/runtime/selected-{domain}.md --context-out <run-dir>/context.json`
+3. Read `<suite-root>/evm-audit-master/references/check-review-contract.runtime.md`, review only the selected checks, and write `<run-dir>/reviews/review-{domain}.md`.
+
+### Orchestrated
+
+When Master supplies `context.json`, the Feature Map v3, routing manifest, and `selected-{domain}.md`, consume those artifacts directly. Never rerun Recon or Selector in orchestrated mode.
+
+## Required Context
+
+{required_context}
+
+## Domain Review Requirements
+
+{review_requirements}
 
 Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
 

@@ -1,1 +1,20 @@
-{"id":"evm-audit-proxies","name":"Proxy and Upgrade Security","checklist_title":"Proxy & Upgrade Security Checklist","description":"Security review for proxies, upgrade mechanisms, initializers, and storage layouts.","surface_features":["uses-proxy"],"related_domains":["evm-audit-access-control","evm-audit-assembly"]}
+{
+  "id": "evm-audit-proxies",
+  "name": "Proxy and Upgrade Security",
+  "checklist_title": "Proxy & Upgrade Security Checklist",
+  "description": "Security review for proxies, upgrade mechanisms, initializers, and storage layouts.",
+  "surface_features": [
+    "uses-proxy"
+  ],
+  "related_domains": [
+    "evm-audit-access-control",
+    "evm-audit-assembly"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "proxy kind, implementation, admin, initializer, and upgrade path"
+  ],
+  "review_requirements": [
+    "trace initialization, authorization, and storage compatibility"
+  ]
+}

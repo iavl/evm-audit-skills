@@ -1,11 +1,27 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:feature-map:v2",
+  "$id": "urn:evm-audit-skills:feature-map:v3",
   "title": "EVM audit reconnaissance feature map",
   "type": "object",
-  "required": ["schema_version", "features"],
+  "required": ["schema_version", "recon_context", "features"],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
+    "recon_context": {
+      "type": "object",
+      "required": ["target_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "uncompiled_paths", "source_digest", "compilation_complete", "slither_version", "solc_version"],
+      "properties": {
+        "target_root": {"type": "string", "minLength": 1},
+        "files_analyzed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "excluded_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "exclusion_patterns": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "uncompiled_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "compilation_complete": {"type": "boolean"},
+        "slither_version": {"type": "string", "minLength": 1},
+        "solc_version": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
     "features": {
       "type": "object",
       "additionalProperties": {
@@ -19,7 +35,7 @@
               "type": "object",
               "required": ["kind", "location", "reason"],
               "properties": {
-                "kind": {"enum": ["slither-ast", "slither-ir", "compiler-ast", "source", "deployment", "manual", "legacy"]},
+                "kind": {"enum": ["slither-ast", "slither-ir", "compiler-ast", "source", "deployment", "manual"]},
                 "location": {"type": "string", "minLength": 1},
                 "reason": {"type": "string", "minLength": 1}
               },

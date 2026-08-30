@@ -1,1 +1,20 @@
-{"id":"evm-audit-defi-staking","name":"Staking and Restaking Security","checklist_title":"Staking & LSD Security Checklist","description":"Security review for staking, liquid staking, restaking, rewards, and yield aggregation.","surface_features":["uses-staking"],"related_domains":["evm-audit-precision-math","evm-audit-erc20"]}
+{
+  "id": "evm-audit-defi-staking",
+  "name": "Staking and Restaking Security",
+  "checklist_title": "Staking & LSD Security Checklist",
+  "description": "Security review for staking, liquid staking, restaking, rewards, and yield aggregation.",
+  "surface_features": [
+    "uses-staking"
+  ],
+  "related_domains": [
+    "evm-audit-precision-math",
+    "evm-audit-erc20"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "reward accounting, withdrawal queue, validator and slashing assumptions"
+  ],
+  "review_requirements": [
+    "model share/reward accounting and delayed exits"
+  ]
+}

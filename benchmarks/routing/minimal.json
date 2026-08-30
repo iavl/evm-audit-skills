@@ -1,0 +1,11 @@
+{
+  "name": "minimal",
+  "detected_features": [],
+  "domain_scope": ["evm-audit-general"],
+  "selected_domains": ["evm-audit-general"],
+  "selected_checks": 106,
+  "filtered_checks": 3,
+  "must_select_ids": ["EVM-GEN-001"],
+  "must_not_filter_ids": ["EVM-GEN-020"],
+  "runtime_bytes": 126245
+}

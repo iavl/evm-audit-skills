@@ -1,1 +1,19 @@
-{"id":"evm-audit-access-control","name":"Access-Control Security","checklist_title":"Access Control Security Checklist","description":"Security review for ownership, roles, authorization, governance, and privileged operations.","surface_features":["uses-access-control"],"related_domains":["evm-audit-general"]}
+{
+  "id": "evm-audit-access-control",
+  "name": "Access-Control Security",
+  "checklist_title": "Access Control Security Checklist",
+  "description": "Security review for ownership, roles, authorization, governance, and privileged operations.",
+  "surface_features": [
+    "uses-access-control"
+  ],
+  "related_domains": [
+    "evm-audit-general"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "privileged roles and administrators"
+  ],
+  "review_requirements": [
+    "trace every privilege grant, revoke, and transfer path"
+  ]
+}

@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
       - name: Install Slither and solc
         run: |
-          python3 -m pip install slither-analyzer==0.11.6
+          python3 -m pip install -r requirements-runtime.txt
           solc-select install 0.8.24
           solc-select use 0.8.24
       - name: Set up Foundry
@@ -33,5 +33,11 @@ jobs:
         run: python3 -m unittest discover -s tests -v
       - name: Run executable EVM semantics
         run: forge test --root tests/semantics -vv
+      - name: Run EIP-6780 cross-transaction differential semantics
+        run: |
+          bash tests/semantics/test_eip6780_differential.sh paris
+          bash tests/semantics/test_eip6780_differential.sh cancun
+      - name: Check routing recall and token baselines
+        run: python3 scripts/benchmark_routing.py
       - name: Check patch whitespace
         run: git diff --check

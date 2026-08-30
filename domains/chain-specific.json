@@ -1,1 +1,20 @@
-{"id":"evm-audit-chain-specific","name":"Chain-Specific Security","checklist_title":"Chain-Specific Security Checklist","description":"Security review for non-mainnet EVM deployments and chain-specific execution assumptions.","surface_features":["uses-chain-specific"],"related_domains":["evm-audit-oracles","evm-audit-assembly"]}
+{
+  "id": "evm-audit-chain-specific",
+  "name": "Chain-Specific Security",
+  "checklist_title": "Chain-Specific Security Checklist",
+  "description": "Security review for non-mainnet EVM deployments and chain-specific execution assumptions.",
+  "surface_features": [
+    "uses-chain-specific"
+  ],
+  "related_domains": [
+    "evm-audit-oracles",
+    "evm-audit-assembly"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "chain family, execution environment, fork, and deployed bytecode"
+  ],
+  "review_requirements": [
+    "verify every relied-upon opcode and system-contract behavior"
+  ]
+}

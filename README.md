@@ -80,12 +80,18 @@ knowledge; one-time schema/knowledge transformations live in
 [`scripts/migrations/`](scripts/migrations/). The checked-in migrations have
 already been applied; ordinary maintenance edits the registry or domain config
 and renders without a migration step.
+The pinned Python runtime dependency is listed in
+[`requirements-runtime.txt`](requirements-runtime.txt); CI uses Python 3.12
+and the pinned compiler in [`solc-version.txt`](solc-version.txt).
 It is a machine database and should not be loaded into model context. Feature
 definitions live in [`data/features.json`](data/features.json); the input shape
 is documented in [`data/feature-map.schema.json`](data/feature-map.schema.json).
-A v2 reconnaissance feature map uses `PRESENT`, `ABSENT_CONFIRMED`, or `UNKNOWN`.
-Evidence for confirmed states is typed with `kind`, `location`, and `reason`;
-legacy v1 string evidence remains accepted as input.
+A v3 reconnaissance feature map uses `PRESENT`, `ABSENT_CONFIRMED`, or
+`UNKNOWN`, and carries a scope-bound `recon_context` with the analyzed files,
+compilation completeness, tool versions, and source digest. Non-v3 maps are
+rejected. Evidence for confirmed states is typed with `kind`, `location`, and
+`reason`; absence is accepted only when the feature's `absence_policy` allows
+the evidence kind.
 
 Each canonical check stores an explicit `all_of`/`any_of`/`none_of` predicate.
 Historically keyword-derived predicates are marked `inferred`; hand-reviewed
@@ -97,24 +103,23 @@ Build the initial feature map from Slither's AST/IR, then supplement remaining
 `UNKNOWN` features from deployment evidence:
 
 ```bash
-python3 scripts/recon.py <target-project-or-solidity-file> --output recon-features.json
+python3 scripts/recon.py <target-project-or-solidity-file> --audit-root <target-repo> \
+  --output recon-features.json
 ```
 
 ```bash
 python3 scripts/select_checks.py --feature-map recon-features.json --target-root <target-repo> \
-  --chain-id <id> --fork-block <block> --compiler-version <version> \
-  --format json > routing-manifest.json
-python3 scripts/select_checks.py --feature-map recon-features.json --emit-checks \
-  --profile compact --format markdown > selected-checks.runtime.md
+  --chain-id <id> --chain-family <family> --execution-environment <environment> \
+  --fork-block <block> --compiler-version <version> --evm-fork <fork> \
+  --manifest-out routing-manifest.json --checks-out selected-checks.runtime.md \
+  --format json
 ```
 
-The v3 manifest records the registry SHA-256, selector version, knowledge and
-target repository commits, chain/fork/compiler context, and audit timestamp.
+The v4 manifest records selected/filtered Domain and check stages, the registry
+and source SHA-256 digests, selector version, knowledge and target repository
+commits, chain/runtime/fork/compiler context, and audit timestamp.
 The compact profile contains only ID, title, routing basis, trigger, detection,
 false-positive gates, and proof; the full profile adds maintenance metadata.
-
-The legacy `--features uses-erc20,uses-oracle` shorthand is retained for
-compatibility; omitted features remain `UNKNOWN` and are never fast-filtered.
 
 Regenerate and validate the runtime views with:
 
@@ -136,7 +141,8 @@ one deduplicated issue.
 
 Third-party license text lives in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). It does not declare a
-license for independently authored repository content.
+license for independently authored repository content; that content is
+licensed by [`LICENSE`](LICENSE).
 
 ### Installation layout
 
@@ -184,8 +190,9 @@ Each selected canonical ID receives one review record. Filtered IDs are kept in
 the routing manifest and do not generate per-check Markdown records. Deep/proof
 candidates include applicability, code path, preconditions, exploitability,
 impact, PoC/invariant evidence, and exactly one of `NOT_APPLICABLE`,
-`REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. See
-[`evm-audit-master/references/check-review-contract.md`](evm-audit-master/references/check-review-contract.md).
+`REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. Use the compact runtime contract
+at [`evm-audit-master/references/check-review-contract.runtime.md`](evm-audit-master/references/check-review-contract.runtime.md);
+the full contract remains available for maintenance.
 
 Only `CONFIRMED` records may become findings. Confirmed findings use this format:
 

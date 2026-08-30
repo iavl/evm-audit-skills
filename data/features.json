@@ -1,62 +1,378 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "description": "Reconnaissance feature vocabulary used to route canonical EVM checks. Domain names are metadata and are not routable features.",
   "features": {
-    "uses-general": "Cross-cutting Solidity/EVM surface (legacy compatibility; normally always screened)",
-    "uses-external-call": "External contract call or contract creation expression",
-    "uses-low-level-call": "Low-level call or returndata handling",
-    "uses-delegatecall": "Delegatecall or shared execution context",
-    "uses-multicall": "Multicall, batch, or repeated execution",
-    "uses-msg-value": "Payable or native ETH value flow",
-    "uses-payable": "Payable functions or constructors, whether or not they currently read msg.value",
-    "uses-merkle": "Merkle proof or claim verification",
-    "uses-force-feed": "Unexpected native or token balance changes",
-    "uses-reentrancy-callback": "Callback, hook, or reentrant external control flow",
-    "uses-callback-capable-token": "Integration accepts a token that can invoke callbacks or hooks",
-    "uses-external-control-before-accounting-finalized": "External control is yielded before accounting is finalized",
-    "uses-arbitrary-external-call": "User-controlled or otherwise arbitrary external call target",
-    "uses-assembly": "Inline assembly, Yul, or raw EVM operation",
-    "uses-create2": "CREATE2 or metamorphic deployment",
-    "uses-erc20": "ERC20 or token integration",
-    "uses-erc721": "ERC721/ERC1155 or NFT integration",
-    "uses-erc4626": "ERC4626 or vault conversion",
-    "uses-signed-conversion": "Signed-to-unsigned or narrowing integer conversion",
-    "uses-erc4337": "ERC4337 account abstraction",
-    "uses-bridge": "Cross-chain bridge or messaging",
-    "uses-proxy": "Proxy or upgrade mechanism",
-    "uses-signature": "Signature, permit, or signed authorization",
-    "uses-governance": "Governance, voting, proposal, or timelock",
-    "uses-oracle": "Oracle, feed, TWAP, VRF, or price input",
-    "uses-amm": "AMM, DEX, pool, swap, or liquidity",
-    "uses-lending": "Lending, borrowing, collateral, or liquidation",
-    "uses-staking": "Staking, LSD, LRT, validator, or restaking",
-    "uses-flash-loan": "Flash loan, flash mint, or atomic composability",
-    "uses-pause": "Pause, unpause, or emergency operation",
-    "uses-time": "Timestamp, block number, deadline, duration, time unit, or epoch",
-    "uses-math": "Arithmetic, precision, rounding, range, or decimal handling",
-    "uses-dynamic-loop": "Dynamic array, loop, gas, or unbounded work",
-    "uses-chain-specific": "Arbitrum, Optimism, zkSync, Blast, BNB, Polygon, or L2 behavior",
-    "uses-access-control": "Roles, ownership, authorization, or privileged operations"
-  },
-  "legacy_aliases": {
-    "evm-audit-general": "uses-general",
-    "evm-audit-precision-math": "uses-math",
-    "evm-audit-erc20": "uses-erc20",
-    "evm-audit-defi-amm": "uses-amm",
-    "evm-audit-defi-lending": "uses-lending",
-    "evm-audit-defi-staking": "uses-staking",
-    "evm-audit-erc4626": "uses-erc4626",
-    "evm-audit-erc4337": "uses-erc4337",
-    "evm-audit-bridges": "uses-bridge",
-    "evm-audit-proxies": "uses-proxy",
-    "evm-audit-signatures": "uses-signature",
-    "evm-audit-governance": "uses-governance",
-    "evm-audit-oracles": "uses-oracle",
-    "evm-audit-assembly": "uses-assembly",
-    "evm-audit-chain-specific": "uses-chain-specific",
-    "evm-audit-flashloans": "uses-flash-loan",
-    "evm-audit-erc721": "uses-erc721",
-    "evm-audit-dos": "uses-dynamic-loop",
-    "evm-audit-access-control": "uses-access-control"
+    "uses-general": {
+      "description": "Cross-cutting Solidity/EVM surface (legacy compatibility; normally always screened)",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-external-call": {
+      "description": "External contract call or contract creation expression",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-low-level-call": {
+      "description": "Low-level call or returndata handling",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-delegatecall": {
+      "description": "Delegatecall or shared execution context",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-multicall": {
+      "description": "Multicall, batch, or repeated execution",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-msg-value": {
+      "description": "Payable or native ETH value flow",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-payable": {
+      "description": "Payable functions or constructors, whether or not they currently read msg.value",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-merkle": {
+      "description": "Merkle proof or claim verification",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-force-feed": {
+      "description": "Unexpected native or token balance changes",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-reentrancy-callback": {
+      "description": "Callback, hook, or reentrant external control flow",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-callback-capable-token": {
+      "description": "Integration accepts a token that can invoke callbacks or hooks",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-external-control-before-accounting-finalized": {
+      "description": "External control is yielded before accounting is finalized",
+      "absence_policy": "never-confirm-absence",
+      "allowed_absence_evidence": []
+    },
+    "uses-arbitrary-external-call": {
+      "description": "User-controlled or otherwise arbitrary external call target",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-assembly": {
+      "description": "Inline assembly, Yul, or raw EVM operation",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-create2": {
+      "description": "CREATE2 or metamorphic deployment",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-erc20": {
+      "description": "ERC20 or token integration",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-erc721": {
+      "description": "ERC721/ERC1155 or NFT integration",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-erc4626": {
+      "description": "ERC4626 or vault conversion",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-signed-conversion": {
+      "description": "Signed-to-unsigned or narrowing integer conversion",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-erc4337": {
+      "description": "ERC4337 account abstraction",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-bridge": {
+      "description": "Cross-chain bridge or messaging",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-proxy": {
+      "description": "Proxy or upgrade mechanism",
+      "absence_policy": "machine-or-deployment",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment"
+      ]
+    },
+    "uses-signature": {
+      "description": "Signature, permit, or signed authorization",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-governance": {
+      "description": "Governance, voting, proposal, or timelock",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-oracle": {
+      "description": "Oracle, feed, TWAP, VRF, or price input",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-amm": {
+      "description": "AMM, DEX, pool, swap, or liquidity",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-lending": {
+      "description": "Lending, borrowing, collateral, or liquidation",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-staking": {
+      "description": "Staking, LSD, LRT, validator, or restaking",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-flash-loan": {
+      "description": "Flash loan, flash mint, or atomic composability",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-pause": {
+      "description": "Pause, unpause, or emergency operation",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    },
+    "uses-time": {
+      "description": "Timestamp, block number, deadline, duration, time unit, or epoch",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-math": {
+      "description": "Arithmetic, precision, rounding, range, or decimal handling",
+      "absence_policy": "machine-only",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir"
+      ]
+    },
+    "uses-dynamic-loop": {
+      "description": "Dynamic array, loop, gas, or unbounded work",
+      "absence_policy": "never-confirm-absence",
+      "allowed_absence_evidence": []
+    },
+    "uses-chain-specific": {
+      "description": "Arbitrum, Optimism, zkSync, Blast, BNB, Polygon, or L2 behavior",
+      "absence_policy": "machine-or-deployment",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment"
+      ]
+    },
+    "uses-access-control": {
+      "description": "Roles, ownership, authorization, or privileged operations",
+      "absence_policy": "manual-allowed",
+      "allowed_absence_evidence": [
+        "compiler-ast",
+        "slither-ast",
+        "slither-ir",
+        "deployment",
+        "manual",
+        "source"
+      ]
+    }
   }
 }

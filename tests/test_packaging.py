@@ -32,11 +32,19 @@ class PackagingTests(unittest.TestCase):
                     self.assertTrue((resolved.parent.parent / "data" / "features.json").exists())
                     self.assertTrue((resolved.parent.parent / "scripts" / "select_checks.py").exists())
                 else:
-                    self.assertTrue((resolved.parent.parent.parent / "evm-audit-master" / "references" / "check-review-contract.md").exists())
+                    self.assertTrue((resolved.parent.parent.parent / "evm-audit-master" / "references" / "check-review-contract.runtime.md").exists())
                     self.assertNotIn("use the canonical IDs from `../data/canonical-checks.json`", text)
 
+            feature_map = suite / "feature-map.json"
+            recon = subprocess.run(
+                [sys.executable, "scripts/recon.py", "tests/fixtures/recon/Empty.sol", "--output", str(feature_map)],
+                cwd=suite,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(recon.returncode, 0, recon.stderr)
             result = subprocess.run(
-                [sys.executable, "scripts/select_checks.py", "--features", "evm-audit-erc4626", "--domain", "evm-audit-erc4626", "--format", "json"],
+                [sys.executable, "scripts/select_checks.py", "--feature-map", str(feature_map), "--target-root", "tests/fixtures/recon/Empty.sol", "--domain", "evm-audit-erc4626", "--format", "json"],
                 cwd=suite,
                 capture_output=True,
                 text=True,

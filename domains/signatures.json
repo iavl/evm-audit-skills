@@ -1,1 +1,20 @@
-{"id":"evm-audit-signatures","name":"Signature Security","checklist_title":"Signature Security Checklist","description":"Security review for signatures, permits, EIP-712, and meta-transactions.","surface_features":["uses-signature"],"related_domains":["evm-audit-access-control","evm-audit-chain-specific"]}
+{
+  "id": "evm-audit-signatures",
+  "name": "Signature Security",
+  "checklist_title": "Signature Security Checklist",
+  "description": "Security review for signatures, permits, EIP-712, and meta-transactions.",
+  "surface_features": [
+    "uses-signature"
+  ],
+  "related_domains": [
+    "evm-audit-access-control",
+    "evm-audit-chain-specific"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "signed payload, domain separator, nonce, signer, and chain binding"
+  ],
+  "review_requirements": [
+    "test replay, malleability, expiry, and signer ambiguity"
+  ]
+}

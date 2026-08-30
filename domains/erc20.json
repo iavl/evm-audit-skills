@@ -1,1 +1,20 @@
-{"id":"evm-audit-erc20","name":"ERC20 Integration Security","checklist_title":"Weird ERC20 Security Checklist","description":"Security review for contracts that implement or integrate ERC20-compatible tokens.","surface_features":["uses-erc20"],"related_domains":["evm-audit-general","evm-audit-precision-math"]}
+{
+  "id": "evm-audit-erc20",
+  "name": "ERC20 Integration Security",
+  "checklist_title": "Weird ERC20 Security Checklist",
+  "description": "Security review for contracts that implement or integrate ERC20-compatible tokens.",
+  "surface_features": [
+    "uses-erc20"
+  ],
+  "related_domains": [
+    "evm-audit-general",
+    "evm-audit-precision-math"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "accepted tokens, balance accounting, allowances, and transfer wrappers"
+  ],
+  "review_requirements": [
+    "test non-standard token behaviors against accounting invariants"
+  ]
+}

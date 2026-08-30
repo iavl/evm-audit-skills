@@ -1,1 +1,22 @@
-{"id":"evm-audit-assembly","name":"Assembly and Opcode Security","checklist_title":"Assembly & Opcode Security Checklist","description":"Security review for inline assembly, Yul, CREATE2, low-level calls, and EVM opcodes.","surface_features":["uses-assembly","uses-create2","uses-low-level-call"],"related_domains":["evm-audit-general","evm-audit-chain-specific"]}
+{
+  "id": "evm-audit-assembly",
+  "name": "Assembly and Opcode Security",
+  "checklist_title": "Assembly & Opcode Security Checklist",
+  "description": "Security review for inline assembly, Yul, CREATE2, low-level calls, and EVM opcodes.",
+  "surface_features": [
+    "uses-assembly",
+    "uses-create2",
+    "uses-low-level-call"
+  ],
+  "related_domains": [
+    "evm-audit-general",
+    "evm-audit-chain-specific"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "compiler target and assembly call sites"
+  ],
+  "review_requirements": [
+    "compare Yul/EVM behavior with the selected runtime"
+  ]
+}

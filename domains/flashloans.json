@@ -1,1 +1,21 @@
-{"id":"evm-audit-flashloans","name":"Flash-Loan Security","checklist_title":"Flash Loan Security Checklist","description":"Security review for flash loans, flash minting, and atomic economic attacks.","surface_features":["uses-flash-loan"],"related_domains":["evm-audit-governance","evm-audit-oracles","evm-audit-defi-amm"]}
+{
+  "id": "evm-audit-flashloans",
+  "name": "Flash-Loan Security",
+  "checklist_title": "Flash Loan Security Checklist",
+  "description": "Security review for flash loans, flash minting, and atomic economic attacks.",
+  "surface_features": [
+    "uses-flash-loan"
+  ],
+  "related_domains": [
+    "evm-audit-governance",
+    "evm-audit-oracles",
+    "evm-audit-defi-amm"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "flash liquidity sources and same-transaction state dependencies"
+  ],
+  "review_requirements": [
+    "test atomic manipulation of governance, prices, shares, and accounting"
+  ]
+}

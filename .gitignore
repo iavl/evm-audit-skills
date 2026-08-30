@@ -4,3 +4,6 @@ __pycache__/
 *.py[cod]
 tests/semantics/out/
 tests/semantics/cache/
+tests/semantics-eip6780/out/
+tests/semantics-eip6780/cache/
+audits/

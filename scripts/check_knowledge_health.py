@@ -32,11 +32,17 @@ def source_status(url: str, timeout: int) -> tuple[bool | None, str]:
                 if "CERTIFICATE_VERIFY_FAILED" in str(retry_error) or "certificate verify failed" in str(retry_error).lower():
                     return None, "TLS certificate verification unavailable in this runner"
                 if isinstance(retry_error, HTTPError):
-                    return False, f"HTTP {retry_error.code}"
+                    if retry_error.code in {404, 410}:
+                        return False, f"HTTP {retry_error.code}"
+                    return None, f"transient HTTP {retry_error.code}"
                 if isinstance(retry_error, (URLError, TimeoutError, OSError)):
                     return None, f"network check unavailable: {retry_error}"
                 return False, str(retry_error)
-        return False, f"HTTP {error.code}"
+        if error.code in {404, 410}:
+            return False, f"HTTP {error.code}"
+        if error.code == 429 or 500 <= error.code < 600:
+            return None, f"transient HTTP {error.code}"
+        return None, f"unclassified HTTP {error.code}"
     except (URLError, TimeoutError, OSError) as error:
         return None, f"network check unavailable: {error}"
 

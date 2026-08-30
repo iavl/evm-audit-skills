@@ -4,15 +4,29 @@ description: Security review for non-mainnet EVM deployments and chain-specific 
 ---
 # Chain-Specific Security
 
-## Audit Contract
-When invoked directly, run the shared pipeline for `evm-audit-chain-specific` only:
+## Runtime Modes
 
 Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
 
-1. Run `python3 <suite-root>/scripts/recon.py <target> --output recon-features.json`.
-2. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-chain-specific --format json > routing-manifest.json`.
-3. Run `python3 <suite-root>/scripts/select_checks.py --feature-map recon-features.json --domain evm-audit-chain-specific --emit-checks --profile compact --format markdown > selected-checks.runtime.md`.
-4. Read `<suite-root>/evm-audit-master/references/check-review-contract.md`, review only the routed checks, and write `review-evm-audit-chain-specific.md`.
+### Standalone
+
+When invoked directly, create `audits/<repo>-<UTC timestamp>/` with `recon/`, `routing/`, `runtime/`, and `reviews/`, then run the shared pipeline for `evm-audit-chain-specific` once:
+
+1. `python3 <suite-root>/scripts/recon.py <target> --audit-root <target-root> --output <run-dir>/recon/feature-map.json`
+2. `python3 <suite-root>/scripts/select_checks.py --feature-map <run-dir>/recon/feature-map.json --target-root <target-root> --domain evm-audit-chain-specific --profile compact --manifest-out <run-dir>/routing/manifest.json --checks-out <run-dir>/runtime/selected-evm-audit-chain-specific.md --context-out <run-dir>/context.json`
+3. Read `<suite-root>/evm-audit-master/references/check-review-contract.runtime.md`, review only the selected checks, and write `<run-dir>/reviews/review-evm-audit-chain-specific.md`.
+
+### Orchestrated
+
+When Master supplies `context.json`, the Feature Map v3, routing manifest, and `selected-evm-audit-chain-specific.md`, consume those artifacts directly. Never rerun Recon or Selector in orchestrated mode.
+
+## Required Context
+
+- chain family, execution environment, fork, and deployed bytecode
+
+## Domain Review Requirements
+
+- verify every relied-upon opcode and system-contract behavior
 
 Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
 

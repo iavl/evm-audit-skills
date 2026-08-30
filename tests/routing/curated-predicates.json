@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {"canonical_id":"EVM-ASM-022","select_present":["uses-delegatecall","uses-msg-value"],"filter_absent":["uses-delegatecall"]},
+    {"canonical_id":"EVM-AMM-005","select_present":["uses-amm","uses-arbitrary-external-call"],"filter_absent":["uses-amm"]},
+    {"canonical_id":"EVM-AMM-026","select_present":["uses-amm","uses-oracle"],"filter_absent":["uses-amm"]},
+    {"canonical_id":"EVM-LEND-033","select_present":["uses-lending","uses-oracle"],"filter_absent":["uses-lending"]},
+    {"canonical_id":"EVM-ERC20-020","select_present":["uses-callback-capable-token","uses-erc20"],"filter_absent":["uses-erc20"]},
+    {"canonical_id":"EVM-ERC20-021","select_present":["uses-callback-capable-token","uses-erc20"],"filter_absent":["uses-erc20"]},
+    {"canonical_id":"EVM-ERC20-039","select_present":["uses-callback-capable-token","uses-erc20"],"filter_absent":["uses-erc20"]},
+    {"canonical_id":"EVM-ERC4626-043","select_present":["uses-erc4626"],"filter_absent":["uses-erc4626"]},
+    {"canonical_id":"EVM-GEN-004","select_present":["uses-delegatecall","uses-msg-value","uses-multicall"],"filter_absent":["uses-msg-value"]},
+    {"canonical_id":"EVM-GEN-005","select_present":["uses-external-call"],"filter_absent":["uses-external-call"]},
+    {"canonical_id":"EVM-GEN-007","select_present":["uses-delegatecall"],"filter_absent":["uses-delegatecall"]},
+    {"canonical_id":"EVM-GEN-019","select_present":["uses-callback-capable-token","uses-erc20"],"filter_absent":["uses-erc20"]},
+    {"canonical_id":"EVM-GEN-020","select_present":["uses-reentrancy-callback"],"filter_absent":["uses-reentrancy-callback"]},
+    {"canonical_id":"EVM-GEN-021","select_present":["uses-merkle"],"filter_absent":["uses-merkle"]},
+    {"canonical_id":"EVM-GOV-026","select_present":["uses-merkle"],"filter_absent":["uses-merkle"]},
+    {"canonical_id":"EVM-ORACLE-018","select_present":["uses-amm","uses-oracle"],"filter_absent":["uses-amm"]},
+    {"canonical_id":"EVM-MATH-007","select_present":["uses-erc4626"],"filter_absent":["uses-erc4626"]}
+  ]
+}

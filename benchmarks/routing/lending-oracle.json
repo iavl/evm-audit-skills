@@ -1,0 +1,11 @@
+{
+  "name": "lending-oracle",
+  "detected_features": ["uses-lending", "uses-oracle"],
+  "domain_scope": ["evm-audit-general", "evm-audit-defi-lending", "evm-audit-oracles"],
+  "selected_domains": ["evm-audit-general", "evm-audit-defi-lending", "evm-audit-oracles"],
+  "selected_checks": 242,
+  "filtered_checks": 3,
+  "must_select_ids": ["EVM-GEN-001", "EVM-LEND-033", "EVM-ORACLE-001"],
+  "must_not_filter_ids": ["EVM-LEND-033"],
+  "runtime_bytes": 272326
+}

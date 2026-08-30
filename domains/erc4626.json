@@ -1,1 +1,20 @@
-{"id":"evm-audit-erc4626","name":"ERC4626 Vault Security","checklist_title":"ERC4626 Vault Security Checklist","description":"Security review for ERC4626 vaults and vault integrations.","surface_features":["uses-erc4626"],"related_domains":["evm-audit-precision-math","evm-audit-erc20"]}
+{
+  "id": "evm-audit-erc4626",
+  "name": "ERC4626 Vault Security",
+  "checklist_title": "ERC4626 Vault Security Checklist",
+  "description": "Security review for ERC4626 vaults and vault integrations.",
+  "surface_features": [
+    "uses-erc4626"
+  ],
+  "related_domains": [
+    "evm-audit-precision-math",
+    "evm-audit-erc20"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "asset/share decimals, conversion formulas, fees, and initial state"
+  ],
+  "review_requirements": [
+    "verify preview parity, rounding, donation, and inflation resistance"
+  ]
+}

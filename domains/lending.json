@@ -1,1 +1,21 @@
-{"id":"evm-audit-defi-lending","name":"Lending and Liquidation Security","checklist_title":"Lending & Liquidation Security Checklist","description":"Security review for lending, borrowing, collateral, liquidation, and CDP protocols.","surface_features":["uses-lending"],"related_domains":["evm-audit-precision-math","evm-audit-erc20","evm-audit-oracles"]}
+{
+  "id": "evm-audit-defi-lending",
+  "name": "Lending and Liquidation Security",
+  "checklist_title": "Lending & Liquidation Security Checklist",
+  "description": "Security review for lending, borrowing, collateral, liquidation, and CDP protocols.",
+  "surface_features": [
+    "uses-lending"
+  ],
+  "related_domains": [
+    "evm-audit-precision-math",
+    "evm-audit-erc20",
+    "evm-audit-oracles"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "oracle configuration, collateral parameters, caps, liquidations, and interest model"
+  ],
+  "review_requirements": [
+    "model solvency, bad debt, and liquidation economics"
+  ]
+}

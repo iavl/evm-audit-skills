@@ -1,1 +1,19 @@
-{"id":"evm-audit-general","name":"General Solidity/EVM Security","checklist_title":"General Solidity/EVM Security Checklist","description":"General Solidity and EVM security review for every smart contract.","surface_features":["uses-general"],"related_domains":["evm-audit-precision-math"]}
+{
+  "id": "evm-audit-general",
+  "name": "General Solidity/EVM Security",
+  "checklist_title": "General Solidity/EVM Security Checklist",
+  "description": "General Solidity and EVM security review for every smart contract.",
+  "surface_features": [
+    "uses-general"
+  ],
+  "related_domains": [
+    "evm-audit-precision-math"
+  ],
+  "always_screen": true,
+  "required_context": [
+    "scope inventory, entry points, trust boundaries, and external dependencies"
+  ],
+  "review_requirements": [
+    "trace reachable state changes and cross-domain interactions"
+  ]
+}

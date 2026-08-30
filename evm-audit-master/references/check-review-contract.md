@@ -35,11 +35,12 @@ One terminal status
 
 Use a three-stage funnel for every routed canonical check:
 
-1. **`FAST_FILTER`** — compare the check's feature predicate with the
-   reconnaissance feature map and write the machine-readable routing manifest.
-   Only a `curated` predicate proven `FALSE` is filtered. A `FALSE` result from
-   an `inferred` keyword predicate is downgraded to `UNKNOWN`; it remains
-   selected and must not become `NOT_APPLICABLE`.
+1. **`FAST_FILTER`** — verify the scope-bound Feature Map v3, evaluate
+   environment applicability, gate Domains by their surface predicate, then
+   compare each candidate check with the feature map. Only a `curated` predicate
+   proven `FALSE` is feature-filtered. A `FALSE` result from an `inferred`
+   keyword predicate is downgraded to `UNKNOWN`; it remains selected and must
+   not become `NOT_APPLICABLE`.
 2. **`DEEP_REVIEW`** — for selected checks, trace reachability, preconditions,
    guards, and invariants. Use `REVIEWED_SAFE` or `SUSPICIOUS` when proof is not
    complete.
@@ -47,13 +48,16 @@ Use a three-stage funnel for every routed canonical check:
    runnable PoC, transaction trace, or deterministic invariant violation before
    using `CONFIRMED`.
 
-The routing manifest must account for every canonical ID as selected or filtered
-out, including the feature evidence used for the decision. Filtered IDs are
+The routing-v4 manifest must account for every canonical ID in the selected
+Domain scope as `SELECTED`, `FILTERED_ENVIRONMENT`, or `FILTERED_FEATURE` and
+must separately account for Domains filtered by their surface predicate. It
+must include the feature evidence used for the decision. Filtered IDs are
 machine coverage entries only; they do not receive per-check Markdown ledger
 records. Selected IDs receive exactly one deep/proof record, including shared
-IDs that are listed in more than one domain. The manifest also records the
-registry digest, selector version, knowledge/target commits, chain/fork/compiler
-context, and audit timestamp so a later review can reproduce the routing input.
+IDs that are listed in more than one Domain. The manifest also records the
+registry/source digests, selector version, knowledge/target commits,
+chain/runtime/fork/compiler context, and audit timestamp so a later review can
+reproduce the routing input.
 
 Validate a completed ledger with
 `python3 scripts/validate_checklists.py --review-ledger <path>`. Use

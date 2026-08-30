@@ -1,1 +1,19 @@
-{"id":"evm-audit-precision-math","name":"Precision and Math Security","checklist_title":"Precision & Math Security Checklist","description":"Precision, rounding, fixed-point math, conversion, and arithmetic security review for EVM contracts.","surface_features":["uses-math"],"related_domains":["evm-audit-general"]}
+{
+  "id": "evm-audit-precision-math",
+  "name": "Precision and Math Security",
+  "checklist_title": "Precision & Math Security Checklist",
+  "description": "Precision, rounding, fixed-point math, conversion, and arithmetic security review for EVM contracts.",
+  "surface_features": [
+    "uses-math"
+  ],
+  "related_domains": [
+    "evm-audit-general"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "units, decimals, rounding directions, and numeric bounds"
+  ],
+  "review_requirements": [
+    "prove conversion and accounting invariants at boundary values"
+  ]
+}

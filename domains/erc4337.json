@@ -1,1 +1,20 @@
-{"id":"evm-audit-erc4337","name":"ERC4337 Account Abstraction Security","checklist_title":"ERC4337 Account Abstraction Security Checklist","description":"Security review for ERC4337 wallets, paymasters, bundlers, and account-abstraction infrastructure.","surface_features":["uses-erc4337"],"related_domains":["evm-audit-signatures","evm-audit-access-control"]}
+{
+  "id": "evm-audit-erc4337",
+  "name": "ERC4337 Account Abstraction Security",
+  "checklist_title": "ERC4337 Account Abstraction Security Checklist",
+  "description": "Security review for ERC4337 wallets, paymasters, bundlers, and account-abstraction infrastructure.",
+  "surface_features": [
+    "uses-erc4337"
+  ],
+  "related_domains": [
+    "evm-audit-signatures",
+    "evm-audit-access-control"
+  ],
+  "always_screen": false,
+  "required_context": [
+    "EntryPoint version, account modules, paymasters, and bundler assumptions"
+  ],
+  "review_requirements": [
+    "trace validation, replay, prefund, and execution boundaries"
+  ]
+}

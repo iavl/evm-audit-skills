@@ -1,0 +1,11 @@
+{
+  "name": "governance",
+  "detected_features": ["uses-governance"],
+  "domain_scope": ["evm-audit-general", "evm-audit-governance"],
+  "selected_domains": ["evm-audit-general", "evm-audit-governance"],
+  "selected_checks": 160,
+  "filtered_checks": 3,
+  "must_select_ids": ["EVM-GEN-001", "EVM-GOV-001"],
+  "must_not_filter_ids": ["EVM-GOV-001"],
+  "runtime_bytes": 181207
+}

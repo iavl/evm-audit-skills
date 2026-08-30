@@ -96,10 +96,13 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
   - **Provenance:** multichain-auditor; [ZKsync Era EVM instruction differences](https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions)
 
-- [ ] **[EVM-CHAIN-013] Different CREATE/CREATE2 address derivation** _(exploit-pattern; medium)_: zkSync uses a different formula for CREATE/CREATE2 addresses than EVM. Counterfactual addresses computed using the EVM formula will be wrong. Look for: off-chain address pre-computation using standard EVM CREATE2 formula. [multichain-auditor]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** multichain-auditor; [ZKsync Era EVM instruction differences](https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions)
+- [ ] **[EVM-CHAIN-013] ZKsync contract-address derivation depends on the execution environment** _(exploit-pattern; medium)_: Native EraVM and ContractDeployer deployments use ZKsync-specific CREATE/CREATE2 derivation. EVM-bytecode contracts executed through the EVM Bytecode Interpreter use Ethereum-compatible CREATE/CREATE2 address derivation. Determine the deployed bytecode and runtime before flagging counterfactual-address logic.
+  - **Trigger:** Code computes, predicts, validates, or authorizes a contract address for a ZKsync deployment.
+  - **Risk:** Applying the Ethereum formula to native EraVM deployment, or the EraVM formula to EVM-interpreter deployment, yields the wrong counterfactual address.
+  - **Detection:** Determine whether the deployed artifact is native EraVM bytecode or EVM bytecode, then compare its CREATE/CREATE2 calculation with the matching documented derivation.
+  - **FP:** The runtime is identified and the address formula matches that execution environment.
+  - **Proof:** Deploy the exact artifact with the relevant CREATE/CREATE2 path and compare the observed address with the predicted address.
+  - **Provenance:** multichain-auditor; [ZKsync Era EVM instruction differences](https://docs.zksync.io/zksync-protocol/era-vm/differences/evm-instructions); [ZKsync EVM Interpreter contract deployment](https://docs.zksync.io/zksync-protocol/era-vm/evm-interpreter/deployment-execution)
 
 - [ ] **[EVM-CHAIN-014] Opcode support and SELFDESTRUCT semantics are chain- and fork-specific** _(semantic; high)_: Do not assume that an opcode's availability or behavior is identical across EVM-compatible chains. In particular, SELFDESTRUCT behavior depends on the chain's adopted fork rules, while custom execution environments may differ in supported opcodes or precompiles.
   - **Trigger:** The contract uses an opcode whose support or semantics may differ on the declared target chain.
