@@ -31,16 +31,19 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Detection:** Trace gas forwarding, external-call failure, return-data decoding, and every statement in the success and catch paths.
   - **FP:** The catch branch preserves the required invariant, has enough bounded gas, and all errors outside the covered external expression are handled separately.
   - **Proof:** Use a controlled callee to trigger revert and out-of-gas cases and verify state deltas and post-catch behavior.
-  - **Provenance:** beirao G-18
+  - **Provenance:** beirao G-18; [Solidity Language Reference](https://docs.soliditylang.org/en/latest/control-structures.html#try-catch)
 
 - [ ] **[EVM-GEN-006] `abi.encodePacked` with 2+ dynamic types = hash collisions** _(exploit-pattern; medium)_: `abi.encodePacked(string a, string b)` can collide: `encodePacked("a","bc") == encodePacked("ab","c")`. Look for: `keccak256(abi.encodePacked(...))` with multiple `string`, `bytes`, or dynamic array arguments. Fix: use `abi.encode()`. [beirao G-15, SWC-133]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
   - **Provenance:** beirao G-15, SWC-133
 
-- [ ] **[EVM-GEN-007] Delegate calls to non-library contracts** _(semantic; high)_: `delegatecall` to stateful contracts is extremely dangerous — the called contract's code runs in the caller's storage context. Look for: `delegatecall` to any address that isn't a known stateless library. [beirao E-09, E-10]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-GEN-007] Delegatecall to mutable or storage-incompatible targets** _(exploit-pattern; medium)_: Delegatecall executes target code in the caller's storage and execution context. The security question is whether the target is mutable or untrusted, whether upgrades are authorized, whether storage layouts are compatible, and whether selector/context assumptions remain valid.
+  - **Trigger:** The implementation executes delegatecall to a target whose code, upgrade path, storage layout, or caller context is not fully constrained.
+  - **Risk:** An attacker-controlled or incorrectly upgraded delegatecall target can overwrite caller state, bypass authorization, expose selectors, or violate storage and execution-context invariants.
+  - **Detection:** Trace target address controllability, implementation trust and upgrade authorization, storage compatibility, selector exposure, and msg.sender/msg.value assumptions.
+  - **FP:** A proxy or library use is explicitly authorized, the implementation identity and storage layout are compatible, and all reachable upgrade paths preserve the invariant.
+  - **Proof:** Demonstrate a reachable target change, storage collision, authorization bypass, or context mismatch with a deterministic trace or executable PoC.
   - **Provenance:** beirao E-09, E-10
 
 - [ ] **[EVM-GEN-008] ETH transfer via `transfer()`/`send()` is 2300 gas** _(exploit-pattern; medium)_: This fails for contracts with non-trivial `receive()`/`fallback()` functions and fails on some L2s (zkSync). Always use `.call{value: x}("")`. Look for: `.transfer()` or `.send()`. [beirao E-07, multichain-auditor]
@@ -109,17 +112,24 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
   - **Provenance:** beirao FT-08
 
-- [ ] **[EVM-GEN-020] NoReentrancy modifier MUST be first** _(exploit-pattern; medium)_: If `nonReentrant` is placed after other modifiers, those modifiers' code executes before the lock is set. Look for: modifier ordering on external/public functions. [beirao G-17]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-GEN-020] Reentrancy guard must precede modifiers that can yield control** _(exploit-pattern; medium)_: A nonReentrant guard must be established before any preceding modifier can yield external control or mutate reentrancy-sensitive state. Modifier order is not itself a vulnerability when earlier modifiers are purely local and non-yielding.
+  - **Trigger:** An externally reachable function combines nonReentrant with other modifiers whose expanded code may call out, invoke callbacks, or mutate reentrancy-sensitive state.
+  - **Risk:** A yielding or state-changing modifier before the guard can create a reentrant path before the lock is set and violate the protected invariant.
+  - **Detection:** Expand modifiers in execution order and identify external control flow or sensitive state mutation before the guard is established.
+  - **FP:** Every modifier before nonReentrant is local, non-yielding, and does not mutate state relied on by the guarded operation.
+  - **Proof:** Use a callback-capable callee or a deterministic trace to show whether control can reenter before the lock and whether the protected invariant changes.
   - **Provenance:** beirao G-17
 
 ## Merkle Tree Pitfalls
 
-- [ ] **[EVM-GEN-021] Merkle proofs are front-runnable** _(exploit-pattern; medium)_: Once a valid proof is submitted on-chain, anyone can copy it. The claim must be bound to `msg.sender` (included in the leaf) to prevent theft; an unhashed leaf or a leaf equal to the root is also unsafe. Look for: `claim()` functions where the leaf doesn't include the claimant's address or Merkle verification accepts zero-hash constructions. [beirao MT-01, MT-02, MT-03, RareSkills]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** beirao MT-01, MT-02, MT-03, RareSkills
+- [ ] **[EVM-GEN-021] Merkle claim beneficiary must be bound to the payout** _(exploit-pattern; medium)_: A publicly submitted Merkle proof can be copied, but copying is exploitable only when the caller can redirect the beneficiary's value. Bind the authorized recipient into the leaf or use the committed recipient for payout; a copied proof that merely lets another account pay gas is not a theft finding.
+  - **Trigger:** A claim path accepts a Merkle proof and an amount or recipient without proving that the caller is the committed beneficiary or that payout uses the committed recipient.
+  - **Risk:** If the proof does not bind the beneficiary and payout follows msg.sender or another attacker-controlled address, a front-runner can claim another user's allocation.
+  - **Detection:** Trace leaf construction, proof verification, claimant/recipient checks, and the final token recipient; separate gas sponsorship from value redirection.
+  - **FP:** The leaf commits an immutable recipient and payout uses that recipient, or an independent authorization prevents a copied proof from redirecting value.
+  - **Proof:** Submit the same valid proof from a different account and show a changed beneficiary or asset transfer; otherwise document the recipient-binding invariant.
+  - **Provenance:** beirao MT-01, RareSkills
+  - **Related:** EVM-GEN-109
 
 - [ ] **[EVM-GEN-022] Zero hash as valid proof** _(exploit-pattern; medium)_: Passing `bytes32(0)` may satisfy poorly constructed Merkle trees where empty nodes are represented as zero. Look for: Merkle verification that doesn't reject zero-hash leaves. [beirao MT-04]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
@@ -130,6 +140,15 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
   - **Provenance:** beirao MT-05
+
+- [ ] **[EVM-GEN-109] Merkle leaf encoding must be domain-separated** _(exploit-pattern; medium)_: Merkle verification must use an unambiguous, domain-separated leaf encoding. Unhashed leaves, leaves that can equal an internal node or the root, and ambiguous concatenation can admit alternate interpretations even when claimant binding is correct.
+  - **Trigger:** A Merkle tree hashes leaves without an explicit domain separator or accepts a leaf encoding that can collide with an internal node or root.
+  - **Risk:** Ambiguous leaf/node encodings can make a proof valid for an unintended claim or tree structure and defeat the intended authorization invariant.
+  - **Detection:** Inspect leaf hashing, field boundaries, domain separation, sorted-pair handling, and rejection of degenerate leaf/root constructions.
+  - **FP:** The tree construction specifies an unambiguous hash domain and field encoding, and verification enforces the same construction for every proof.
+  - **Proof:** Construct an alternate leaf or node interpretation accepted by the verifier, or provide a deterministic encoding proof that the ambiguity is impossible.
+  - **Provenance:** beirao MT-02, MT-03, RareSkills
+  - **Related:** EVM-GEN-021
 
 ## Reveal-Gap Steering (value public before it's consumed)
 

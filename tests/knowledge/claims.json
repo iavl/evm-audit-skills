@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "claims": [
     {
       "id": "SOL-TIME-001",
@@ -13,6 +13,13 @@
         "time literals are uint24",
         "regular time expressions are uint24",
         "1 days * largeNumber may silently truncate"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.soliditylang.org/en/latest/units-and-global-variables.html#time-units",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
     },
     {
@@ -27,6 +34,13 @@
         "casting a negative int to uint reverts",
         "assigning negative value to uint reverts",
         "reverts in checked context"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.soliditylang.org/en/latest/types.html#explicit-conversions",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
     },
     {
@@ -40,6 +54,13 @@
       "forbidden_terms": [
         "must be (a * c) / b",
         "always multiply before dividing"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.soliditylang.org/en/latest/types.html#integers",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
     },
     {
@@ -56,6 +77,13 @@
       ],
       "forbidden_terms": [
         "round shares up on deposit"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-4626",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
     },
     {
@@ -68,6 +96,13 @@
       ],
       "forbidden_terms": [
         "can be selfdestruct-ed and redeployed with completely different code at the same address"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-6780",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
     },
     {
@@ -80,6 +115,13 @@
       ],
       "forbidden_terms": [
         "in the next transaction, it returns 0"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-6780",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
     },
     {
@@ -92,6 +134,13 @@
       ],
       "forbidden_terms": [
         "paris evm target"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-3855",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
     },
     {
@@ -104,6 +153,13 @@
       ],
       "forbidden_terms": [
         "preview* functions must never revert"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-4626",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
     },
     {
@@ -116,7 +172,663 @@
       ],
       "forbidden_terms": [
         "try/catch always fails with insufficient gas"
+      ],
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.soliditylang.org/en/latest/control-structures.html#try-catch",
+          "locator": "source URL recorded by prior regression"
+        }
       ]
+    },
+    {
+      "id": "REG-EVM-ASM-002",
+      "canonical_id": "EVM-ASM-002",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-6780",
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-6780",
+          "locator": "SELFDESTRUCT lifecycle"
+        }
+      ],
+      "required_terms": [
+        "CREATE2 address lifecycle depends on EIP-6780 and transaction context"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-004",
+      "canonical_id": "EVM-ASM-004",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-6780",
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-6780",
+          "locator": "SELFDESTRUCT lifecycle"
+        }
+      ],
+      "required_terms": [
+        "CREATE inside CREATE2 does not guarantee metamorphic child replacement"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-005",
+      "canonical_id": "EVM-ASM-005",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-6780",
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-6780",
+          "locator": "SELFDESTRUCT lifecycle"
+        }
+      ],
+      "required_terms": [
+        "One-time code verification may not establish ongoing code identity"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-009",
+      "canonical_id": "EVM-ASM-009",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Division by zero returns 0 in Yul"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-010",
+      "canonical_id": "EVM-ASM-010",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "No overflow/underflow protection in assembly"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-014",
+      "canonical_id": "EVM-ASM-014",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Free memory pointer and allocation integrity"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-015",
+      "canonical_id": "EVM-ASM-015",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Returndata buffer reuse"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-018",
+      "canonical_id": "EVM-ASM-018",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Transient storage slot collision across modules"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-019",
+      "canonical_id": "EVM-ASM-019",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "`delegatecall` exposes the caller's transient storage"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-021",
+      "canonical_id": "EVM-ASM-021",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "`call()` to non-existent contract returns success"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-022",
+      "canonical_id": "EVM-ASM-022",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "`delegatecall` preserves `msg.sender` and `msg.value`"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-023",
+      "canonical_id": "EVM-ASM-023",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Return bomb attack"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-027",
+      "canonical_id": "EVM-ASM-027",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Dirty upper bits in assembly"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-032",
+      "canonical_id": "EVM-ASM-032",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "`chainid()` and `extcodesize()` available without assembly since Solidity 0.8"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-033",
+      "canonical_id": "EVM-ASM-033",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Memory corruption from external call overwriting assembly-stored variables"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-034",
+      "canonical_id": "EVM-ASM-034",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Assuming unchanged free memory pointer between assembly blocks"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-035",
+      "canonical_id": "EVM-ASM-035",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Memory corruption from insufficient allocation (off-by-32)"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-036",
+      "canonical_id": "EVM-ASM-036",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "uint128 overflow evades detection because assembly uses 256-bit words"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-037",
+      "canonical_id": "EVM-ASM-037",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "CREATE / CREATE2 Deployment Failure Silently Returns Zero"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-038",
+      "canonical_id": "EVM-ASM-038",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Hardcoded Calldataload Offset Bypass via Non-Canonical ABI Encoding"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-ASM-039",
+      "canonical_id": "EVM-ASM-039",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Unsafe ABI Decoding of Untrusted Calldata"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-CHAIN-001",
+      "canonical_id": "EVM-CHAIN-001",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "`block.number` returns L1 block number on Arbitrum"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-CHAIN-002",
+      "canonical_id": "EVM-CHAIN-002",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Multiple L2 transactions per L1 block"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-CHAIN-008",
+      "canonical_id": "EVM-CHAIN-008",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "`block.number` is L2 block number"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-CHAIN-014",
+      "canonical_id": "EVM-CHAIN-014",
+      "source_url": "https://eips.ethereum.org/EIPS/eip-6780",
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://eips.ethereum.org/EIPS/eip-6780",
+          "locator": "SELFDESTRUCT lifecycle"
+        }
+      ],
+      "required_terms": [
+        "Opcode support and SELFDESTRUCT semantics are chain- and fork-specific"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-CHAIN-032",
+      "canonical_id": "EVM-CHAIN-032",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Orbit chains with custom fee tokens"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-CHAIN-037",
+      "canonical_id": "EVM-CHAIN-037",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "zkSync ERA has fundamentally different opcode behavior"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-002",
+      "canonical_id": "EVM-GEN-002",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Grief attack via returndata bombing"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-003",
+      "canonical_id": "EVM-GEN-003",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Fixed gas in `.call{gas: X}()`"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-004",
+      "canonical_id": "EVM-GEN-004",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "`msg.value` persistence in loops, multicall, and delegatecall"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-034",
+      "canonical_id": "EVM-GEN-034",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Block time varies across chains"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-035",
+      "canonical_id": "EVM-GEN-035",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Block production may not be constant"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-048",
+      "canonical_id": "EVM-GEN-048",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Cross-contract reentrancy"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-051",
+      "canonical_id": "EVM-GEN-051",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Compiler version, pragma, and known-bug risk"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-054",
+      "canonical_id": "EVM-GEN-054",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Uninitialized local storage pointer in legacy Solidity"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-055",
+      "canonical_id": "EVM-GEN-055",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Bidirectional Unicode control characters can disguise source logic"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-056",
+      "canonical_id": "EVM-GEN-056",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "C3 inheritance and override order changes security semantics"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-057",
+      "canonical_id": "EVM-GEN-057",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "`private` state is not secret on-chain"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-059",
+      "canonical_id": "EVM-GEN-059",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Solidity doesn't upcast to final uint size in expressions"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-061",
+      "canonical_id": "EVM-GEN-061",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Solidity downcasting doesn't revert on overflow"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-065",
+      "canonical_id": "EVM-GEN-065",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Returning large memory arrays for gas griefing"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-GEN-077",
+      "canonical_id": "EVM-GEN-077",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Block Number as Timestamp Approximation"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-MATH-004",
+      "canonical_id": "EVM-MATH-004",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Division resulting in zero for small values"
+      ],
+      "forbidden_terms": []
+    },
+    {
+      "id": "REG-EVM-MATH-007",
+      "canonical_id": "EVM-MATH-007",
+      "source_url": "https://docs.openzeppelin.com/contracts/5.x/erc4626",
+      "evidence": [
+        {
+          "kind": "official",
+          "url": "https://docs.openzeppelin.com/contracts/5.x/erc4626",
+          "locator": "fee-aware asset/share conversion"
+        },
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_fee_forward_inverse_algebra_and_rounding"
+        }
+      ],
+      "required_terms": [
+        "Fee transformations must distinguish gross assets paid, net assets received, and requested shares",
+        "netAssets = grossAssets * (1 - f)",
+        "solving for grossAssets requires division by (1 - f)"
+      ],
+      "forbidden_terms": [
+        "shares = assets / (1 - fee) NOT shares = assets * (1 - fee)",
+        "the latter under-charges"
+      ]
+    },
+    {
+      "id": "REG-EVM-MATH-021",
+      "canonical_id": "EVM-MATH-021",
+      "evidence": [
+        {
+          "kind": "executable",
+          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+        }
+      ],
+      "required_terms": [
+        "Division by zero returns 0 in assembly"
+      ],
+      "forbidden_terms": []
     }
   ]
 }

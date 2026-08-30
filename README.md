@@ -6,7 +6,7 @@
 
 Each skill is a structured, sourced checklist of **non-obvious** security vulnerabilities for a specific domain. The canonical JSON registry keeps one stable attack hypothesis per root cause while generated Markdown views remain easy for audit runtimes to consume.
 
-**868 canonical checks and 871 generated runtime entries across the 19 domain skills plus the master index.**
+**869 canonical checks and 872 generated runtime entries across the 19 domain skills plus the master index.**
 
 ---
 
@@ -42,6 +42,7 @@ The table distinguishes repositories whose checklist content was merged from rep
 | Repository | Relationship to this suite | Scope / revision |
 |---|---|---|
 | [austintgriffith/evm-audit-skills](https://github.com/austintgriffith/evm-audit-skills) | Base repository / current fork parent | Original 20-skill structure and initial checklists |
+| [OpenZeppelin Contracts ERC4626 guide](https://docs.openzeppelin.com/contracts/5.x/erc4626) | Official implementation reference | Fee-aware asset/share conversion context |
 | [sanbir/solidity-auditor-skills](https://github.com/sanbir/solidity-auditor-skills) | Merged and adapted | 166 source-level deduplicated `SAS-AV` checks; commit `b864c2ee3b2f63c4361a5064084ce1e99dcf7444`; MIT |
 | [gdroz3r/drozer-lite](https://github.com/gdroz3r/drozer-lite) | Merged and adapted | 177 EVM checks; commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`; MIT |
 | [auditmos/skills](https://github.com/auditmos/skills) | Merged and adapted | 116 attack-vector patterns; commit `c9583babb0ce189d9f39a05caf94b5a5da655010`; MIT |
@@ -70,10 +71,10 @@ audit this contract and file issues: https://github.com/owner/repo/blob/main/con
 ```
 
 The workflow will:
-1. Load `evm-audit-master` and build a source, dependency, chain, and feature map.
-2. Use the domain routing table and `data/features.json` to run the fast filter.
-3. Deep-review only selected canonical IDs, then prove candidates with a PoC or deterministic invariant.
-4. Write lightweight filtered records and full records for deep/proof stages under the review contract.
+1. Load `evm-audit-master` and build a source, dependency, chain, and evidence-backed feature map.
+2. Use the domain routing table and `data/features.json` to emit a routing manifest; only predicates proven false are filtered.
+3. Inject selected check bodies into domain reviews, then prove candidates with a PoC or deterministic invariant.
+4. Write exactly one deep/proof record per selected ID; filtered IDs remain only in the machine manifest.
 5. Synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
 6. File GitHub issues only for confirmed Medium+ findings when explicitly in scope.
 
@@ -93,12 +94,25 @@ If sub-agents are unavailable:
 ### Canonical source and validation
 
 The editable source is [`data/canonical-checks.json`](data/canonical-checks.json).
-Feature definitions live in [`data/features.json`](data/features.json), and a
-reconnaissance feature map can be evaluated with:
+It is a machine database and should not be loaded into model context. Feature
+definitions live in [`data/features.json`](data/features.json); the input shape
+is documented in [`data/feature-map.schema.json`](data/feature-map.schema.json).
+A reconnaissance feature map uses `PRESENT`, `ABSENT_CONFIRMED`, or `UNKNOWN` plus concrete
+evidence for the first two states:
+
+Each canonical check stores an explicit `all_of`/`any_of`/`none_of` predicate.
+Keyword-derived predicates are marked `inferred`; hand-reviewed combinations
+are marked `curated` and are preserved by the generator. The flat `features`
+list remains as a derived compatibility union; routing always evaluates the
+predicate.
 
 ```bash
-python3 scripts/select_checks.py --features uses-erc20,uses-oracle --format json
+python3 scripts/select_checks.py --feature-map recon-features.json --format json > routing-manifest.json
+python3 scripts/select_checks.py --feature-map recon-features.json --emit-checks --format markdown > selected-checks.runtime.md
 ```
+
+The legacy `--features uses-erc20,uses-oracle` shorthand is retained for
+compatibility; omitted features remain `UNKNOWN` and are never fast-filtered.
 
 Regenerate and validate the runtime views with:
 
@@ -106,7 +120,18 @@ Regenerate and validate the runtime views with:
 python3 scripts/generate_checklists.py --check
 python3 scripts/validate_checklists.py --strict
 python3 -m unittest discover -s tests -v
+# When an audit run is complete, also validate global selected/filtered coverage:
+python3 scripts/validate_checklists.py --routing-manifest routing-manifest.json --review-ledger audits/<run>/review-*.md
 ```
+
+### Installation layout
+
+This repository is a suite, not a collection of independently installable
+domain folders. Keep the shared `data/`, `scripts/`, and
+`evm-audit-master/` siblings together under one installed suite directory; any
+top-level discovery symlinks must resolve back into that directory. The
+packaging smoke test exercises this layout without modifying the user's
+installed skills.
 
 Model-specific `known/partial/novel` snapshots are retained only under
 `benchmarks/model-knowledge/`; they are not runtime inputs.
@@ -120,12 +145,12 @@ Contract URL/path
   RECON + FEATURE MAP
       │
       ▼
-  FAST FILTER (route canonical IDs)
+  FAST FILTER (routing manifest: selected + filtered IDs)
       │
       ▼
-  DEEP REVIEW (parallel when supported; sequential otherwise)
+  SELECTED CHECK BODIES → DEEP REVIEW (parallel when supported; sequential otherwise)
   ├── selected domain → review-<skill>.md
-  └── ...
+  └── filtered IDs remain machine-readable in routing-manifest.json
       │
       ▼
   PROOF (PoC / invariant) → CONFIRMED candidates
@@ -141,7 +166,12 @@ Contract URL/path
 
 ## Review Ledger and Confirmed Finding Format
 
-Each routed canonical ID receives one review record. Fast-filtered items use the lightweight format; deep/proof candidates include applicability, code path, preconditions, exploitability, impact, PoC/invariant evidence, and exactly one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. See [`evm-audit-master/references/check-review-contract.md`](evm-audit-master/references/check-review-contract.md).
+Each selected canonical ID receives one review record. Filtered IDs are kept in
+the routing manifest and do not generate per-check Markdown records. Deep/proof
+candidates include applicability, code path, preconditions, exploitability,
+impact, PoC/invariant evidence, and exactly one of `NOT_APPLICABLE`,
+`REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. See
+[`evm-audit-master/references/check-review-contract.md`](evm-audit-master/references/check-review-contract.md).
 
 Only `CONFIRMED` records may become findings. Confirmed findings use this format:
 

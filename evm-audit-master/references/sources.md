@@ -77,6 +77,7 @@ The two provenance maps document source-level coverage only; they do not certify
 | ERC-4337: Account Abstraction Using Alt Mempool | https://eips.ethereum.org/EIPS/eip-4337 | ✅ used for UserOperation hash and bundler trust checks |
 | SWC Registry | https://swcregistry.io/ | ✅ used for SWC-109, SWC-115, SWC-120, SWC-124, SWC-125, SWC-130, and SWC-136 checks |
 | OWASP Smart Contract Top 10 | https://scs.owasp.org/sctop10/ | ✅ used for the off-chain signer/frontend operational-boundary check |
+| OpenZeppelin Contracts ERC4626 guide | https://docs.openzeppelin.com/contracts/5.x/erc4626 | ✅ used for fee-aware asset/share conversion context |
 
 ## Failed Sources
 

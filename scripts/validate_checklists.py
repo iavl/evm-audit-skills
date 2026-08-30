@@ -15,13 +15,30 @@ import sys
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 try:
     from generate_checklists import DOMAIN_CODES, check_outputs, load_registry, normalize_registry
+    from select_checks import (
+        FEATURE_STATES,
+        PREDICATE_KEYS,
+        check_predicate,
+        evaluate_check,
+        normalize_feature_map,
+        vocabulary as feature_vocabulary,
+    )
 except ImportError:  # pragma: no cover - supports importing this file from another cwd
     from scripts.generate_checklists import DOMAIN_CODES, check_outputs, load_registry, normalize_registry
+    from scripts.select_checks import (
+        FEATURE_STATES,
+        PREDICATE_KEYS,
+        check_predicate,
+        evaluate_check,
+        normalize_feature_map,
+        vocabulary as feature_vocabulary,
+    )
 
 
 ITEM_RE = re.compile(r"^- \[ \] \*\*(.*?)\*\*")
@@ -46,6 +63,9 @@ URL_VALUE_RE = re.compile(r"^https?://[^\s]+$")
 CHECK_TYPES = {"normative", "semantic", "exploit-pattern", "heuristic"}
 CONFIDENCES = {"high", "medium", "contextual"}
 VERIFICATION_STATUSES = {"verified", "qualified"}
+ROUTING_MANIFEST_VERSION = 1
+CLAIMS_SCHEMA_VERSION = 2
+CLAIM_EVIDENCE_KINDS = {"official", "executable"}
 REGISTRY_REQUIRED_FIELDS = {
     "canonical_id",
     "domains",
@@ -61,6 +81,8 @@ REGISTRY_REQUIRED_FIELDS = {
     "type",
     "confidence",
     "features",
+    "predicate",
+    "predicate_source",
     "provenance",
     "related",
     "aliases",
@@ -180,6 +202,16 @@ def validate_registry(root: Path) -> list[str]:
     errors: list[str] = []
     path = root / "data" / "canonical-checks.json"
     feature_path = root / "data" / "features.json"
+    feature_schema_path = root / "data" / "feature-map.schema.json"
+    if not feature_schema_path.exists():
+        errors.append(f"missing feature-map schema: {feature_schema_path}")
+    else:
+        try:
+            feature_schema = json.loads(feature_schema_path.read_text(encoding="utf-8"))
+            if not isinstance(feature_schema, dict) or feature_schema.get("properties", {}).get("schema_version", {}).get("const") != 1:
+                errors.append(f"{feature_schema_path}: invalid feature-map schema")
+        except (OSError, json.JSONDecodeError) as error:
+            errors.append(f"{feature_schema_path}: cannot parse JSON: {error}")
     if not path.exists():
         return [f"missing canonical registry: {path}"]
     if not feature_path.exists():
@@ -190,7 +222,14 @@ def validate_registry(root: Path) -> list[str]:
             feature_data = json.loads(feature_path.read_text(encoding="utf-8"))
             if feature_data.get("schema_version") != 1 or not isinstance(feature_data.get("features"), dict):
                 errors.append(f"{feature_path}: invalid feature registry schema")
-            feature_names = set(feature_data.get("features", {}))
+            try:
+                feature_names, _ = feature_vocabulary(feature_data)
+            except ValueError as error:
+                errors.append(f"{feature_path}: invalid feature registry: {error}")
+                feature_names = set(feature_data.get("features", {}))
+            domain_features = sorted(name for name in feature_names if name.startswith("evm-audit-"))
+            if domain_features:
+                errors.append(f"{feature_path}: domain names must not be routable features: {domain_features}")
         except (OSError, json.JSONDecodeError) as error:
             errors.append(f"{feature_path}: cannot parse JSON: {error}")
             feature_names = set()
@@ -199,7 +238,7 @@ def validate_registry(root: Path) -> list[str]:
         registry = normalize_registry(load_registry(path))
     except (OSError, json.JSONDecodeError) as error:
         return errors + [f"{path}: cannot parse JSON: {error}"]
-    if registry.get("schema_version") != 1:
+    if registry.get("schema_version") != 2:
         errors.append(f"{path}: unsupported schema_version {registry.get('schema_version')!r}")
     source_catalog = registry.get("source_catalog")
     if not isinstance(source_catalog, dict) or not source_catalog:
@@ -266,13 +305,40 @@ def validate_registry(root: Path) -> list[str]:
             errors.append(f"{prefix}: heuristic checks must have contextual confidence")
         if check.get("type") in {"normative", "semantic"} and check.get("confidence") != "high":
             errors.append(f"{prefix}: normative/semantic checks must have high confidence")
-        for field in ("trigger", "detection", "false_positive_gates", "proof", "features"):
+        for field in ("trigger", "detection", "false_positive_gates", "proof"):
             value = check.get(field)
             if not isinstance(value, list) or not value or any(not isinstance(part, str) or not part.strip() for part in value):
                 errors.append(f"{prefix}: {field} must be a non-empty string list")
-        unknown_features = sorted(set(check.get("features", [])) - feature_names)
-        if unknown_features:
-            errors.append(f"{prefix}: unknown features {unknown_features}")
+        predicate = check.get("predicate")
+        if not isinstance(predicate, dict):
+            errors.append(f"{prefix}: predicate must be an object")
+        else:
+            for key in PREDICATE_KEYS:
+                values = predicate.get(key)
+                if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+                    errors.append(f"{prefix}: predicate.{key} must be a string list")
+            try:
+                check_predicate(check, feature_names)
+            except ValueError as error:
+                errors.append(f"{prefix}: {error}")
+            if not any(predicate.get(key, []) for key in PREDICATE_KEYS) and check.get("always_screen") is not True:
+                errors.append(f"{prefix}: empty predicate requires always_screen=true")
+            if check.get("always_screen") is not None and not isinstance(check.get("always_screen"), bool):
+                errors.append(f"{prefix}: always_screen must be boolean when present")
+            if check.get("always_screen") is True and any(predicate.get(key, []) for key in PREDICATE_KEYS):
+                errors.append(f"{prefix}: always_screen=true cannot be combined with a non-empty predicate")
+        if check.get("predicate_source") not in {"inferred", "curated"}:
+            errors.append(f"{prefix}: predicate_source must be inferred or curated")
+        features = check.get("features")
+        if not isinstance(features, list) or any(not isinstance(feature, str) or not feature.strip() for feature in features):
+            errors.append(f"{prefix}: features must be a string list")
+        else:
+            if any(feature.startswith("evm-audit-") for feature in features):
+                errors.append(f"{prefix}: domain names must not be routable features")
+            if isinstance(predicate, dict):
+                expected_features = sorted({feature for key in PREDICATE_KEYS for feature in predicate.get(key, [])})
+                if features != expected_features:
+                    errors.append(f"{prefix}: features must equal the predicate feature union")
 
         provenance = check.get("provenance")
         if not isinstance(provenance, list) or not provenance:
@@ -419,6 +485,237 @@ def validate_review_ledger_text(text: str, expected_ids: set[str] | None = None)
             errors.append(f"review ledger missing canonical IDs: {missing}")
         if unknown:
             errors.append(f"review ledger has unknown canonical IDs: {unknown}")
+    return errors
+
+
+def _ledger_ids(text: str) -> list[str]:
+    return [match.group(1) for line in text.splitlines() if (match := LEDGER_HEADING_RE.match(line))]
+
+
+def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: list[Path] | None = None) -> list[str]:
+    """Validate routing coverage and, when supplied, selected-ledger coverage."""
+
+    errors: list[str] = []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"{manifest_path}: cannot parse routing manifest: {error}"]
+    if not isinstance(manifest, dict):
+        return [f"{manifest_path}: routing manifest root must be an object"]
+    if manifest.get("schema_version") != ROUTING_MANIFEST_VERSION:
+        errors.append(f"{manifest_path}: unsupported routing manifest schema_version {manifest.get('schema_version')!r}")
+    if manifest.get("stage") != "FAST_FILTER":
+        errors.append(f"{manifest_path}: stage must be FAST_FILTER")
+
+    feature_path = root / "data" / "features.json"
+    try:
+        feature_data = json.loads(feature_path.read_text(encoding="utf-8"))
+        feature_names, _ = feature_vocabulary(feature_data)
+        raw_feature_map = manifest.get("feature_map", {})
+        # Accept the early direct-map shape while emitting the explicit
+        # schema-wrapped form from the current selector.
+        if isinstance(raw_feature_map, dict) and "features" not in raw_feature_map:
+            raw_feature_map = {"schema_version": 1, "features": raw_feature_map}
+        feature_map = normalize_feature_map(raw_feature_map, feature_names)
+    except (OSError, json.JSONDecodeError, ValueError) as error:
+        errors.append(f"{manifest_path}: invalid feature_map: {error}")
+        feature_names = set()
+        feature_map = {}
+    if "features" in manifest and manifest.get("features") != feature_map:
+        errors.append(f"{manifest_path}: features must mirror feature_map.features")
+
+    try:
+        registry = normalize_registry(load_registry(root / "data" / "canonical-checks.json"))
+    except (OSError, json.JSONDecodeError, ValueError) as error:
+        return errors + [f"{manifest_path}: cannot load canonical registry: {error}"]
+    checks = {check["canonical_id"]: check for check in registry.get("checks", [])}
+    scope = manifest.get("scope")
+    if not isinstance(scope, dict):
+        errors.append(f"{manifest_path}: scope must be an object")
+        scope = {}
+    domains = scope.get("domains")
+    if domains is not None and (not isinstance(domains, list) or any(not isinstance(domain, str) for domain in domains)):
+        errors.append(f"{manifest_path}: scope.domains must be a string list or null")
+        domains = None
+    elif domains == []:
+        errors.append(f"{manifest_path}: scope.domains cannot be empty")
+    candidate_ids = {
+        canonical_id
+        for canonical_id, check in checks.items()
+        if domains is None or set(check.get("domains", [])) & set(domains)
+    }
+    if scope.get("candidate_count") != len(candidate_ids):
+        errors.append(f"{manifest_path}: scope.candidate_count does not match registry scope")
+
+    selected = manifest.get("selected")
+    filtered = manifest.get("filtered")
+    if not isinstance(selected, list) or not isinstance(filtered, list):
+        errors.append(f"{manifest_path}: selected and filtered must be lists")
+        selected = selected if isinstance(selected, list) else []
+        filtered = filtered if isinstance(filtered, list) else []
+    selected_ids = [entry.get("canonical_id") for entry in selected if isinstance(entry, dict) and isinstance(entry.get("canonical_id"), str)]
+    filtered_ids = [entry.get("canonical_id") for entry in filtered if isinstance(entry, dict) and isinstance(entry.get("canonical_id"), str)]
+    route_fields = {"canonical_id", "title", "domains", "owner_domain", "predicate", "evaluation", "matched_features", "unknown_features", "basis"}
+    for bucket_name, bucket in (("selected", selected), ("filtered", filtered)):
+        for index, entry in enumerate(bucket, 1):
+            if not isinstance(entry, dict):
+                errors.append(f"{manifest_path}:{bucket_name}[{index}] must be an object")
+            else:
+                missing_fields = sorted(route_fields - set(entry))
+                if missing_fields:
+                    errors.append(f"{manifest_path}:{bucket_name}[{index}] missing fields {missing_fields}")
+                elif not isinstance(entry.get("canonical_id"), str):
+                    errors.append(f"{manifest_path}:{bucket_name}[{index}] canonical_id must be a string")
+    if len(selected_ids) != len(set(selected_ids)):
+        errors.append(f"{manifest_path}: duplicate selected canonical IDs")
+    if len(filtered_ids) != len(set(filtered_ids)):
+        errors.append(f"{manifest_path}: duplicate filtered canonical IDs")
+    selected_set = set(selected_ids)
+    filtered_set = set(filtered_ids)
+    unknown_ids = sorted((selected_set | filtered_set) - set(checks))
+    if unknown_ids:
+        errors.append(f"{manifest_path}: unknown canonical IDs {unknown_ids}")
+    if selected_set & filtered_set:
+        errors.append(f"{manifest_path}: IDs appear in both selected and filtered: {sorted(selected_set & filtered_set)}")
+    if selected_set | filtered_set != candidate_ids:
+        errors.append(
+            f"{manifest_path}: routing coverage differs (missing={sorted(candidate_ids - (selected_set | filtered_set))}, "
+            f"extra={sorted((selected_set | filtered_set) - candidate_ids)})"
+        )
+    if manifest.get("selected_count") != len(selected) or manifest.get("filtered_count") != len(filtered):
+        errors.append(f"{manifest_path}: selected_count/filtered_count do not match entries")
+    filtered_out = manifest.get("filtered_out")
+    if filtered_out is not None and filtered_out != filtered_ids:
+        errors.append(f"{manifest_path}: filtered_out must match filtered canonical IDs")
+
+    for entry in [item for item in selected + filtered if isinstance(item, dict) and item.get("canonical_id") in checks]:
+        canonical_id = entry["canonical_id"]
+        try:
+            expected = evaluate_check(checks[canonical_id], feature_map, feature_names)
+        except ValueError as error:
+            errors.append(f"{manifest_path}: cannot evaluate {canonical_id}: {error}")
+            continue
+        if entry.get("evaluation") != expected["result"]:
+            errors.append(f"{manifest_path}: {canonical_id} has stale evaluation {entry.get('evaluation')!r}")
+        if entry.get("predicate") != expected["predicate"]:
+            errors.append(f"{manifest_path}: {canonical_id} has stale predicate")
+        if entry.get("matched_features") != expected["matched_features"] or entry.get("unknown_features") != expected["unknown_features"]:
+            errors.append(f"{manifest_path}: {canonical_id} has stale feature matches")
+        expected_owner = checks[canonical_id].get("primary_domain")
+        if domains and expected_owner not in domains:
+            expected_owner = next((domain for domain in domains if domain in checks[canonical_id].get("domains", [])), expected_owner)
+        if entry.get("owner_domain") != expected_owner:
+            errors.append(f"{manifest_path}: {canonical_id} has owner_domain {entry.get('owner_domain')!r}, expected {expected_owner!r}")
+        if (canonical_id in selected_set) != (expected["result"] != "FALSE"):
+            errors.append(f"{manifest_path}: {canonical_id} is in the wrong routing bucket")
+
+    selected_checks = manifest.get("selected_checks")
+    if selected_checks is not None:
+        if not isinstance(selected_checks, list):
+            errors.append(f"{manifest_path}: selected_checks must be a list")
+        else:
+            body_ids = [entry.get("canonical_id") for entry in selected_checks if isinstance(entry, dict)]
+            if set(body_ids) != selected_set or len(body_ids) != len(set(body_ids)):
+                errors.append(f"{manifest_path}: selected_checks IDs must exactly match selected IDs")
+
+    if ledger_paths:
+        seen_ledger: set[str] = set()
+        for ledger_path in ledger_paths:
+            try:
+                ledger_text = ledger_path.read_text(encoding="utf-8")
+            except OSError as error:
+                errors.append(f"{ledger_path}: cannot read review ledger: {error}")
+                continue
+            for canonical_id in _ledger_ids(ledger_text):
+                if canonical_id in seen_ledger:
+                    errors.append(f"{ledger_path}: duplicate selected ledger record across ledgers: {canonical_id}")
+                seen_ledger.add(canonical_id)
+                if canonical_id in filtered_set:
+                    errors.append(f"{ledger_path}: filtered ID must not have a ledger record: {canonical_id}")
+                elif canonical_id not in selected_set:
+                    errors.append(f"{ledger_path}: ledger contains non-selected/unknown ID: {canonical_id}")
+        missing = sorted(selected_set - seen_ledger)
+        if missing:
+            errors.append(f"{manifest_path}: selected IDs missing from review ledgers: {missing}")
+    return errors
+
+
+def validate_knowledge_claims(root: Path, registry: dict[str, Any] | None = None) -> list[str]:
+    """Require evidence-backed regression claims for high-confidence checks."""
+
+    path = root / "tests" / "knowledge" / "claims.json"
+    if not path.exists():
+        return [f"missing knowledge claims: {path}"]
+    errors: list[str] = []
+    try:
+        claims_data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return [f"{path}: cannot parse JSON: {error}"]
+    if not isinstance(claims_data, dict) or claims_data.get("schema_version") != CLAIMS_SCHEMA_VERSION:
+        errors.append(f"{path}: schema_version must be {CLAIMS_SCHEMA_VERSION}")
+    claims = claims_data.get("claims") if isinstance(claims_data, dict) else None
+    if not isinstance(claims, list):
+        return errors + [f"{path}: claims must be a list"]
+    if registry is None:
+        try:
+            registry = normalize_registry(load_registry(root / "data" / "canonical-checks.json"))
+        except (OSError, json.JSONDecodeError, ValueError) as error:
+            return errors + [f"{path}: cannot load registry: {error}"]
+    checks = {check.get("canonical_id"): check for check in registry.get("checks", [])}
+    target_ids = {
+        canonical_id
+        for canonical_id, check in checks.items()
+        if check.get("type") == "normative" or (check.get("type") == "semantic" and check.get("confidence") == "high")
+    }
+    seen: set[str] = set()
+    for index, claim in enumerate(claims, 1):
+        prefix = f"{path}:claims[{index}]"
+        if not isinstance(claim, dict):
+            errors.append(f"{prefix}: claim must be an object")
+            continue
+        canonical_id = claim.get("canonical_id")
+        if canonical_id in seen:
+            errors.append(f"{prefix}: duplicate canonical_id {canonical_id}")
+        seen.add(canonical_id)
+        if canonical_id not in checks:
+            errors.append(f"{prefix}: unknown canonical_id {canonical_id!r}")
+        evidence = claim.get("evidence")
+        if not isinstance(evidence, list) or not evidence:
+            errors.append(f"{prefix}: evidence must be a non-empty list")
+        else:
+            for evidence_index, item in enumerate(evidence, 1):
+                if not isinstance(item, dict) or item.get("kind") not in CLAIM_EVIDENCE_KINDS:
+                    errors.append(f"{prefix}.evidence[{evidence_index}]: kind must be official or executable")
+                    continue
+                if item["kind"] == "official":
+                    if not isinstance(item.get("url"), str) or not item["url"].startswith("https://") or not URL_VALUE_RE.match(item["url"]):
+                        errors.append(f"{prefix}.evidence[{evidence_index}]: official evidence needs an HTTPS URL")
+                    if not item.get("locator"):
+                        errors.append(f"{prefix}.evidence[{evidence_index}]: official evidence needs a locator")
+                    elif canonical_id in checks:
+                        official_urls = {
+                            source.get("url")
+                            for source in checks[canonical_id].get("provenance", [])
+                            if isinstance(source, dict) and source.get("kind") == "official"
+                        }
+                        if item.get("url") not in official_urls:
+                            errors.append(f"{prefix}.evidence[{evidence_index}]: URL is not recorded as official provenance for {canonical_id}")
+                elif not isinstance(item.get("test"), str) or not item["test"].strip():
+                    errors.append(f"{prefix}.evidence[{evidence_index}]: executable evidence needs a test identifier")
+                elif "::" in item["test"]:
+                    test_path = root / item["test"].split("::", 1)[0]
+                    if not test_path.exists():
+                        errors.append(f"{prefix}.evidence[{evidence_index}]: test file does not exist: {test_path}")
+        for field in ("required_terms", "forbidden_terms"):
+            values = claim.get(field)
+            if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+                errors.append(f"{prefix}: {field} must be a string list")
+    missing = sorted(target_ids - seen)
+    extra = sorted(seen - target_ids)
+    if missing:
+        errors.append(f"{path}: missing high-confidence claims for {missing}")
+    if extra:
+        errors.append(f"{path}: claims include non-normative/non-semantic-high IDs {extra}")
     return errors
 
 
@@ -625,6 +922,13 @@ def main(argv: list[str]) -> int:
         default=[],
         help="validate one or more run-specific review ledger files",
     )
+    parser.add_argument(
+        "--routing-manifest",
+        action="append",
+        type=Path,
+        default=[],
+        help="validate one or more machine routing manifests and their selected-ledger coverage",
+    )
     args = parser.parse_args(argv)
     root = args.root.resolve()
 
@@ -642,7 +946,9 @@ def main(argv: list[str]) -> int:
     registry_path = root / "data" / "canonical-checks.json"
     if registry_path.exists():
         try:
-            errors.extend(validate_generated_registry(root, normalize_registry(load_registry(registry_path))))
+            normalized_registry = normalize_registry(load_registry(registry_path))
+            errors.extend(validate_generated_registry(root, normalized_registry))
+            errors.extend(validate_knowledge_claims(root, normalized_registry))
         except (OSError, json.JSONDecodeError) as error:
             errors.append(f"{registry_path}: cannot load generated coverage: {error}")
 
@@ -688,6 +994,8 @@ def main(argv: list[str]) -> int:
             errors.extend(validate_review_ledger_text(ledger_path.read_text(encoding="utf-8")))
         except OSError as error:
             errors.append(f"{ledger_path}: cannot read review ledger: {error}")
+    for manifest_path in args.routing_manifest:
+        errors.extend(validate_routing_manifest(root, manifest_path.resolve(), args.review_ledger))
     errors.extend(validate_counts(root, counts))
     review_errors, review_warnings = validate_review_record(root, args.strict)
     errors.extend(review_errors)

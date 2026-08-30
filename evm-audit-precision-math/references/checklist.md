@@ -40,10 +40,14 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
   - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
   - **Provenance:** ERC4626 checklist M1
 
-- [ ] **[EVM-MATH-007] Inverse fee calculation error** _(semantic; high)_: When converting between assets and shares with fees: `shares = assets / (1 - fee)` NOT `shares = assets * (1 - fee)`. The latter under-charges. Look for: fee-adjusted conversion formulas. [ERC4626 checklist M5]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** ERC4626 checklist M5
+- [ ] **[EVM-MATH-007] Forward/inverse fee transformation must solve the requested variable** _(semantic; high)_: Fee transformations must distinguish gross assets paid, net assets received, and requested shares. For a fee rate f, netAssets = grossAssets * (1 - f); solving for grossAssets requires division by (1 - f). With pricePerShare p, shares = grossAssets * (1 - f) / p, while grossAssets = shares * p / (1 - f).
+  - **Trigger:** A fee-adjusted conversion accepts gross assets, net assets, or requested shares and applies a rate before or after the share-price conversion.
+  - **Risk:** Using the inverse for the wrong input variable can overcharge, undercharge, or break deposit/withdraw accounting and round-trip invariants.
+  - **Detection:** Name the variable represented by every input and output, derive the forward and inverse equations, and compare both paths under the implementation's rounding policy.
+  - **FP:** The implementation documents whether the fee is assessed on gross or net assets, and its direction-specific rounding is consistent with the solved variable.
+  - **Proof:** Use exact rational arithmetic plus boundary integer cases to show that forward then inverse conversion differs only by the documented rounding bound.
+  - **Provenance:** ERC4626 checklist M5; [EIP-4626 Tokenized Vaults](https://eips.ethereum.org/EIPS/eip-4626); [OpenZeppelin ERC4626 implementation guide](https://docs.openzeppelin.com/contracts/5.x/erc4626)
+  - **Related:** EVM-ERC4626-043
 
 ## Integer Overflow/Underflow (Even with Solidity ≥0.8)
 

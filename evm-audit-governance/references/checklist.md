@@ -144,10 +144,14 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 
 ## Merkle Tree Governance (from Beirao)
 
-- [ ] **[EVM-GOV-026] Merkle proofs are front-runnable** _(exploit-pattern; medium)_: If a merkle proof allows claiming a reward, the proof can be extracted from a pending transaction and used by a front-runner. The claim function should verify `msg.sender` matches the address in the leaf. Look for: `claim(bytes32[] proof, uint256 amount)` without `msg.sender` validation in the leaf. [beirao MT-01, MT-03]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
+- [ ] **[EVM-GOV-026] Governance Merkle claim beneficiary must be bound to the payout** _(exploit-pattern; medium)_: A governance Merkle proof can be copied from a pending transaction, but that is exploitable only when the caller can redirect the committed beneficiary's value or voting allocation. Verify the leaf recipient and the final payout/weight recipient independently.
+  - **Trigger:** A governance claim accepts a Merkle proof and transfers rewards or voting weight without binding the committed recipient to the final beneficiary.
+  - **Risk:** An unbound governance claim can let a front-runner redirect rewards or voting weight; a copied proof that only sponsors gas is not a theft finding.
+  - **Detection:** Trace leaf construction, claimant/recipient checks, replay protection, and the final reward or voting-weight recipient.
+  - **FP:** The leaf commits the intended recipient and the governance operation uses that recipient, or an independent authorization prevents redirection.
+  - **Proof:** Replay the proof from a different account and demonstrate changed governance value or reward ownership, or document the recipient-binding invariant.
   - **Provenance:** beirao MT-01, MT-03
+  - **Related:** EVM-GEN-021
 
 - [ ] **[EVM-GOV-027] Zero hash as merkle leaf** _(exploit-pattern; medium)_: If the zero hash (`0x000...000`) is a valid leaf, an attacker can construct a proof for it without being in the original tree. Look for: merkle trees where empty/default values aren't explicitly excluded. [beirao MT-04]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.

@@ -217,10 +217,14 @@ Each entry has a stable canonical ID, a type/confidence label, and an explicit e
 
 ## ERC4626 Math & Token Edge Cases (Expanded)
 
-- [ ] **[EVM-ERC4626-043] Inverse fee calculation when converting assets↔shares** _(exploit-pattern; medium)_: If the vault charges a deposit fee, converting from assets→shares and shares→assets requires using the inverse of the fee. `shares = assets * (1 - fee) / pricePerShare` but `assets = shares * pricePerShare / (1 - fee)`. Getting the inverse wrong means deposit/withdraw don't round-trip correctly. Look for: fee logic that doesn't properly invert between deposit and withdraw paths. [ERC4626 Checklist M5]
-  - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.
-  - **Proof:** Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.
-  - **Provenance:** ERC4626 Checklist M5
+- [ ] **[EVM-ERC4626-043] Inverse fee calculation when converting assets↔shares** _(exploit-pattern; medium)_: For an ERC4626 fee on gross deposit assets, netAssets = assets * (1 - fee) and shares = netAssets / pricePerShare; when solving for gross assets for requested shares, assets = shares * pricePerShare / (1 - fee). Verify the fee basis and rounding on each operation.
+  - **Trigger:** The vault charges a deposit or withdrawal fee while converting between gross assets, net assets, and shares.
+  - **Risk:** If the vault charges a deposit fee, converting from assets→shares and shares→assets requires using the inverse of the fee. `shares = assets * (1 - fee) / pricePerShare` but `assets = shares * pricePerShare / (1 - fee)`. Getting the inverse wrong means deposit/withdraw don't round-trip correctly. Look for: fee logic that doesn't properly invert between deposit and withdraw paths. [ERC4626 Checklist M5]
+  - **Detection:** Compare deposit/mint/withdraw/redeem and preview paths with the fee basis, price per share, and direction-specific rounding.
+  - **FP:** The fee basis is explicit and the implementation follows the corresponding gross/net equation; a different fee convention is documented and tested.
+  - **Proof:** Exercise forward and inverse ERC4626 conversions at zero, one-unit, and maximal fee/rounding boundaries and compare exact asset/share relations.
+  - **Provenance:** ERC4626 Checklist M5; [OpenZeppelin ERC4626 implementation guide](https://docs.openzeppelin.com/contracts/5.x/erc4626)
+  - **Related:** EVM-MATH-007
 
 - [ ] **[EVM-ERC4626-044] ERC4626 external swap slippage in withdrawals** _(exploit-pattern; medium)_: If vault strategies require swaps to liquidate positions for withdrawals, high slippage means users get fewer assets than expected. Vaults should have TVL limits so liquidation slippage stays manageable. Look for: vaults with illiquid strategies that don't cap deposits based on liquidation capacity. [ERC4626 Checklist E5, E6]
   - **FP:** Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.

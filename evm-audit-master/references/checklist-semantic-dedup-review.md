@@ -30,8 +30,8 @@ runtime checks after this review.
 | GEN-02 | `general / External Calls & Low-Level Interactions / Call to non-existent address returns true` | expanded non-existent-address row |
 | GEN-03 | `general / General Solidity Footguns / Deleting a struct doesn't delete its nested mappings` | RareSkills dynamic-type deletion row |
 | GEN-04 | `general / Code Structure Issues / Withdraw should undo ALL deposit state changes` | expanded code-asymmetry row |
-| GEN-05 | `general / Reentrancy / NoReentrancy modifier MUST be first` | expanded `NoReentrant` ordering row |
-| GEN-06 | `general / Merkle Tree Pitfalls / Merkle proofs are front-runnable` | RareSkills sender-binding/front-running row |
+| GEN-05 | `general / Reentrancy / Reentrancy guard must precede modifiers that can yield control` | expanded `NoReentrant` ordering row |
+| GEN-06 | `general / Merkle Tree Pitfalls / Merkle claim beneficiary must be bound to the payout` | RareSkills sender-binding/front-running row; encoding ambiguity is tracked separately as `EVM-GEN-109` |
 | GEN-07 | `general / Force-Feeding Attacks` | broad expanded force-feeding summary reduced to the existing selfdestruct, CREATE2, and coinbase mechanism checks |
 | LEN-01 | `lending / Liquidation Mechanics / Cannot repay loan = permanent bad debt` | impossible repayment condition; Dacian permanently-reverting repay row |
 | LEN-02 | `lending / Liquidation Mechanics / Single borrower can't be liquidated` | Dacian single-borrower edge-case row |
@@ -152,7 +152,7 @@ canonical runtime item is used.
 | X-01 | general `Call to non-existent address`; assembly `call() to non-existent contract`; erc20 Solmate SafeTransferLib check | Same EVM behavior, but assembly return-data safety and ERC20-library integration may require different audit evidence. | KEEP_DISTINCT |
 | X-02 | general returndata bombing; assembly Return bomb; DOS Returndata bombing | Same gas-griefing primitive, but the runtime owner could be general, assembly, or DOS depending on whether the suite requires domain-local evidence. | KEEP_DISTINCT |
 | X-03 | general `try/catch` insufficient gas; DOS `try/catch` insufficient gas | Exact same title and source behavior across two runtime skills. Canonical: general / External Calls & Low-Level Interactions. | MERGE |
-| X-04 | general Merkle front-running; governance Merkle front-running | Generic claim binding and governance-specific claim flows may be one invariant or two agent-facing contexts. | KEEP_DISTINCT |
+| X-04 | general `EVM-GEN-021` beneficiary binding; governance `EVM-GOV-026` beneficiary binding | Generic claim binding and governance-specific claim flows retain distinct agent-facing contexts while linking to the shared general invariant. | KEEP_DISTINCT |
 | X-05 | flashloans `Flash-loan voting`; governance `Flash loan voting` | Same governance attack family, but the flash-loan skill emphasizes capital composition while governance emphasizes snapshot/quorum rules. | KEEP_DISTINCT |
 | X-06 | general `msg.value` persistence; assembly delegatecall preserves `msg.value`; ERC-4337 UserOperation value paths | Same value-preservation primitive, but delegatecall and account-abstraction execution have distinct trust boundaries. | KEEP_DISTINCT |
 | X-07 | general force-feeding; chain-specific native-yield balance drift; ERC4626 direct-donation/share-price checks | All involve unexpected balances, but native ETH force-send, automatic yield, and ERC4626 donation accounting have different assets and invariants. | KEEP_DISTINCT |
@@ -187,3 +187,7 @@ legacy aliases; source identifiers remain provenance only.
 The canonical registry is the source of truth for future decisions. A candidate
 may be merged only when its root cause, trigger, proof obligation, and impact
 match; contextual differences remain separate and use `related` IDs.
+
+Merkle claimant binding and Merkle leaf encoding are intentionally separate:
+`EVM-GEN-021` covers beneficiary redirection, while `EVM-GEN-109` covers
+ambiguous or non-domain-separated leaf construction.

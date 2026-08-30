@@ -19,7 +19,7 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 | # | Skill | Description | Runtime entries |
 |---|-------|-------------|-------|
 | 1 | **evm-audit-master** | This file. Routing table, methodology, source attribution. Load first. | — |
-| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID/array validation, Unicode source review, inheritance semantics, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 108 |
+| 2 | **evm-audit-general** | Cross-cutting issues: storage pointers, struct deletion, mixed accounting, merkle proofs, msg.value in loops, try/catch, delegatecall, upgrades, downcasting, ID/array validation, Unicode source review, inheritance semantics, rebasing tokens, fee-on-transfer, ERC4626 inflation attack | 109 |
 | 3 | **evm-audit-precision-math** | Division-before-multiplication, rounding to zero, precision scaling mismatches, downcast overflow, rounding direction (protocol vs user), decimal assumption errors | 36 |
 | 4 | **evm-audit-erc20** | Fee-on-transfer, rebasing, ERC777 hooks, approve race conditions, zero-transfer reverts, pausable tokens, deny lists (USDC), deflationary/inflationary tokens, multiple-address tokens | 40 |
 | 5 | **evm-audit-defi-amm** | AMM/DEX slippage attacks, wrong slippage bases and token-vs-value bounds, CLM vulnerabilities (TWAP bypass, sandwich via owner functions, stuck tokens, stale approvals, retrospective fees), UniswapV3/V4 hooks, fee tier issues | 66 |
@@ -39,7 +39,7 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 | 19 | **evm-audit-dos** | Denial of service patterns: unbounded loops, block gas limit, self-destruct force-send, storage deletion costs, griefing via revert, return data bombs | 18 |
 | 20 | **evm-audit-access-control** | Access control patterns: missing modifiers, `tx.origin` authorization, off-chain signer/frontend trust, 2-step ownership, role-based permissions, emergency pause, time delays, admin overpowers | 21 |
 
-**Total: 868 canonical checks and 871 generated runtime entries across 19 specialized skills + 1 master index**
+**Total: 869 canonical checks and 872 generated runtime entries across 19 specialized skills + 1 master index**
 
 ## Checklist Organization
 
@@ -63,16 +63,27 @@ SolidityGuard's 104-pattern index was used only for coverage comparison at commi
 ## Canonical Registry and Feature Routing
 
 The editable registry is `../data/canonical-checks.json`; run
-`python3 ../scripts/generate_checklists.py` to regenerate the domain views. Each
-canonical check has feature tags from `../data/features.json`. Run
-`python3 ../scripts/select_checks.py --features <comma-separated-feature-ids>` to
-produce the fast-filter selection and its filtered-out IDs.
+`python3 ../scripts/generate_checklists.py` to regenerate the domain views. The
+registry is machine-only at audit time: domain agents consume selected check
+bodies emitted by the router and must not load the full JSON database. Each
+canonical check has an `all_of`/`any_of`/`none_of` predicate over the vocabulary
+in `../data/features.json`. The reconnaissance input shape is defined by
+`../data/feature-map.schema.json`. Predicates marked `inferred` are regenerated
+from check text; `curated` predicates are hand-reviewed and stable. The legacy
+`features` list is retained only as a derived union for compatibility.
 
-Reconnaissance must account for every canonical ID in a routing manifest. A
-feature match selects a check for deep review; a feature absence produces a
-lightweight `NOT_APPLICABLE` record. The selector reduces deep-review work but
-does not bypass the evidence gate or allow pattern matching to become a
-finding.
+Build an evidence-backed feature map and run
+`python3 ../scripts/select_checks.py --feature-map <recon-features.json> --format json`
+to produce a routing manifest. Use
+`--emit-checks --format markdown` to emit only the selected check bodies.
+`PRESENT`, `ABSENT_CONFIRMED`, and `UNKNOWN` are distinct: only an explicitly
+false predicate is filtered, while unknown evidence is conservatively selected.
+The legacy `--features` shorthand remains safe but treats omitted features as
+unknown.
+
+The routing manifest accounts for every canonical ID in scope. Filtered IDs
+remain in the manifest and do not receive per-check Markdown `NOT_APPLICABLE`
+records; selected IDs receive exactly one deep/proof ledger record.
 
 ## Routing Table — Which Skills and Features To Load
 
@@ -116,9 +127,9 @@ finding.
 
 **Actions:**
 1. Build the feature map from the source inventory, entry points, dependencies, and target chain.
-2. Use the domain routing table and `../data/features.json` to select relevant canonical IDs. Keep general and precision checks in the fast filter, but do not deep-review entries whose feature predicates are absent.
+2. Build the tri-state evidence map and evaluate the domain predicates with the selector. Only predicates proven false may be filtered; unknown high-risk surfaces remain selected.
 3. For oracle-backed lending, select `evm-audit-oracles`; select `evm-audit-defi-amm` when the price source depends on AMM liquidity.
-4. Use the generated `references/checklist.md` view for the selected IDs. Canonical IDs, not repeated source labels, define review identity.
+4. Use the selected-check output emitted by the selector. The generated `references/checklist.md` files are maintenance compatibility views, not the default model input. Canonical IDs, not repeated source labels, define review identity.
 
 **Exit:** The selected skill set and the exact checklist source for each skill are recorded.
 
@@ -129,8 +140,8 @@ finding.
 1. If the runtime supports sub-agents, parallelize independent selected-domain reviews and respect the runtime's concurrency limits.
 2. Reuse the reconnaissance source inventory and shared contract context; do not duplicate source ingestion or assume a particular model/runtime.
 3. If sub-agents are unavailable, execute selected domains sequentially.
-4. Record filtered-out IDs with the lightweight fast-filter format. For selected IDs, run deep review and proof stages under `references/check-review-contract.md`.
-5. Require each domain review to write `audits/<repo>-<date>/review-<skill>.md` with exactly one canonical review record per routed ID. Shared IDs must not produce duplicate findings.
+4. Preserve filtered-out IDs only in the routing manifest. For selected IDs, run deep review and proof stages under `references/check-review-contract.md`.
+5. Require each domain review to write `audits/<repo>-<date>/review-<skill>.md` with exactly one canonical review record per selected ID assigned to that owner domain. Filtered IDs stay only in the manifest, and shared IDs must not produce duplicate findings.
 6. Wait for every selected review to finish before synthesis.
 
 **Exit:** Every expected checklist item has one valid record with one of the four terminal statuses. Missing, duplicate, unknown, or malformed records make the audit incomplete.
@@ -139,7 +150,7 @@ finding.
 **Entry:** All selected review ledgers exist and pass the coverage and format gate.
 
 **Actions:**
-1. Validate that every canonical ID in the routing manifest appears exactly once and that every status is one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
+1. Validate the routing manifest so every in-scope canonical ID appears exactly once in `selected` or `filtered`. Then require every selected ID to appear exactly once across the domain ledgers; filtered IDs remain manifest-only. Every ledger status must be one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
 2. If coverage or record validation fails, mark the audit `INCOMPLETE` and do not write a final `AUDIT-REPORT.md`.
 3. Review only `CONFIRMED` records for duplicate root causes and cross-cutting interactions. Check oracle-backed lending economics, state-machine consistency, and combined attack paths.
 4. If synthesis discovers a new cross-cutting candidate, map it to existing checklist item(s), or record it in `review-integration.md` and apply the same review contract before admission.

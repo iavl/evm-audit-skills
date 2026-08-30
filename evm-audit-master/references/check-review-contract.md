@@ -36,9 +36,9 @@ One terminal status
 Use a three-stage funnel for every routed canonical check:
 
 1. **`FAST_FILTER`** — compare the check's feature predicate with the
-   reconnaissance feature map. Record a short applicability basis. If the
-   feature is absent, use `NOT_APPLICABLE` and do not create deep evidence
-   fields.
+   reconnaissance feature map and write the machine-readable routing manifest.
+   Only a predicate proven `FALSE` is filtered. `UNKNOWN` remains selected and
+   must not become `NOT_APPLICABLE`.
 2. **`DEEP_REVIEW`** — for selected checks, trace reachability, preconditions,
    guards, and invariants. Use `REVIEWED_SAFE` or `SUSPICIOUS` when proof is not
    complete.
@@ -47,12 +47,15 @@ Use a three-stage funnel for every routed canonical check:
    using `CONFIRMED`.
 
 The routing manifest must account for every canonical ID as selected or filtered
-out, including the feature evidence used for the decision. A filtered check is
-not a finding and is not silently omitted from the audit record.
+out, including the feature evidence used for the decision. Filtered IDs are
+machine coverage entries only; they do not receive per-check Markdown ledger
+records. Selected IDs receive exactly one deep/proof record, including shared
+IDs that are listed in more than one domain.
 
 Validate a completed ledger with
 `python3 scripts/validate_checklists.py --review-ledger <path>`. Use
-`--review-ledger` once per domain ledger when validating a complete audit run.
+`--routing-manifest <manifest> --review-ledger <path>` once per complete audit
+run to enforce selected/filtered coverage and shared-ID ownership.
 
 ## Terminal Statuses
 
@@ -67,12 +70,14 @@ Every record must end with exactly one of these four statuses. There is no emitt
 
 ## Record Identity and Format
 
-Use the stable `canonical_id` from `../../data/canonical-checks.json` as the review
-identity. Preserve existing source identifiers, including `SAS-AV-*`,
+Use the stable `canonical_id` from the routed selected-check body or routing
+manifest as the review identity; the JSON registry is machine-only validation
+input. Preserve existing source identifiers, including `SAS-AV-*`,
 `DROZER-*`, and `AUDITMOS-*`, only as provenance. A legacy path/section/title
 alias may be included for traceability, but it is not a second review item.
 
-Each selected skill writes one `review-<skill>.md` ledger. Preserve checklist order and write exactly one record per checklist item:
+Each selected skill writes one `review-<skill>.md` ledger. Preserve routed order
+and write exactly one record per selected checklist item:
 
 ```markdown
 ### <check-ref> — <title>
@@ -88,9 +93,8 @@ Each selected skill writes one `review-<skill>.md` ledger. Preserve checklist or
 - **Evidence**: file:line, test name, trace, calculation, or explicit scope basis
 ```
 
-At `FAST_FILTER`, record only `Review stage`, `Routing basis`, `Status`,
-`Applicability`, and `Evidence`; do not expand the remaining fields for a
-filtered-out check. At `DEEP_REVIEW` and `PROOF`, do not leave applicable
+New runs do not write `FAST_FILTER` records: the routing manifest is the sole
+FAST_FILTER artifact. At `DEEP_REVIEW` and `PROOF`, do not leave applicable
 fields blank. Use an explicit `N/A — reason` or `UNRESOLVED — missing ...`
 where a field does not support the selected status.
 
@@ -101,7 +105,9 @@ where a field does not support the selected status.
 - Set `Applicability` to `NOT_APPLICABLE` and state the concrete absence of the relevant surface.
 - Cite the source inventory, inheritance/proxy map, interface usage, or other code evidence.
 - “I did not find it quickly,” an unfamiliar dependency, or an inability to run a test is not enough. Use `SUSPICIOUS` when applicability is uncertain.
-- Set the remaining analytical fields to explicit `N/A — not applicable` values.
+- When a selected item is later shown to be not applicable, record the concrete
+  scope evidence. Do not emit a blanket set of deep fields merely to satisfy a
+  filtered routing decision; filtered IDs belong only in the manifest.
 
 ### `REVIEWED_SAFE`
 
@@ -148,17 +154,14 @@ Reject these shortcuts:
 
 ## Minimal Disposition Examples
 
-Pattern absent from scope:
+Pattern absent from scope after secondary inspection:
 
 ```markdown
 ### general/no-proxy-upgrade-path — Proxy upgrade authorization
+- **Review stage**: DEEP_REVIEW
+- **Routing basis**: unknown proxy feature was selected conservatively; source inventory and inheritance map were inspected.
 - **Status**: NOT_APPLICABLE
 - **Applicability**: NOT_APPLICABLE — source inventory contains no proxy, upgrade entry point, or delegatecall path.
-- **Code path**: N/A — not applicable
-- **Preconditions**: N/A — not applicable
-- **Exploitability**: N/A — not applicable
-- **Impact**: N/A — not applicable
-- **PoC / Invariant violation**: N/A — not applicable
 - **Evidence**: source inventory and inheritance/proxy map reviewed.
 ```
 
@@ -166,6 +169,8 @@ Pattern applies but the invariant holds:
 
 ```markdown
 ### precision-math/rounding/deposit-rounding — Deposit conversion rounding
+- **Review stage**: DEEP_REVIEW
+- **Routing basis**: uses-erc4626=PRESENT; uses-math=UNKNOWN
 - **Status**: REVIEWED_SAFE
 - **Applicability**: APPLICABLE — deposit converts assets to shares.
 - **Code path**: deposit() → _convertToShares() → mulDiv(..., Rounding.Down)
@@ -180,6 +185,8 @@ Pattern exists but proof is incomplete:
 
 ```markdown
 ### lending/oracle/spot-price — Spot price used for collateral
+- **Review stage**: DEEP_REVIEW
+- **Routing basis**: all_of=TRUE; uses-lending and uses-oracle are PRESENT
 - **Status**: SUSPICIOUS
 - **Applicability**: APPLICABLE — collateral valuation reads the pool spot price.
 - **Code path**: borrow() → _healthFactor() → pool.getReserves()
@@ -194,6 +201,8 @@ Reachable defect with proof:
 
 ```markdown
 ### erc20/transfer-accounting — Fee-on-transfer amount mismatch
+- **Review stage**: PROOF
+- **Routing basis**: all_of=TRUE; uses-erc20 and uses-callback-capable-token are PRESENT
 - **Status**: CONFIRMED
 - **Applicability**: APPLICABLE — the protocol accepts an arbitrary fee-on-transfer token.
 - **Code path**: deposit() → token.transferFrom() → credits[msg.sender] = amount
@@ -206,8 +215,10 @@ Reachable defect with proof:
 
 ## Synthesis Admission Gate
 
-1. Enumerate every canonical ID from the routing manifest and selected canonical checklist set.
-2. Reject ledgers with missing, duplicate, unknown, malformed, or non-terminal records. Mark the audit `INCOMPLETE` and do not write a final report.
+1. Enumerate every canonical ID from the routing manifest; only selected IDs
+   must appear in review ledgers, while filtered IDs remain manifest coverage.
+2. Reject manifests or ledgers with missing, duplicate, unknown, malformed, or
+   non-terminal records. Mark the audit `INCOMPLETE` and do not write a final report.
 3. Consider only records whose exact status is `CONFIRMED` for finding deduplication and report generation.
 4. Preserve all relevant checklist references and evidence when merging duplicate confirmed records.
 5. Map cross-domain candidates to existing records, or create `review-integration.md` and apply this contract to the new record.

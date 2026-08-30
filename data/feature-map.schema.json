@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/austintgriffith/evm-audit-skills/feature-map.schema.json",
+  "title": "EVM audit reconnaissance feature map",
+  "type": "object",
+  "required": ["schema_version", "features"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "features": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": {"enum": ["PRESENT", "ABSENT_CONFIRMED", "UNKNOWN"]},
+          "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "reason": {"type": "string"}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"status": {"enum": ["PRESENT", "ABSENT_CONFIRMED"]}}},
+            "then": {"required": ["evidence"], "properties": {"evidence": {"minItems": 1}}}
+          }
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

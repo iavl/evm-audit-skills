@@ -70,6 +70,28 @@ DOMAIN_TITLES = {
     "evm-audit-access-control": "Access Control Security Checklist",
 }
 
+DOMAIN_SURFACE_FEATURES = {
+    "evm-audit-general": "uses-general",
+    "evm-audit-precision-math": "uses-math",
+    "evm-audit-erc20": "uses-erc20",
+    "evm-audit-defi-amm": "uses-amm",
+    "evm-audit-defi-lending": "uses-lending",
+    "evm-audit-defi-staking": "uses-staking",
+    "evm-audit-erc4626": "uses-erc4626",
+    "evm-audit-erc4337": "uses-erc4337",
+    "evm-audit-bridges": "uses-bridge",
+    "evm-audit-proxies": "uses-proxy",
+    "evm-audit-signatures": "uses-signature",
+    "evm-audit-governance": "uses-governance",
+    "evm-audit-oracles": "uses-oracle",
+    "evm-audit-assembly": "uses-assembly",
+    "evm-audit-chain-specific": "uses-chain-specific",
+    "evm-audit-flashloans": "uses-flash-loan",
+    "evm-audit-erc721": "uses-erc721",
+    "evm-audit-dos": "uses-dynamic-loop",
+    "evm-audit-access-control": "uses-access-control",
+}
+
 COMMON_PROVENANCE = {
     "sanbir-solidity-auditor-skills": {
         "label": "sanbir/solidity-auditor-skills",
@@ -97,6 +119,11 @@ COMMON_PROVENANCE = {
     "eip-4626": {
         "label": "EIP-4626 Tokenized Vaults",
         "url": "https://eips.ethereum.org/EIPS/eip-4626",
+        "kind": "official",
+    },
+    "openzeppelin-erc4626": {
+        "label": "OpenZeppelin ERC4626 implementation guide",
+        "url": "https://docs.openzeppelin.com/contracts/5.x/erc4626",
         "kind": "official",
     },
     "eip-3855": {
@@ -190,15 +217,21 @@ def extract_fields(summary: str, detail_lines: list[str]) -> dict[str, Any]:
 def infer_features(domain: str, text: str) -> list[str]:
     value = re.sub(r"https?://\S+", " ", text.lower())
     value = re.sub(r"\[[^\]]*\]", " ", value)
-    features = {domain}
+    # Domain membership is stored in ``domains`` and must not be used as a
+    # routable feature.  A feature describes an observable code surface.
+    features: set[str] = set()
     keywords = {
         "uses-low-level-call": [".call", "staticcall", "low-level call", "returndata"],
+        "uses-external-call": ["external call", "external function", "try/catch", "contract creation expression"],
         "uses-delegatecall": ["delegatecall"],
         "uses-multicall": ["multicall", "batch", "delegatecall loop"],
         "uses-msg-value": ["msg.value", "payable", "eth transfer", "native eth"],
         "uses-merkle": ["merkle"],
         "uses-force-feed": ["force-feed", "force feed", "selfdestruct", "coinbase"],
         "uses-reentrancy-callback": ["callback", "reentrancy", "safeMint", "safeTransfer"],
+        "uses-callback-capable-token": ["erc777", "erc677", "erc1363", "post-transfer callback", "callback-capable token"],
+        "uses-external-control-before-accounting-finalized": ["before accounting", "partial-state callback", "accounting finalized"],
+        "uses-arbitrary-external-call": ["arbitrary call", "user-controlled target", "user supplied target"],
         "uses-assembly": ["assembly", "yul", "extcode", "sstore", "tstore", "precompile"],
         "uses-create2": ["create2", "metamorphic"],
         "uses-erc20": ["erc20", "token", "transferfrom", "allowance", "fee-on-transfer", "rebasing"],
@@ -221,8 +254,19 @@ def infer_features(domain: str, text: str) -> list[str]:
         "uses-dynamic-loop": ["loop", "array", "unbounded", "gas limit", "dos"],
         "uses-chain-specific": ["arbitrum", "optimism", "zksync", "blast", "bnb", "polygon", "l2"],
     }
+    def contains(needle: str) -> bool:
+        # Prefix-style needles such as ``round`` should not match words such
+        # as ``surrounding``. Keep the intentionally broad domain terms while
+        # requiring a word boundary for ordinary alphabetic markers.
+        needle = needle.lower()
+        if needle == "round":
+            return bool(re.search(r"\bround", value))
+        if needle.isalpha() and len(needle) >= 5:
+            return bool(re.search(rf"\b{re.escape(needle)}", value))
+        return needle in value
+
     for feature, needles in keywords.items():
-        if any(needle in value for needle in needles):
+        if any(contains(needle) for needle in needles):
             features.add(feature)
     return sorted(features)
 
@@ -511,11 +555,11 @@ def bootstrap_registry(root: Path) -> dict[str, Any]:
         if domain_for(path) not in DOMAIN_CODES:
             continue
         items.extend(parse_legacy_file(path, root))
-    if len(items) != 876:
-        raise ValueError(f"expected the current legacy corpus to contain 876 items, found {len(items)}")
+    if len(items) not in {872, 876}:
+        raise ValueError(f"expected the legacy corpus or generated compatibility views to contain 872 or 876 items, found {len(items)}")
     items = apply_knowledge_corrections(items)
     registry = {
-        "schema_version": 1,
+        "schema_version": 2,
         "description": "Canonical EVM audit checks. Generated Markdown is a runtime compatibility view.",
         "source_catalog": COMMON_PROVENANCE,
         "checks": items,
@@ -533,6 +577,10 @@ def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
 
 def normalize_registry(registry: dict[str, Any]) -> dict[str, Any]:
     """Apply idempotent metadata cleanup to registries created by early runs."""
+    # Routing predicates are the schema-v2 source of truth.  A legacy registry
+    # is upgraded in place on the next generation, while explicit predicates
+    # authored by reviewers are preserved.
+    registry["schema_version"] = 2
     registry.setdefault("dedup_decisions", {})["reviewed_candidates"] = [
         {
             "canonical_id": "EVM-TYPE-001",
@@ -562,8 +610,6 @@ def normalize_registry(registry: dict[str, Any]) -> dict[str, Any]:
             item["description"] = one_line(item["trigger"][:1])
         if item.get("risk") == item.get("title") and item.get("description"):
             item["risk"] = item["description"]
-        if len(item.get("domains", [])) > 1:
-            item["features"] = sorted(set(item.get("features", [])) | set(item["domains"]))
         if not item.get("provenance"):
             aliases = item.get("aliases", [])
             if aliases:
@@ -602,24 +648,33 @@ def normalize_registry(registry: dict[str, Any]) -> dict[str, Any]:
             item.get("primary_domain", item.get("domains", ["evm-audit-general"])[0]),
             feature_text,
         )
-        item["features"] = infer_features(
-            item.get("primary_domain", item.get("domains", ["evm-audit-general"])[0]),
-            feature_text,
-        )
-        if len(item.get("domains", [])) > 1:
-            item["features"] = sorted(set(item["features"]) | set(item["domains"]))
-        if item.get("canonical_id") == "ERC4626-ROUND-001":
-            item["features"] = sorted(set(item["features"]) | {"uses-erc4626", "uses-math"})
-        if item.get("canonical_id") == "EVM-TYPE-001":
-            item["features"] = [
-                "evm-audit-general",
-                "evm-audit-precision-math",
-                "uses-math",
-                "uses-signed-conversion",
-            ]
-        if item.get("canonical_id") not in {"EVM-MATH-001", "EVM-TYPE-001", "EVM-TIME-001", "ERC4626-ROUND-001"}:
-            item["type"] = inferred
-            item["confidence"] = infer_confidence(inferred)
+        predicate_source = item.get("predicate_source")
+        if predicate_source != "curated":
+            legacy_features = [feature for feature in infer_features(
+                item.get("primary_domain", item.get("domains", ["evm-audit-general"])[0]),
+                feature_text,
+            ) if not feature.startswith("evm-audit-")]
+            item["predicate"] = {"all_of": [], "any_of": legacy_features, "none_of": []}
+            item["predicate_source"] = "inferred"
+        else:
+            item["predicate"] = {
+                key: sorted(set(item.get("predicate", {}).get(key, [])))
+                for key in ("all_of", "any_of", "none_of")
+            }
+        if not any(item["predicate"].values()):
+            domain = item.get("primary_domain", item.get("domains", ["evm-audit-general"])[0])
+            fallback_feature = DOMAIN_SURFACE_FEATURES.get(domain)
+            if domain == "evm-audit-general":
+                item["always_screen"] = True
+            elif fallback_feature:
+                item["predicate"]["all_of"] = [fallback_feature]
+        # Keep a derived, non-domain feature list for schema-v1 consumers;
+        # predicate is authoritative for routing and is validated against it.
+        item["features"] = sorted({feature for values in item["predicate"].values() for feature in values})
+        # Existing explicit classifications are source data. Only infer a
+        # value for legacy records that do not have one yet.
+        item.setdefault("type", inferred)
+        item.setdefault("confidence", infer_confidence(inferred))
 
     corrections = {
         "EVM-MATH-001": ("semantic", "high"),
@@ -831,6 +886,175 @@ def normalize_registry(registry: dict[str, Any]) -> dict[str, Any]:
     preview = by_id("EVM-ERC4626-018")
     if preview is not None:
         append_provenance(preview, "EIP-4626 Tokenized Vaults", "https://eips.ethereum.org/EIPS/eip-4626", "preview methods", "eip-4626")
+    trycatch = by_id("EVM-GEN-005")
+    if trycatch is not None:
+        append_provenance(
+            trycatch,
+            "Solidity Language Reference",
+            "https://docs.soliditylang.org/en/latest/control-structures.html#try-catch",
+            "try/catch and external-call failures",
+            "solidity-language-reference",
+        )
+
+    def update_check(canonical_id: str, **fields: Any) -> dict[str, Any] | None:
+        item = by_id(canonical_id)
+        if item is not None:
+            item.update(fields)
+        return item
+
+    fee = update_check(
+        "EVM-MATH-007",
+        title="Forward/inverse fee transformation must solve the requested variable",
+        description=(
+            "Fee transformations must distinguish gross assets paid, net assets received, and requested shares. "
+            "For a fee rate f, netAssets = grossAssets * (1 - f); solving for grossAssets requires division by (1 - f). "
+            "With pricePerShare p, shares = grossAssets * (1 - f) / p, while grossAssets = shares * p / (1 - f)."
+        ),
+        risk="Using the inverse for the wrong input variable can overcharge, undercharge, or break deposit/withdraw accounting and round-trip invariants.",
+        trigger=[
+            "A fee-adjusted conversion accepts gross assets, net assets, or requested shares and applies a rate before or after the share-price conversion."
+        ],
+        detection=[
+            "Name the variable represented by every input and output, derive the forward and inverse equations, and compare both paths under the implementation's rounding policy."
+        ],
+        false_positive_gates=[
+            "The implementation documents whether the fee is assessed on gross or net assets, and its direction-specific rounding is consistent with the solved variable."
+        ],
+        proof=[
+            "Use exact rational arithmetic plus boundary integer cases to show that forward then inverse conversion differs only by the documented rounding bound."
+        ],
+        type="semantic",
+        confidence="high",
+        predicate={"all_of": ["uses-erc4626"], "any_of": [], "none_of": []},
+        verification={"status": "verified", "basis": "EIP-4626 conversion context plus executable algebra/rounding regression cases"},
+    )
+    if fee is not None:
+        fee["predicate_source"] = "curated"
+        append_provenance(fee, "EIP-4626 Tokenized Vaults", "https://eips.ethereum.org/EIPS/eip-4626", "asset/share conversion context", "eip-4626")
+        append_provenance(fee, "OpenZeppelin ERC4626 implementation guide", "https://docs.openzeppelin.com/contracts/5.x/erc4626", "fee-aware asset/share conversion", "openzeppelin-erc4626")
+        if "EVM-ERC4626-043" not in fee.get("related", []):
+            fee.setdefault("related", []).append("EVM-ERC4626-043")
+    erc4626_fee = by_id("EVM-ERC4626-043")
+    if erc4626_fee is not None:
+        erc4626_fee.update({
+            "description": "For an ERC4626 fee on gross deposit assets, netAssets = assets * (1 - fee) and shares = netAssets / pricePerShare; when solving for gross assets for requested shares, assets = shares * pricePerShare / (1 - fee). Verify the fee basis and rounding on each operation.",
+            "trigger": ["The vault charges a deposit or withdrawal fee while converting between gross assets, net assets, and shares."],
+            "detection": ["Compare deposit/mint/withdraw/redeem and preview paths with the fee basis, price per share, and direction-specific rounding."],
+            "false_positive_gates": ["The fee basis is explicit and the implementation follows the corresponding gross/net equation; a different fee convention is documented and tested."],
+            "proof": ["Exercise forward and inverse ERC4626 conversions at zero, one-unit, and maximal fee/rounding boundaries and compare exact asset/share relations."],
+            "predicate": {"all_of": ["uses-erc4626"], "any_of": [], "none_of": []},
+            "predicate_source": "curated",
+        })
+        append_provenance(erc4626_fee, "OpenZeppelin ERC4626 implementation guide", "https://docs.openzeppelin.com/contracts/5.x/erc4626", "fees and conversion functions", "openzeppelin-erc4626")
+        if "EVM-MATH-007" not in erc4626_fee.get("related", []):
+            erc4626_fee.setdefault("related", []).append("EVM-MATH-007")
+
+    update_check(
+        "EVM-GEN-007",
+        title="Delegatecall to mutable or storage-incompatible targets",
+        description="Delegatecall executes target code in the caller's storage and execution context. The security question is whether the target is mutable or untrusted, whether upgrades are authorized, whether storage layouts are compatible, and whether selector/context assumptions remain valid.",
+        risk="An attacker-controlled or incorrectly upgraded delegatecall target can overwrite caller state, bypass authorization, expose selectors, or violate storage and execution-context invariants.",
+        trigger=["The implementation executes delegatecall to a target whose code, upgrade path, storage layout, or caller context is not fully constrained."],
+        detection=["Trace target address controllability, implementation trust and upgrade authorization, storage compatibility, selector exposure, and msg.sender/msg.value assumptions."],
+        false_positive_gates=["A proxy or library use is explicitly authorized, the implementation identity and storage layout are compatible, and all reachable upgrade paths preserve the invariant."],
+        proof=["Demonstrate a reachable target change, storage collision, authorization bypass, or context mismatch with a deterministic trace or executable PoC."],
+        type="exploit-pattern",
+        confidence="medium",
+        predicate={"all_of": ["uses-delegatecall"], "any_of": [], "none_of": []},
+        predicate_source="curated",
+        verification={"status": "qualified", "basis": "Context-dependent delegatecall review; code path and target trust must be proven per deployment"},
+    )
+    update_check(
+        "EVM-GEN-020",
+        title="Reentrancy guard must precede modifiers that can yield control",
+        description="A nonReentrant guard must be established before any preceding modifier can yield external control or mutate reentrancy-sensitive state. Modifier order is not itself a vulnerability when earlier modifiers are purely local and non-yielding.",
+        risk="A yielding or state-changing modifier before the guard can create a reentrant path before the lock is set and violate the protected invariant.",
+        trigger=["An externally reachable function combines nonReentrant with other modifiers whose expanded code may call out, invoke callbacks, or mutate reentrancy-sensitive state."],
+        detection=["Expand modifiers in execution order and identify external control flow or sensitive state mutation before the guard is established."],
+        false_positive_gates=["Every modifier before nonReentrant is local, non-yielding, and does not mutate state relied on by the guarded operation."],
+        proof=["Use a callback-capable callee or a deterministic trace to show whether control can reenter before the lock and whether the protected invariant changes."],
+        type="exploit-pattern",
+        confidence="medium",
+        predicate={"all_of": ["uses-reentrancy-callback"], "any_of": [], "none_of": []},
+        predicate_source="curated",
+        verification={"status": "qualified", "basis": "Modifier expansion and reachable callback analysis"},
+    )
+    governance_merkle = update_check(
+        "EVM-GOV-026",
+        title="Governance Merkle claim beneficiary must be bound to the payout",
+        description="A governance Merkle proof can be copied from a pending transaction, but that is exploitable only when the caller can redirect the committed beneficiary's value or voting allocation. Verify the leaf recipient and the final payout/weight recipient independently.",
+        risk="An unbound governance claim can let a front-runner redirect rewards or voting weight; a copied proof that only sponsors gas is not a theft finding.",
+        trigger=["A governance claim accepts a Merkle proof and transfers rewards or voting weight without binding the committed recipient to the final beneficiary."],
+        detection=["Trace leaf construction, claimant/recipient checks, replay protection, and the final reward or voting-weight recipient."],
+        false_positive_gates=["The leaf commits the intended recipient and the governance operation uses that recipient, or an independent authorization prevents redirection."],
+        proof=["Replay the proof from a different account and demonstrate changed governance value or reward ownership, or document the recipient-binding invariant."],
+        predicate={"all_of": ["uses-merkle"], "any_of": [], "none_of": []},
+        predicate_source="curated",
+        related=["EVM-GEN-021"],
+        verification={"status": "qualified", "basis": "Governance claim recipient-binding and front-running review"},
+    )
+    if governance_merkle is not None:
+        governance_merkle["provenance"] = [{"label": "beirao MT-01, MT-03", "locator": "Governance Merkle claimant binding", "url": None, "kind": "legacy", "source_key": "legacy-markdown"}]
+    merkle = update_check(
+        "EVM-GEN-021",
+        title="Merkle claim beneficiary must be bound to the payout",
+        description="A publicly submitted Merkle proof can be copied, but copying is exploitable only when the caller can redirect the beneficiary's value. Bind the authorized recipient into the leaf or use the committed recipient for payout; a copied proof that merely lets another account pay gas is not a theft finding.",
+        risk="If the proof does not bind the beneficiary and payout follows msg.sender or another attacker-controlled address, a front-runner can claim another user's allocation.",
+        trigger=["A claim path accepts a Merkle proof and an amount or recipient without proving that the caller is the committed beneficiary or that payout uses the committed recipient."],
+        detection=["Trace leaf construction, proof verification, claimant/recipient checks, and the final token recipient; separate gas sponsorship from value redirection."],
+        false_positive_gates=["The leaf commits an immutable recipient and payout uses that recipient, or an independent authorization prevents a copied proof from redirecting value."],
+        proof=["Submit the same valid proof from a different account and show a changed beneficiary or asset transfer; otherwise document the recipient-binding invariant."],
+        predicate={"all_of": ["uses-merkle"], "any_of": [], "none_of": []},
+        predicate_source="curated",
+        related=["EVM-GEN-109"],
+    )
+    if merkle is not None:
+        merkle["provenance"] = [{"label": "beirao MT-01, RareSkills", "locator": "Merkle claimant binding", "url": None, "kind": "legacy", "source_key": "legacy-markdown"}]
+
+    if by_id("EVM-GEN-109") is None:
+        registry.setdefault("checks", []).append({
+            "canonical_id": "EVM-GEN-109",
+            "domains": ["evm-audit-general"],
+            "primary_domain": "evm-audit-general",
+            "section": "Merkle Tree Pitfalls",
+            "title": "Merkle leaf encoding must be domain-separated",
+            "description": "Merkle verification must use an unambiguous, domain-separated leaf encoding. Unhashed leaves, leaves that can equal an internal node or the root, and ambiguous concatenation can admit alternate interpretations even when claimant binding is correct.",
+            "risk": "Ambiguous leaf/node encodings can make a proof valid for an unintended claim or tree structure and defeat the intended authorization invariant.",
+            "trigger": ["A Merkle tree hashes leaves without an explicit domain separator or accepts a leaf encoding that can collide with an internal node or root."],
+            "detection": ["Inspect leaf hashing, field boundaries, domain separation, sorted-pair handling, and rejection of degenerate leaf/root constructions."],
+            "false_positive_gates": ["The tree construction specifies an unambiguous hash domain and field encoding, and verification enforces the same construction for every proof."],
+            "proof": ["Construct an alternate leaf or node interpretation accepted by the verifier, or provide a deterministic encoding proof that the ambiguity is impossible."],
+            "type": "exploit-pattern",
+            "confidence": "medium",
+            "predicate": {"all_of": ["uses-merkle"], "any_of": [], "none_of": []},
+            "predicate_source": "curated",
+            "provenance": [{"label": "beirao MT-02, MT-03, RareSkills", "locator": "Merkle leaf encoding", "url": None, "kind": "legacy", "source_key": "legacy-markdown"}],
+            "related": ["EVM-GEN-021"],
+            "aliases": [{"path": "evm-audit-general/references/checklist.md#merkle-leaf-encoding", "line": 55, "section": "Merkle Tree Pitfalls", "title": "Merkle leaf encoding and degenerate roots", "source_ids": []}],
+            "verification": {"status": "qualified", "basis": "Merkle construction and domain-separation review"},
+        })
+    for canonical_id, predicate in {
+        "EVM-ASM-022": {"all_of": ["uses-delegatecall", "uses-msg-value"], "any_of": [], "none_of": []},
+        "EVM-GEN-004": {"all_of": ["uses-msg-value"], "any_of": ["uses-delegatecall", "uses-multicall"], "none_of": []},
+        "EVM-GEN-005": {"all_of": ["uses-external-call"], "any_of": [], "none_of": []},
+        "EVM-AMM-005": {"all_of": ["uses-amm", "uses-arbitrary-external-call"], "any_of": [], "none_of": []},
+        "EVM-LEND-033": {"all_of": ["uses-lending", "uses-oracle"], "any_of": [], "none_of": []},
+        "EVM-ORACLE-018": {"all_of": ["uses-amm", "uses-oracle"], "any_of": [], "none_of": []},
+        "EVM-AMM-026": {"all_of": ["uses-amm", "uses-oracle"], "any_of": [], "none_of": []},
+        "EVM-ERC20-020": {"all_of": ["uses-erc20", "uses-callback-capable-token"], "any_of": [], "none_of": []},
+        "EVM-ERC20-021": {"all_of": ["uses-erc20", "uses-callback-capable-token"], "any_of": [], "none_of": []},
+        "EVM-ERC20-039": {"all_of": ["uses-erc20", "uses-callback-capable-token"], "any_of": [], "none_of": []},
+        "EVM-GEN-019": {"all_of": ["uses-erc20", "uses-callback-capable-token"], "any_of": [], "none_of": []},
+    }.items():
+        item = by_id(canonical_id)
+        if item is not None:
+            item["predicate"] = predicate
+            item["predicate_source"] = "curated"
+            if any(predicate.values()):
+                item.pop("always_screen", None)
+
+    for item in registry.get("checks", []):
+        item["features"] = sorted({feature for values in item.get("predicate", {}).values() for feature in values})
     corrected_ids = {
         "EVM-ASM-001",
         "EVM-ASM-002",
@@ -845,6 +1069,13 @@ def normalize_registry(registry: dict[str, Any]) -> dict[str, Any]:
         "EVM-TIME-001",
         "EVM-TYPE-001",
         "ERC4626-ROUND-001",
+        "EVM-MATH-007",
+        "EVM-ERC4626-043",
+        "EVM-GEN-007",
+        "EVM-GEN-020",
+        "EVM-GEN-021",
+        "EVM-GEN-109",
+        "EVM-GOV-026",
     }
     for item in registry.get("checks", []):
         if item.get("canonical_id") in corrected_ids:
@@ -957,7 +1188,7 @@ def check_outputs(registry: dict[str, Any], root: Path) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
-    parser.add_argument("--bootstrap", action="store_true", help="convert the current 876-item Markdown corpus into the registry")
+    parser.add_argument("--bootstrap", action="store_true", help="convert the legacy corpus (or current 872-entry generated views) into the registry")
     parser.add_argument("--force", action="store_true", help="allow --bootstrap to replace an existing registry")
     parser.add_argument("--check", action="store_true", help="verify generated Markdown without writing files")
     args = parser.parse_args(argv)
