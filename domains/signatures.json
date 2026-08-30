@@ -12,9 +12,21 @@
   ],
   "always_screen": false,
   "required_context": [
-    "signed payload, domain separator, nonce, signer, and chain binding"
+    {
+      "key": "signed_payload_domain_separator_nonce_signer_and_chain_binding",
+      "required": true,
+      "description": "signed payload, domain separator, nonce, signer, and chain binding"
+    }
   ],
   "review_requirements": [
     "test replay, malleability, expiry, and signer ambiguity"
+  ],
+  "screening_terms": [
+    "signature",
+    "permit",
+    "EIP-712",
+    "nonce",
+    "replay",
+    "ecrecover"
   ]
 }

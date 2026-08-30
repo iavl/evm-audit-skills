@@ -1,8 +1,12 @@
 # Runtime Per-Check Review Contract
 
-Review exactly the canonical IDs assigned to the Domain in the routing-v4
-manifest. Filtered IDs remain manifest-only. Each selected ID gets one record
-in `reviews/review-<owner-domain>.md`.
+Review only IDs promoted from Screen to Deep in the routing-v5 manifest.
+Filtered and Deferred IDs remain manifest-visible. Each deep-review record is
+append-only JSONL at `reviews/review-<owner-domain>.jsonl`; Markdown is a view.
+
+Global review contract: verify every reachable path before `REVIEWED_SAFE`.
+Use `CONFIRMED` only with reachable preconditions, concrete impact, and a
+runnable PoC/trace or deterministic invariant violation.
 
 ## Terminal statuses
 
@@ -35,7 +39,9 @@ For `REVIEWED_SAFE`, cover alternate, inherited, proxy, callback, and
 delegatecall paths where relevant. For `SUSPICIOUS`, identify the missing proof
 step. Only `CONFIRMED` records enter synthesis or receive severity.
 
-Reject synthesis when any selected ID is missing, duplicated, malformed, or
-non-terminal. If suspicious records remain, use report status
-`COMPLETE_WITH_UNRESOLVED_REVIEW` and do not call the audit clean. The final
-report contains only `CONFIRMED` findings.
+Reject synthesis when any selected Deep ID is missing, duplicated, malformed,
+or non-terminal. Deferred Domains require
+`COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING`; unknown required context requires
+`COMPLETE_WITH_UNRESOLVED_CONTEXT`; suspicious records require
+`COMPLETE_WITH_UNRESOLVED_REVIEW`. None is clean. Final findings contain only
+`CONFIRMED` records.

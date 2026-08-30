@@ -12,9 +12,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "proxy kind, implementation, admin, initializer, and upgrade path"
+    {
+      "key": "proxy_kind_implementation_admin_initializer_and_upgrade_path",
+      "required": true,
+      "description": "proxy kind, implementation, admin, initializer, and upgrade path"
+    }
   ],
   "review_requirements": [
     "trace initialization, authorization, and storage compatibility"
+  ],
+  "screening_terms": [
+    "proxy",
+    "upgrade",
+    "implementation",
+    "initializer",
+    "storage slot"
   ]
 }

@@ -1,0 +1,1 @@
+{"name":"multicall","detected_features":["uses-multicall"],"must_select_domains":["evm-audit-general"],"must_select_checks":["EVM-GEN-020"],"max_selected_checks":120,"max_runtime_bytes":70000}

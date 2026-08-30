@@ -12,9 +12,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "voting power, quorum, timelock, proposal, and execution model"
+    {
+      "key": "voting_power_quorum_timelock_proposal_and_execution_model",
+      "required": true,
+      "description": "voting power, quorum, timelock, proposal, and execution model"
+    }
   ],
   "review_requirements": [
     "trace proposal creation through execution and cancellation"
+  ],
+  "screening_terms": [
+    "proposal",
+    "vote",
+    "quorum",
+    "timelock",
+    "delegate"
   ]
 }

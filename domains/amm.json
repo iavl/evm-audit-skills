@@ -13,9 +13,21 @@
   ],
   "always_screen": false,
   "required_context": [
-    "pool model, fee tier, liquidity, hooks, and price source"
+    {
+      "key": "pool_model_fee_tier_liquidity_hooks_and_price_source",
+      "required": true,
+      "description": "pool model, fee tier, liquidity, hooks, and price source"
+    }
   ],
   "review_requirements": [
     "model price impact, slippage, callback, and accounting invariants"
+  ],
+  "screening_terms": [
+    "swap",
+    "pool",
+    "liquidity",
+    "reserve",
+    "hook",
+    "slippage"
   ]
 }

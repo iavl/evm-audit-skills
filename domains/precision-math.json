@@ -11,9 +11,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "units, decimals, rounding directions, and numeric bounds"
+    {
+      "key": "units_decimals_rounding_directions_and_numeric_bounds",
+      "required": true,
+      "description": "units, decimals, rounding directions, and numeric bounds"
+    }
   ],
   "review_requirements": [
     "prove conversion and accounting invariants at boundary values"
+  ],
+  "screening_terms": [
+    "division",
+    "rounding",
+    "decimal",
+    "scaling",
+    "conversion"
   ]
 }

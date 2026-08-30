@@ -11,9 +11,19 @@
   ],
   "always_screen": true,
   "required_context": [
-    "scope inventory, entry points, trust boundaries, and external dependencies"
+    {
+      "key": "scope_inventory_entry_points_trust_boundaries_and_external_depen",
+      "required": true,
+      "description": "scope inventory, entry points, trust boundaries, and external dependencies"
+    }
   ],
   "review_requirements": [
     "trace reachable state changes and cross-domain interactions"
+  ],
+  "screening_terms": [
+    "state change",
+    "external call",
+    "trust boundary",
+    "asset flow"
   ]
 }

@@ -65,7 +65,7 @@ URL_VALUE_RE = re.compile(r"^https?://[^\s]+$")
 CHECK_TYPES = {"normative", "semantic", "exploit-pattern", "heuristic"}
 CONFIDENCES = {"high", "medium", "contextual"}
 VERIFICATION_STATUSES = {"verified", "qualified"}
-ROUTING_MANIFEST_VERSION = 4
+ROUTING_MANIFEST_VERSION = 5
 CLAIMS_SCHEMA_VERSION = 3
 CLAIM_EVIDENCE_KINDS = {"official", "executable", "text-regression"}
 FRESHNESS_CLASSES = {"static", "versioned", "time-sensitive"}
@@ -80,7 +80,9 @@ REGISTRY_REQUIRED_FIELDS = {
     "risk",
     "detection",
     "false_positive_gates",
+    "fp_policy",
     "proof",
+    "proof_policy",
     "type",
     "confidence",
     "features",
@@ -92,6 +94,13 @@ REGISTRY_REQUIRED_FIELDS = {
     "verification",
     "freshness",
     "verified_at",
+}
+GENERIC_FP = {
+    "Verify the guard, invariant, and deployment assumptions against every reachable path before confirming a finding.",
+    "No finding when the source checklist's required invariant or validation is enforced on every reachable path and attacker-controlled inputs cannot trigger the described condition.",
+}
+GENERIC_PROOF = {
+    "Trace a reachable path, satisfy the preconditions, quantify the impact, and provide a runnable PoC or deterministic invariant violation.",
 }
 
 STOPWORDS = {
@@ -247,7 +256,7 @@ def validate_registry(root: Path) -> list[str]:
     valid_domains = set(domain_configs)
     required_domain_fields = {
         "id", "name", "checklist_title", "description", "surface_features", "related_domains",
-        "always_screen", "required_context", "review_requirements",
+        "always_screen", "screening_terms", "required_context", "review_requirements",
     }
     for domain, config in domain_configs.items():
         prefix = f"{root / 'domains'}:{domain}"
@@ -261,9 +270,22 @@ def validate_registry(root: Path) -> list[str]:
             errors.append(f"{prefix}: related_domains must be a list")
         if not isinstance(config.get("always_screen"), bool):
             errors.append(f"{prefix}: always_screen must be boolean")
-        for field in ("required_context", "review_requirements"):
-            if not isinstance(config.get(field), list) or not config[field] or any(not isinstance(value, str) or not value.strip() for value in config[field]):
-                errors.append(f"{prefix}: {field} must be a non-empty string list")
+        if not isinstance(config.get("screening_terms"), list) or not config["screening_terms"] or any(not isinstance(value, str) or not value.strip() for value in config["screening_terms"]):
+            errors.append(f"{prefix}: screening_terms must be a non-empty string list")
+        required_context = config.get("required_context")
+        if not isinstance(required_context, list) or not required_context:
+            errors.append(f"{prefix}: required_context must be a non-empty list")
+        else:
+            keys: set[str] = set()
+            for value in required_context:
+                if not isinstance(value, dict) or set(value) != {"key", "required", "description"} or not isinstance(value.get("key"), str) or not value["key"] or not isinstance(value.get("required"), bool) or not isinstance(value.get("description"), str) or not value["description"]:
+                    errors.append(f"{prefix}: malformed required_context entry {value!r}")
+                    continue
+                if value["key"] in keys:
+                    errors.append(f"{prefix}: duplicate required_context key {value['key']}")
+                keys.add(value["key"])
+        if not isinstance(config.get("review_requirements"), list) or not config["review_requirements"] or any(not isinstance(value, str) or not value.strip() for value in config["review_requirements"]):
+            errors.append(f"{prefix}: review_requirements must be a non-empty string list")
         if not (root / domain / "SKILL.md").exists():
             errors.append(f"{prefix}: missing skill directory")
 
@@ -271,7 +293,7 @@ def validate_registry(root: Path) -> list[str]:
         registry = normalize_registry(load_registry(path))
     except (OSError, json.JSONDecodeError) as error:
         return errors + [f"{path}: cannot parse JSON: {error}"]
-    if registry.get("schema_version") != 4:
+    if registry.get("schema_version") != 5:
         errors.append(f"{path}: unsupported schema_version {registry.get('schema_version')!r}")
     source_catalog = registry.get("source_catalog")
     if not isinstance(source_catalog, dict) or not source_catalog:
@@ -337,10 +359,25 @@ def validate_registry(root: Path) -> list[str]:
             errors.append(f"{prefix}: heuristic checks must have contextual confidence")
         if check.get("type") in {"normative", "semantic"} and check.get("confidence") != "high":
             errors.append(f"{prefix}: normative/semantic checks must have high confidence")
-        for field in ("trigger", "detection", "false_positive_gates", "proof"):
+        for field in ("trigger", "detection"):
             value = check.get(field)
             if not isinstance(value, list) or not value or any(not isinstance(part, str) or not part.strip() for part in value):
                 errors.append(f"{prefix}: {field} must be a non-empty string list")
+        for policy_field, content_field, generic in (
+            ("fp_policy", "false_positive_gates", GENERIC_FP),
+            ("proof_policy", "proof", GENERIC_PROOF),
+        ):
+            policy, value = check.get(policy_field), check.get(content_field)
+            if policy not in {"global", "specific"}:
+                errors.append(f"{prefix}: {policy_field} must be global or specific")
+            if not isinstance(value, list) or any(not isinstance(part, str) or not part.strip() for part in value):
+                errors.append(f"{prefix}: {content_field} must be a string list")
+            elif policy == "specific" and not value:
+                errors.append(f"{prefix}: specific {policy_field} requires non-empty {content_field}")
+            elif policy == "specific" and set(value) & generic:
+                errors.append(f"{prefix}: specific {policy_field} contains generic boilerplate")
+            elif policy == "global" and value:
+                errors.append(f"{prefix}: global {policy_field} must not duplicate the global contract")
         predicate = check.get("predicate")
         if not isinstance(predicate, dict):
             errors.append(f"{prefix}: predicate must be an object")
@@ -610,15 +647,16 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
     audit = manifest.get("audit_context")
     audit_fields = {
         "selector_version", "registry_sha256", "knowledge_commit", "knowledge_dirty", "target_repo_commit",
-        "source_digest", "chain_id", "chain_family", "execution_environment", "fork_block",
-        "compiler_version", "evm_fork", "protocol_version", "audit_timestamp",
+        "source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_digest",
+        "chain_id", "chain_family", "execution_environment", "fork_block", "fork_block_semantics",
+        "compiler_version", "evm_fork", "protocol_version", "environment_facts", "audit_timestamp",
     }
     if not isinstance(audit, dict) or set(audit) != audit_fields:
         errors.append(f"{manifest_path}: audit_context fields must be {sorted(audit_fields)}")
         audit = audit if isinstance(audit, dict) else {}
     if audit.get("knowledge_dirty") not in {True, False, None}:
         errors.append(f"{manifest_path}: knowledge_dirty must be true, false, or null")
-    for digest_field in ("registry_sha256", "source_digest"):
+    for digest_field in ("registry_sha256", "source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_digest"):
         if not isinstance(audit.get(digest_field), str) or not re.fullmatch(r"[0-9a-f]{64}", audit[digest_field]):
             errors.append(f"{manifest_path}: audit_context.{digest_field} must be a SHA-256")
     try:
@@ -650,43 +688,46 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
         errors.append(f"{manifest_path}: registry_sha256 does not match the current registry")
     checks = {check["canonical_id"]: check for check in registry.get("checks", [])}
 
-    selected_domains = manifest.get("selected_domains")
-    filtered_domains = manifest.get("filtered_domains")
-    if not isinstance(selected_domains, list) or not isinstance(filtered_domains, list):
-        errors.append(f"{manifest_path}: selected_domains and filtered_domains must be lists")
-        selected_domains, filtered_domains = [], []
+    selected_domains, deferred_domains, filtered_domains = manifest.get("selected_domains"), manifest.get("deferred_domains"), manifest.get("filtered_domains")
+    if not all(isinstance(bucket, list) for bucket in (selected_domains, deferred_domains, filtered_domains)):
+        errors.append(f"{manifest_path}: selected/deferred/filtered_domains must be lists")
+        selected_domains, deferred_domains, filtered_domains = [], [], []
     selected_domain_ids = {entry.get("domain") for entry in selected_domains if isinstance(entry, dict)}
+    deferred_domain_ids = {entry.get("domain") for entry in deferred_domains if isinstance(entry, dict)}
     filtered_domain_ids = {entry.get("domain") for entry in filtered_domains if isinstance(entry, dict)}
-    if selected_domain_ids & filtered_domain_ids:
+    if selected_domain_ids & deferred_domain_ids or selected_domain_ids & filtered_domain_ids or deferred_domain_ids & filtered_domain_ids:
         errors.append(f"{manifest_path}: domains appear in both routing buckets")
-    candidate_ids = {canonical_id for canonical_id, check in checks.items() if set(check.get("domains", [])) & selected_domain_ids}
+    candidate_ids = {canonical_id for canonical_id, check in checks.items() if set(check.get("domains", [])) & (selected_domain_ids | deferred_domain_ids | filtered_domain_ids)}
     scope = manifest.get("scope")
     if not isinstance(scope, dict) or scope.get("candidate_count") != len(candidate_ids):
         errors.append(f"{manifest_path}: scope.candidate_count does not match selected domains")
 
     selected = manifest.get("selected") if isinstance(manifest.get("selected"), list) else []
+    deferred = manifest.get("deferred") if isinstance(manifest.get("deferred"), list) else []
     filtered = manifest.get("filtered") if isinstance(manifest.get("filtered"), list) else []
-    if not isinstance(manifest.get("selected"), list) or not isinstance(manifest.get("filtered"), list):
-        errors.append(f"{manifest_path}: selected and filtered must be lists")
+    if not all(isinstance(manifest.get(key), list) for key in ("selected", "deferred", "filtered")):
+        errors.append(f"{manifest_path}: selected/deferred/filtered must be lists")
     selected_ids = [entry.get("canonical_id") for entry in selected if isinstance(entry, dict)]
+    deferred_ids = [entry.get("canonical_id") for entry in deferred if isinstance(entry, dict)]
     filtered_ids = [entry.get("canonical_id") for entry in filtered if isinstance(entry, dict)]
-    selected_set, filtered_set = set(selected_ids), set(filtered_ids)
-    if len(selected_ids) != len(selected_set) or len(filtered_ids) != len(filtered_set):
+    selected_set, deferred_set, filtered_set = set(selected_ids), set(deferred_ids), set(filtered_ids)
+    if any(len(ids) != len(set(ids)) for ids in (selected_ids, deferred_ids, filtered_ids)):
         errors.append(f"{manifest_path}: duplicate routed canonical IDs")
-    if selected_set & filtered_set or selected_set | filtered_set != candidate_ids:
-        errors.append(f"{manifest_path}: selected/filtered check coverage differs from selected-domain candidates")
-    if manifest.get("selected_count") != len(selected) or manifest.get("filtered_count") != len(filtered):
-        errors.append(f"{manifest_path}: selected_count/filtered_count do not match entries")
+    if selected_set & deferred_set or selected_set & filtered_set or deferred_set & filtered_set or selected_set | deferred_set | filtered_set != candidate_ids:
+        errors.append(f"{manifest_path}: routing bucket coverage differs from considered-domain candidates")
+    if manifest.get("selected_count") != len(selected) or manifest.get("deferred_count") != len(deferred) or manifest.get("filtered_count") != len(filtered):
+        errors.append(f"{manifest_path}: selected/deferred/filtered counts do not match entries")
     if manifest.get("filtered_out") != filtered_ids:
         errors.append(f"{manifest_path}: filtered_out must match filtered IDs")
 
     environment = {key: audit.get(key) for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}
+    environment["environment_facts"] = audit.get("environment_facts", {})
     route_fields = {
         "canonical_id", "title", "domains", "owner_domain", "freshness", "verified_at", "route_status",
         "environment_evaluation", "environment_basis", "predicate", "predicate_source", "predicate_evaluation",
         "feature_evaluation", "matched_features", "unknown_features", "basis",
     }
-    for bucket_name, bucket in (("selected", selected), ("filtered", filtered)):
+    for bucket_name, bucket in (("selected", selected), ("deferred", deferred), ("filtered", filtered)):
         for index, entry in enumerate(bucket, 1):
             if not isinstance(entry, dict) or not route_fields <= set(entry):
                 errors.append(f"{manifest_path}:{bucket_name}[{index}] has invalid fields")
@@ -694,6 +735,8 @@ def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: lis
             canonical_id = entry.get("canonical_id")
             if canonical_id not in checks:
                 errors.append(f"{manifest_path}: unknown canonical ID {canonical_id!r}")
+                continue
+            if bucket_name != "selected" and entry.get("route_status") in {"DEFERRED_DOMAIN", "FILTERED_DOMAIN"}:
                 continue
             feature = evaluate_check(checks[canonical_id], feature_map, feature_names)
             environment_result, _ = evaluate_environment(checks[canonical_id], environment)

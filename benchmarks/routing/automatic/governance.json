@@ -1,0 +1,1 @@
+{"name":"governance","detected_features":["uses-governance"],"must_select_domains":["evm-audit-general","evm-audit-governance"],"must_select_checks":["EVM-GOV-001"],"max_selected_checks":190,"max_runtime_bytes":100000}

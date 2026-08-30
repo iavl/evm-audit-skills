@@ -65,9 +65,13 @@ def render_full_item(item: dict[str, Any]) -> list[str]:
         ("Trigger", "trigger"),
         ("Risk", "risk"),
         ("Detection", "detection"),
-        ("FP", "false_positive_gates"),
-        ("Proof", "proof"),
+        ("Specific FP", "false_positive_gates"),
+        ("Specific proof", "proof"),
     ):
+        if field == "false_positive_gates" and item.get("fp_policy") != "specific":
+            continue
+        if field == "proof" and item.get("proof_policy") != "specific":
+            continue
         value = one_line(item[field])
         if value and value not in seen:
             lines.append(f"  - **{label}:** {value}")
@@ -98,6 +102,7 @@ def render_domain(registry: dict[str, Any], config: dict[str, Any]) -> str:
         f"# {config['checklist_title']}",
         "",
         "Each entry has a stable canonical ID, a type/confidence label, and an explicit evidence path. Shared entries are deduplicated by canonical ID.",
+        "Global FP/proof obligations live in the Review Contract; only check-specific gates and proofs are repeated below.",
         "",
     ]
     for section in sections:
@@ -113,7 +118,7 @@ def render_domain(registry: dict[str, Any], config: dict[str, Any]) -> str:
 def render_skill(config: dict[str, Any]) -> str:
     domain = config["id"]
     related = ", ".join(f"`{value}`" for value in config["related_domains"]) or "none"
-    required_context = "\n".join(f"- {value}" for value in config["required_context"])
+    required_context = "\n".join(f"- `{value['key']}`: {value['description']}" for value in config["required_context"])
     review_requirements = "\n".join(f"- {value}" for value in config["review_requirements"])
     return f"""---
 name: {domain}
@@ -130,8 +135,9 @@ Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, a
 When invoked directly, create `audits/<repo>-<UTC timestamp>/` with `recon/`, `routing/`, `runtime/`, and `reviews/`, then run the shared pipeline for `{domain}` once:
 
 1. `python3 <suite-root>/scripts/recon.py <target> --audit-root <target-root> --output <run-dir>/recon/feature-map.json`
-2. `python3 <suite-root>/scripts/select_checks.py --feature-map <run-dir>/recon/feature-map.json --target-root <target-root> --domain {domain} --profile compact --manifest-out <run-dir>/routing/manifest.json --checks-out <run-dir>/runtime/selected-{domain}.md --context-out <run-dir>/context.json`
-3. Read `<suite-root>/evm-audit-master/references/check-review-contract.runtime.md`, review only the selected checks, and write `<run-dir>/reviews/review-{domain}.md`.
+2. `python3 <suite-root>/scripts/select_checks.py --feature-map <run-dir>/recon/feature-map.json --target-root <target-root> --domain {domain} --profile screen --manifest-out <run-dir>/routing/manifest.json --checks-out <run-dir>/runtime/screen-{domain}.md --context-out <run-dir>/context.json`
+3. Classify screen cards as `NOT_APPLICABLE`, `LIKELY_SAFE`, or `CANDIDATE`. Uncertain cards are `CANDIDATE`; Screen never filters.
+4. Load only candidates with `--profile deep --candidate-ids <ids>` and apply `<suite-root>/evm-audit-master/references/check-review-contract.runtime.md`.
 
 ### Orchestrated
 

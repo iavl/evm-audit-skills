@@ -115,11 +115,11 @@ python3 scripts/select_checks.py --feature-map recon-features.json --target-root
   --format json
 ```
 
-The v4 manifest records selected/filtered Domain and check stages, the registry
-and source SHA-256 digests, selector version, knowledge and target repository
-commits, chain/runtime/fork/compiler context, and audit timestamp.
-The compact profile contains only ID, title, routing basis, trigger, detection,
-false-positive gates, and proof; the full profile adds maintenance metadata.
+The v5 manifest records selected, Deferred, and filtered Domain/check stages;
+registry, source, dependency, build-config, and compilation fingerprints; and
+evidence-backed environment facts. `fork_block` is reproducibility metadata,
+not hardfork inference. `screen` contains only ID/title/trigger/detection;
+only candidates are promoted to `deep`, which carries specific evidence.
 
 Regenerate and validate the runtime views with:
 
@@ -130,6 +130,7 @@ python3 -m unittest discover -s tests -v
 forge test --root tests/semantics -vv
 # When an audit run is complete, also validate global selected/filtered coverage:
 python3 scripts/validate_checklists.py --routing-manifest routing-manifest.json --review-ledger audits/<run>/review-*.md
+python3 scripts/knowledge_metrics.py
 ```
 
 Knowledge claims distinguish `official`, genuinely `executable`, and

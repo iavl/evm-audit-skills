@@ -1,0 +1,1 @@
+{"name":"proxy","detected_features":["uses-proxy"],"must_select_domains":["evm-audit-general","evm-audit-proxies"],"must_select_checks":["EVM-PROXY-001"],"max_selected_checks":160,"max_runtime_bytes":85000}

@@ -14,9 +14,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "compiler target and assembly call sites"
+    {
+      "key": "compiler_target_and_assembly_call_sites",
+      "required": true,
+      "description": "compiler target and assembly call sites"
+    }
   ],
   "review_requirements": [
     "compare Yul/EVM behavior with the selected runtime"
+  ],
+  "screening_terms": [
+    "assembly",
+    "opcode",
+    "create2",
+    "delegatecall",
+    "extcodesize"
   ]
 }

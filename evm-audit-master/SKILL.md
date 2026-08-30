@@ -5,7 +5,7 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 # EVM Smart Contract Security Audit — Master Index
 
 Load this skill first for an EVM audit. Read the target source and deployment
-context, run one scope-bound Recon, run one routing-v4 snapshot, delegate only
+context, run one scope-bound Recon, run one routing-v5 snapshot, delegate only
 the selected Domain runtime files, validate every ledger record, then synthesize
 only `CONFIRMED` findings. The canonical registry is knowledge input, not model
 context.
@@ -50,12 +50,12 @@ python3 ../scripts/select_checks.py \
   --fork-block <block> --compiler-version <version> --evm-fork <fork>
 ```
 
-Routing v4 has three gates: environment applicability, Domain surface
-applicability, and canonical feature predicates. It records
-`selected_domains`/`filtered_domains`, then `SELECTED`, `FILTERED_ENVIRONMENT`,
-or `FILTERED_FEATURE` checks. Related Domains are advisory and never expand an
-explicit Domain invocation. Curated predicates may filter only after valid
-absence evidence; inferred false results remain selected.
+Routing v5 has environment, Domain surface, and canonical feature gates.
+Domains are `SELECTED`, `DEFERRED`, or `FILTERED`; a Deferred Domain gets only a
+screening card and must resolve before clean completion. Checks are visible as
+`SELECTED`, `DEFERRED_DOMAIN`, `FILTERED_DOMAIN`, `FILTERED_ENVIRONMENT`, or
+`FILTERED_FEATURE`. Related Domains never auto-expand. Only confirmed absence
+and confirmed environment mismatch can filter; inferred false results remain.
 
 For ZKsync, always identify the deployed runtime. Native EraVM/
 ContractDeployer deployments use ZKsync-specific address derivation, while EVM
@@ -69,7 +69,7 @@ the selected execution environment and chain documentation.
 
 Create `audits/<repo>-<UTC timestamp>/` with `context.json`, `recon/`,
 `routing/`, `runtime/`, and `reviews/`. Run Recon and Selector exactly once,
-then consume only the selected Domain runtime file.
+then consume screen cards and promote only candidates to deep runtime.
 
 ### Orchestrated Domains
 

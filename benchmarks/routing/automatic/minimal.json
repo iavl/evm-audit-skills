@@ -1,0 +1,1 @@
+{"name":"minimal","detected_features":[],"must_select_domains":["evm-audit-general"],"must_not_filter_domains":["evm-audit-erc20"],"must_select_checks":["EVM-GEN-001"],"must_not_filter_checks":["EVM-GEN-020"],"max_selected_checks":120,"max_runtime_bytes":70000}

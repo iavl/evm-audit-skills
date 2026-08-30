@@ -12,9 +12,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "accepted tokens, balance accounting, allowances, and transfer wrappers"
+    {
+      "key": "accepted_tokens_balance_accounting_allowances_and_transfer_wrapp",
+      "required": true,
+      "description": "accepted tokens, balance accounting, allowances, and transfer wrappers"
+    }
   ],
   "review_requirements": [
     "test non-standard token behaviors against accounting invariants"
+  ],
+  "screening_terms": [
+    "ERC20",
+    "transfer",
+    "allowance",
+    "balance",
+    "token"
   ]
 }

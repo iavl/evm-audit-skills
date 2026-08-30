@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scope_context import relative_scope_path, resolve_scope_root, scope_inventory, source_digest
+    from scope_context import compilation_digests, relative_scope_path, resolve_scope_root, scope_inventory, source_digest
 except ImportError:  # pragma: no cover - supports importing from another cwd
-    from scripts.scope_context import relative_scope_path, resolve_scope_root, scope_inventory, source_digest
+    from scripts.scope_context import compilation_digests, relative_scope_path, resolve_scope_root, scope_inventory, source_digest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -318,6 +318,8 @@ def build_feature_map(
             }
         else:
             features[feature] = {"status": "UNKNOWN", "evidence": []}
+    solc_version = command_version(solc)
+    digests = compilation_digests(scope_root, scope_files, solc_version)
     return {
         "schema_version": 3,
         "recon_context": {
@@ -326,10 +328,11 @@ def build_feature_map(
             "excluded_paths": excluded_paths,
             "exclusion_patterns": sorted(set(exclusions)),
             "uncompiled_paths": uncompiled_paths,
-            "source_digest": source_digest(scope_root, scope_files),
+            "source_digest": digests["audit_source_digest"],
+            **digests,
             "compilation_complete": compilation_complete,
             "slither_version": importlib.metadata.version("slither-analyzer"),
-            "solc_version": command_version(solc),
+            "solc_version": solc_version,
         },
         "features": features,
     }

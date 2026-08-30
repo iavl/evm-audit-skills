@@ -12,9 +12,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "accepted NFT standards, receivers, approvals, and custody model"
+    {
+      "key": "accepted_nft_standards_receivers_approvals_and_custody_model",
+      "required": true,
+      "description": "accepted NFT standards, receivers, approvals, and custody model"
+    }
   ],
   "review_requirements": [
     "trace ownership, callback, and transfer compatibility"
+  ],
+  "screening_terms": [
+    "ERC721",
+    "ERC1155",
+    "NFT",
+    "safeTransfer",
+    "tokenURI"
   ]
 }

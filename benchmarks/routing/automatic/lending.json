@@ -1,0 +1,1 @@
+{"name":"lending","detected_features":["uses-lending"],"must_select_domains":["evm-audit-general","evm-audit-defi-lending"],"must_select_checks":["EVM-LEND-001"],"max_selected_checks":220,"max_runtime_bytes":120000}

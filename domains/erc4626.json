@@ -12,9 +12,21 @@
   ],
   "always_screen": false,
   "required_context": [
-    "asset/share decimals, conversion formulas, fees, and initial state"
+    {
+      "key": "asset_share_decimals_conversion_formulas_fees_and_initial_state",
+      "required": true,
+      "description": "asset/share decimals, conversion formulas, fees, and initial state"
+    }
   ],
   "review_requirements": [
     "verify preview parity, rounding, donation, and inflation resistance"
+  ],
+  "screening_terms": [
+    "ERC4626",
+    "vault",
+    "shares",
+    "deposit",
+    "withdraw",
+    "preview"
   ]
 }

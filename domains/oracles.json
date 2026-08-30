@@ -12,9 +12,21 @@
   ],
   "always_screen": false,
   "required_context": [
-    "feed contracts, decimals, heartbeat, bounds, and fallback behavior"
+    {
+      "key": "feed_contracts_decimals_heartbeat_bounds_and_fallback_behavior",
+      "required": true,
+      "description": "feed contracts, decimals, heartbeat, bounds, and fallback behavior"
+    }
   ],
   "review_requirements": [
     "verify freshness, scaling, sequencer, and manipulation resistance"
+  ],
+  "screening_terms": [
+    "oracle",
+    "price",
+    "feed",
+    "TWAP",
+    "staleness",
+    "sequencer"
   ]
 }

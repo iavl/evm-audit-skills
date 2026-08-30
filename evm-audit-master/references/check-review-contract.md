@@ -41,16 +41,19 @@ Use a three-stage funnel for every routed canonical check:
    proven `FALSE` is feature-filtered. A `FALSE` result from an `inferred`
    keyword predicate is downgraded to `UNKNOWN`; it remains selected and must
    not become `NOT_APPLICABLE`.
-2. **`DEEP_REVIEW`** — for selected checks, trace reachability, preconditions,
+2. **`SCREEN`** — classify selected cards as `NOT_APPLICABLE`, `LIKELY_SAFE`,
+or `CANDIDATE`. Uncertainty is always `CANDIDATE`; Screen never filters.
+3. **`DEEP_REVIEW`** — for candidates, trace reachability, preconditions,
    guards, and invariants. Use `REVIEWED_SAFE` or `SUSPICIOUS` when proof is not
    complete.
-3. **`PROOF`** — for candidates, establish exploitability and impact with a
+4. **`PROOF`** — establish exploitability and impact with a
    runnable PoC, transaction trace, or deterministic invariant violation before
    using `CONFIRMED`.
 
-The routing-v4 manifest must account for every canonical ID in the selected
+The routing-v5 manifest must account for every canonical ID in the considered
 Domain scope as `SELECTED`, `FILTERED_ENVIRONMENT`, or `FILTERED_FEATURE` and
-must separately account for Domains filtered by their surface predicate. It
+must separately account for Selected, Deferred, and filtered Domains. Deferred
+Domains must resolve before clean completion. It
 must include the feature evidence used for the decision. Filtered IDs are
 machine coverage entries only; they do not receive per-check Markdown ledger
 records. Selected IDs receive exactly one deep/proof record, including shared

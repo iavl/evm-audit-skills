@@ -1,0 +1,1 @@
+{"name":"erc4626","detected_features":["uses-erc4626"],"must_select_domains":["evm-audit-general","evm-audit-erc4626"],"must_select_checks":["EVM-ERC4626-001"],"must_not_filter_checks":["ERC4626-ROUND-001"],"max_selected_checks":180,"max_runtime_bytes":95000}

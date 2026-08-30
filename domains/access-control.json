@@ -11,9 +11,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "privileged roles and administrators"
+    {
+      "key": "privileged_roles_and_administrators",
+      "required": true,
+      "description": "privileged roles and administrators"
+    }
   ],
   "review_requirements": [
     "trace every privilege grant, revoke, and transfer path"
+  ],
+  "screening_terms": [
+    "owner",
+    "role",
+    "admin",
+    "authorization",
+    "governance"
   ]
 }

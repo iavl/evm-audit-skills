@@ -11,9 +11,21 @@
   ],
   "always_screen": false,
   "required_context": [
-    "bounded collections, external calls, callbacks, and returndata"
+    {
+      "key": "bounded_collections_external_calls_callbacks_and_returndata",
+      "required": true,
+      "description": "bounded collections, external calls, callbacks, and returndata"
+    }
   ],
   "review_requirements": [
     "establish attacker-controlled work and recovery paths"
+  ],
+  "screening_terms": [
+    "loop",
+    "batch",
+    "external call",
+    "gas",
+    "revert",
+    "queue"
   ]
 }

@@ -12,9 +12,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "EntryPoint version, account modules, paymasters, and bundler assumptions"
+    {
+      "key": "entrypoint_version_account_modules_paymasters_and_bundler_assump",
+      "required": true,
+      "description": "EntryPoint version, account modules, paymasters, and bundler assumptions"
+    }
   ],
   "review_requirements": [
     "trace validation, replay, prefund, and execution boundaries"
+  ],
+  "screening_terms": [
+    "UserOperation",
+    "EntryPoint",
+    "paymaster",
+    "bundler",
+    "account abstraction"
   ]
 }

@@ -12,9 +12,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "chain family, execution environment, fork, and deployed bytecode"
+    {
+      "key": "chain_family_execution_environment_fork_and_deployed_bytecode",
+      "required": true,
+      "description": "chain family, execution environment, fork, and deployed bytecode"
+    }
   ],
   "review_requirements": [
     "verify every relied-upon opcode and system-contract behavior"
+  ],
+  "screening_terms": [
+    "chain id",
+    "L2",
+    "system contract",
+    "fork",
+    "opcode"
   ]
 }

@@ -13,8 +13,9 @@ Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, a
 When invoked directly, create `audits/<repo>-<UTC timestamp>/` with `recon/`, `routing/`, `runtime/`, and `reviews/`, then run the shared pipeline for `evm-audit-proxies` once:
 
 1. `python3 <suite-root>/scripts/recon.py <target> --audit-root <target-root> --output <run-dir>/recon/feature-map.json`
-2. `python3 <suite-root>/scripts/select_checks.py --feature-map <run-dir>/recon/feature-map.json --target-root <target-root> --domain evm-audit-proxies --profile compact --manifest-out <run-dir>/routing/manifest.json --checks-out <run-dir>/runtime/selected-evm-audit-proxies.md --context-out <run-dir>/context.json`
-3. Read `<suite-root>/evm-audit-master/references/check-review-contract.runtime.md`, review only the selected checks, and write `<run-dir>/reviews/review-evm-audit-proxies.md`.
+2. `python3 <suite-root>/scripts/select_checks.py --feature-map <run-dir>/recon/feature-map.json --target-root <target-root> --domain evm-audit-proxies --profile screen --manifest-out <run-dir>/routing/manifest.json --checks-out <run-dir>/runtime/screen-evm-audit-proxies.md --context-out <run-dir>/context.json`
+3. Classify screen cards as `NOT_APPLICABLE`, `LIKELY_SAFE`, or `CANDIDATE`. Uncertain cards are `CANDIDATE`; Screen never filters.
+4. Load only candidates with `--profile deep --candidate-ids <ids>` and apply `<suite-root>/evm-audit-master/references/check-review-contract.runtime.md`.
 
 ### Orchestrated
 
@@ -22,7 +23,7 @@ When Master supplies `context.json`, the Feature Map v3, routing manifest, and `
 
 ## Required Context
 
-- proxy kind, implementation, admin, initializer, and upgrade path
+- `proxy_kind_implementation_admin_initializer_and_upgrade_path`: proxy kind, implementation, admin, initializer, and upgrade path
 
 ## Domain Review Requirements
 

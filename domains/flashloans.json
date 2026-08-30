@@ -13,9 +13,19 @@
   ],
   "always_screen": false,
   "required_context": [
-    "flash liquidity sources and same-transaction state dependencies"
+    {
+      "key": "flash_liquidity_sources_and_same_transaction_state_dependencies",
+      "required": true,
+      "description": "flash liquidity sources and same-transaction state dependencies"
+    }
   ],
   "review_requirements": [
     "test atomic manipulation of governance, prices, shares, and accounting"
+  ],
+  "screening_terms": [
+    "flash loan",
+    "flash mint",
+    "callback",
+    "same transaction"
   ]
 }

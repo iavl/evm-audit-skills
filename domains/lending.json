@@ -13,9 +13,22 @@
   ],
   "always_screen": false,
   "required_context": [
-    "oracle configuration, collateral parameters, caps, liquidations, and interest model"
+    {
+      "key": "oracle_configuration_collateral_parameters_caps_liquidations_and",
+      "required": true,
+      "description": "oracle configuration, collateral parameters, caps, liquidations, and interest model"
+    }
   ],
   "review_requirements": [
     "model solvency, bad debt, and liquidation economics"
+  ],
+  "screening_terms": [
+    "borrow",
+    "repay",
+    "collateral",
+    "debt",
+    "liquidation",
+    "interest",
+    "bad debt"
   ]
 }

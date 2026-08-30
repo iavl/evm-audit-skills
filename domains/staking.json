@@ -12,9 +12,21 @@
   ],
   "always_screen": false,
   "required_context": [
-    "reward accounting, withdrawal queue, validator and slashing assumptions"
+    {
+      "key": "reward_accounting_withdrawal_queue_validator_and_slashing_assump",
+      "required": true,
+      "description": "reward accounting, withdrawal queue, validator and slashing assumptions"
+    }
   ],
   "review_requirements": [
     "model share/reward accounting and delayed exits"
+  ],
+  "screening_terms": [
+    "stake",
+    "unstake",
+    "reward",
+    "validator",
+    "slashing",
+    "restaking"
   ]
 }

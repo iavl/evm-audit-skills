@@ -12,9 +12,20 @@
   ],
   "always_screen": false,
   "required_context": [
-    "source/destination chains, finality, authentication, and relayers"
+    {
+      "key": "source_destination_chains_finality_authentication_and_relayers",
+      "required": true,
+      "description": "source/destination chains, finality, authentication, and relayers"
+    }
   ],
   "review_requirements": [
     "model message lifecycle, replay, ordering, and failure recovery"
+  ],
+  "screening_terms": [
+    "bridge",
+    "cross-chain",
+    "message",
+    "relayer",
+    "finality"
   ]
 }

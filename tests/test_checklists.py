@@ -17,7 +17,8 @@ from urllib.error import HTTPError
 
 from scripts.check_knowledge_health import knowledge_health, source_status
 from scripts.generate_checklists import load_domains, write_outputs
-from scripts.select_checks import audit_context, compact_check, evaluate_check, evaluate_environment, evaluate_group, knowledge_state, normalize_feature_map, select, vocabulary
+from scripts.select_checks import audit_context, compact_check, evaluate_check, evaluate_environment, evaluate_group, knowledge_state, normalize_feature_map, select, selected_markdown, validate_environment_context, vocabulary
+from scripts.review_ledger import append, check_body_hash, merge, resumable
 from scripts.validate_checklists import validate_knowledge_claims, validate_review_ledger_text, validate_routing_manifest
 
 
@@ -95,7 +96,8 @@ class ChecklistTests(unittest.TestCase):
                 "surface_features": ["uses-example"],
                 "related_domains": [],
                 "always_screen": False,
-                "required_context": ["example context"],
+                "screening_terms": ["example"],
+                "required_context": [{"key": "example_context", "required": True, "description": "example context"}],
                 "review_requirements": ["example review"],
             }), encoding="utf-8")
             write_outputs({"checks": []}, root)
@@ -324,14 +326,15 @@ class ChecklistTests(unittest.TestCase):
             "predicate_source": "curated", "always_screen": True,
             "applicability": {"chain_ids": [], "chain_families": ["op-stack"], "execution_environments": ["ethereum-evm"], "compiler": ">=0.8.20", "evm_fork_from": "cancun", "evm_fork_until": None, "protocol_versions": []},
         }
-        self.assertEqual(evaluate_environment(check, {"chain_family": "arbitrum", "execution_environment": "ethereum-evm", "compiler_version": "0.8.24", "evm_fork": "cancun", "chain_id": None, "protocol_version": None})[0], "FALSE")
-        self.assertEqual(evaluate_environment(check, {"chain_family": None, "execution_environment": None, "compiler_version": None, "evm_fork": None, "chain_id": None, "protocol_version": None})[0], "UNKNOWN")
+        confirmed = {"chain_family": "arbitrum", "execution_environment": "ethereum-evm", "compiler_version": "0.8.24", "evm_fork": "cancun", "chain_id": None, "protocol_version": None, "environment_facts": {key: {"status": "CONFIRMED", "value": value} for key, value in {"chain_family": "arbitrum", "execution_environment": "ethereum-evm", "compiler_version": "0.8.24", "evm_fork": "cancun"}.items()}}
+        self.assertEqual(evaluate_environment(check, confirmed)[0], "FALSE")
+        self.assertEqual(evaluate_environment(check, {"environment_facts": {}})[0], "UNKNOWN")
 
     def test_zksync_environment_gate_keeps_native_and_interpreter_distinct(self) -> None:
         check = self.by_id["EVM-CHAIN-013"]
-        native = {"chain_family": "zksync-era", "execution_environment": "eravm-native", "compiler_version": None, "evm_fork": None, "chain_id": None, "protocol_version": None}
-        interpreter = {**native, "execution_environment": "zksync-evm-interpreter"}
-        other = {**native, "execution_environment": "ethereum-evm"}
+        native = {"chain_family": "zksync-era", "execution_environment": "eravm-native", "compiler_version": None, "evm_fork": None, "chain_id": None, "protocol_version": None, "environment_facts": {"chain_family": {"status": "CONFIRMED", "value": "zksync-era"}, "execution_environment": {"status": "CONFIRMED", "value": "eravm-native"}}}
+        interpreter = {**native, "execution_environment": "zksync-evm-interpreter", "environment_facts": {**native["environment_facts"], "execution_environment": {"status": "CONFIRMED", "value": "zksync-evm-interpreter"}}}
+        other = {**native, "execution_environment": "ethereum-evm", "environment_facts": {**native["environment_facts"], "execution_environment": {"status": "CONFIRMED", "value": "ethereum-evm"}}}
         self.assertEqual(evaluate_environment(check, native)[0], "TRUE")
         self.assertEqual(evaluate_environment(check, interpreter)[0], "TRUE")
         self.assertEqual(evaluate_environment(check, other)[0], "FALSE")
@@ -339,6 +342,46 @@ class ChecklistTests(unittest.TestCase):
     def test_chain_id_populates_known_chain_family(self) -> None:
         context = audit_context(ROOT, self.registry, self.empty_feature_map["recon_context"], target_root=ROOT / "tests/fixtures/recon/Empty.sol", chain_id=8453)
         self.assertEqual(context["chain_family"], "op-stack")
+
+    def test_environment_context_rejects_conflicts(self) -> None:
+        recon = self.empty_feature_map["recon_context"]
+        with self.assertRaises(ValueError):
+            validate_environment_context(recon, chain_id=8453, chain_family="arbitrum")
+        with self.assertRaises(ValueError):
+            validate_environment_context(recon, chain_id=324, execution_environment="ethereum-evm")
+        with self.assertRaises(ValueError):
+            validate_environment_context(recon, compiler_version="0.8.20")
+
+    def test_unknown_domain_is_deferred_and_blocks_clean_completion(self) -> None:
+        raw = self.v3_map({})
+        features = normalize_feature_map(raw, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
+        manifest, _ = select(self.registry, features, self.feature_names, None, {"source_digest": raw["recon_context"]["source_digest"]}, load_domains(ROOT), {}, raw["recon_context"])
+        self.assertTrue(manifest["deferred_domains"])
+        self.assertEqual(manifest["completion_gate"]["status"], "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING")
+
+    def test_global_policies_do_not_enter_deep_cards(self) -> None:
+        check = next(item for item in self.registry["checks"] if item["fp_policy"] == "global" and item["proof_policy"] == "global")
+        deep = compact_check(check, "deep")
+        self.assertEqual(deep["false_positive_gates"], [])
+        self.assertEqual(deep["proof"], [])
+
+    def test_candidate_is_promoted_from_screen_to_deep(self) -> None:
+        check = self.registry["checks"][0]
+        manifest = {"selected": [{"canonical_id": check["canonical_id"], "basis": []}], "selected_count": 1, "deferred_count": 0, "filtered_count": 0}
+        screen = selected_markdown(manifest, [check], "screen")
+        deep = selected_markdown(manifest, [check], "deep", {check["canonical_id"]})
+        self.assertIn("**Trigger:**", screen)
+        self.assertIn("**Risk:**", deep)
+
+    def test_jsonl_resume_reuses_only_matching_terminal_record(self) -> None:
+        check = self.registry["checks"][0]
+        context = {"registry_sha256": "a", "source_digest": "b", "compilation_digest": "c"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.jsonl"
+            append(path, context, {"canonical_id": check["canonical_id"], "status": "REVIEWED_SAFE", "check_body_hash": check_body_hash(check)})
+            self.assertIn(check["canonical_id"], resumable(path, context, {"checks": [check]}))
+            self.assertIn(check["canonical_id"], merge([path], context, {"checks": [check]}))
+            self.assertEqual(resumable(path, {**context, "source_digest": "changed"}, {"checks": [check]}), {})
 
     def test_knowledge_dirty_is_tristate_with_build_info_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -369,7 +412,7 @@ class ChecklistTests(unittest.TestCase):
     def test_routing_benchmarks_pass_recall_and_size_gates(self) -> None:
         result = subprocess.run([sys.executable, "scripts/benchmark_routing.py"], cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(result.stdout.strip().splitlines()), 8)
+        self.assertEqual(len(result.stdout.strip().splitlines()), 21)
 
     def test_fee_forward_inverse_algebra_and_rounding(self) -> None:
         gross = 1_000
@@ -423,10 +466,10 @@ class ChecklistTests(unittest.TestCase):
         self.assertLess(len(result.stdout), len(full_result.stdout))
 
     def test_compact_profile_contains_only_review_fields(self) -> None:
-        compact = compact_check(self.by_id["ERC4626-ROUND-001"], "compact")
-        self.assertEqual(set(compact), {"canonical_id", "title", "trigger", "detection", "false_positive_gates", "proof"})
-        full = compact_check(self.by_id["ERC4626-ROUND-001"], "full")
-        self.assertTrue({"description", "risk", "freshness", "predicate", "verification", "provenance"} <= set(full))
+        screen = compact_check(self.by_id["ERC4626-ROUND-001"], "screen")
+        self.assertEqual(set(screen), {"canonical_id", "title", "trigger", "detection"})
+        deep = compact_check(self.by_id["ERC4626-ROUND-001"], "deep")
+        self.assertTrue({"description", "risk", "verification", "provenance"} <= set(deep))
 
     def test_routing_manifest_covers_scope_and_shared_owner(self) -> None:
         raw_map = self.v3_map({name: "PRESENT" for name in self.feature_names})
@@ -443,7 +486,7 @@ class ChecklistTests(unittest.TestCase):
             {},
             raw_map["recon_context"],
         )
-        self.assertEqual(manifest["schema_version"], 4)
+        self.assertEqual(manifest["schema_version"], 5)
         self.assertIn("target_repo_commit", manifest["audit_context"])
         shared = next(item for item in manifest["selected"] + manifest["filtered"] if item["canonical_id"] == "EVM-TIME-001")
         self.assertEqual(shared["owner_domain"], "evm-audit-precision-math")
