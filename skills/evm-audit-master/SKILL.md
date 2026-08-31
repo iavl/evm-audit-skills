@@ -5,7 +5,7 @@ description: Master index for EVM smart contract security audits. Load this FIRS
 # EVM Smart Contract Security Audit — Master Index
 
 Load this skill first for an EVM audit. Read the target source and deployment
-context, run one scope-bound Recon, run one immutable routing-v6 snapshot, delegate only
+context, run one scope-bound Recon, run one immutable routing-v7 snapshot, delegate only
 the selected Domain runtime files, validate every ledger record, then synthesize
 only `CONFIRMED` findings. The canonical registry is knowledge input, not model
 context.
@@ -55,15 +55,16 @@ python3 <suite-root>/scripts/select_checks.py \
   --fork-block <block> --compiler-version <version> --evm-fork <fork>
 ```
 
-Routing v6 has environment, Domain surface, and canonical feature gates.
+Routing v7 has environment, Domain surface, and canonical feature gates.
 Domains are `SELECTED`, `DEFERRED`, or `FILTERED`; a Deferred Domain gets only a
 screening card and must resolve before clean completion. Checks are visible as
 `SELECTED`, `DEFERRED_DOMAIN`, `FILTERED_DOMAIN`, `FILTERED_ENVIRONMENT`, or
 `FILTERED_FEATURE`. Related Domains never auto-expand. Only confirmed absence
 and confirmed environment mismatch can filter; inferred false results remain.
 
-Render the initial Domain-resolution template and Screen view, fill the
-resolution evidence, then render Screen again from that resolution:
+Render the initial Domain-resolution template, resolve it, create the
+snapshot-bound Domain Context template, resolve required context, then render
+Screen and Deep:
 
 ```bash
 python3 <suite-root>/scripts/render_runtime.py --manifest <run-dir>/routing/manifest.json \
@@ -71,9 +72,14 @@ python3 <suite-root>/scripts/render_runtime.py --manifest <run-dir>/routing/mani
   --domain-resolution-out <run-dir>/reviews/domain-resolution.json
 python3 <suite-root>/scripts/render_runtime.py --manifest <run-dir>/routing/manifest.json \
   --profile screen --domain-resolution <run-dir>/reviews/domain-resolution.json \
+  --domain-context-out <run-dir>/reviews/domain-context.json --output <run-dir>/runtime/screen.md
+python3 <suite-root>/scripts/render_runtime.py --manifest <run-dir>/routing/manifest.json \
+  --profile screen --domain-resolution <run-dir>/reviews/domain-resolution.json \
+  --domain-context <run-dir>/reviews/domain-context.json \
   --output <run-dir>/runtime/screen.md --screen-results-out <run-dir>/reviews/screen-results.json
 python3 <suite-root>/scripts/render_runtime.py --manifest <run-dir>/routing/manifest.json \
   --profile deep --domain-resolution <run-dir>/reviews/domain-resolution.json \
+  --domain-context <run-dir>/reviews/domain-context.json \
   --screen-results <run-dir>/reviews/screen-results.json --output <run-dir>/runtime/deep.md
 ```
 
@@ -89,13 +95,13 @@ the selected execution environment and chain documentation.
 
 Create `audits/<repo>-<UTC timestamp>/` with `context.json`, `recon/`,
 `routing/`, `runtime/`, and `reviews/`. Run Recon and Selector exactly once.
-Render Screen from the manifest, write `screen-results.json`, resolve Deferred
-Domains, and render Deep only from the Screen `CANDIDATE` set.
+Resolve Deferred Domains and required Domain Context, render Screen, and render
+Deep only from the Screen `CANDIDATE` set.
 
 ### Orchestrated Domains
 
 Master performs Recon and global routing once. Domain agents receive the shared
-context, Feature Map v4, immutable routing manifest, Screen results, and their
+context, Feature Map v4, immutable routing manifest, Domain Context, Screen results, and their
 `screen-<domain>.md`. They must not rerun Recon, Selector, or Domain routing. Parallelize only
 when the active runtime supports it; otherwise execute Domains sequentially.
 
@@ -119,8 +125,10 @@ Derive completion independently with:
 ```bash
 python3 <suite-root>/scripts/validate_audit_run.py \
   --manifest <run-dir>/routing/manifest.json \
+  --context <run-dir>/context.json \
   --screen-results <run-dir>/reviews/screen-results.json \
   --domain-resolution <run-dir>/reviews/domain-resolution.json \
+  --domain-context <run-dir>/reviews/domain-context.json \
   --ledger <run-dir>/reviews/review-<owner-domain>.jsonl \
   --output <run-dir>/audit-state.json
 ```
@@ -129,5 +137,6 @@ The complete audit flow is:
 
 ```text
 source → Recon/Feature Map v4 → Environment Gate → Domain Gate → Check Gate
-       → Screen → candidate-only Deep → proof → independently derived state → confirmed-only synthesis
+       → Deferred Domain Resolution → Required Domain Context → Screen
+       → candidate-only Deep → proof → independently derived state → confirmed-only synthesis
 ```

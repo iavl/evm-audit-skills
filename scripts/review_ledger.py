@@ -11,20 +11,32 @@ from typing import Any, Iterable
 
 try:
     from audit_artifacts import (
+        absence_evidence_errors,
         check_body_hash,
         has_placeholder,
         load_json,
+        validate_domain_resolution,
         validate_artifact_identity,
         validate_schema,
+        validate_target_snapshot,
     )
-    from render_runtime import selected_entries, validate_domain_resolution, validate_manifest, validate_screen_results
+    from render_runtime import selected_entries, validate_manifest, validate_screen_results
 except ImportError:  # pragma: no cover
-    from scripts.audit_artifacts import check_body_hash, has_placeholder, load_json, validate_artifact_identity, validate_schema
-    from scripts.render_runtime import selected_entries, validate_domain_resolution, validate_manifest, validate_screen_results
+    from scripts.audit_artifacts import (
+        absence_evidence_errors,
+        check_body_hash,
+        has_placeholder,
+        load_json,
+        validate_domain_resolution,
+        validate_artifact_identity,
+        validate_schema,
+        validate_target_snapshot,
+    )
+    from scripts.render_runtime import selected_entries, validate_manifest, validate_screen_results
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 TERMINAL = {"NOT_APPLICABLE", "REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}
 REVIEW_STAGES = {"DEEP_REVIEW", "PROOF"}
 IDENTITY_KEYS = ("routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest")
@@ -123,11 +135,14 @@ def validate_record(record: dict[str, Any], manifest: dict[str, Any], registry: 
     if status == "NOT_APPLICABLE" and not str(record.get("applicability", "")).startswith("NOT_APPLICABLE"):
         errors.append(f"{canonical_id}: NOT_APPLICABLE must explain non-applicability")
     if status == "NOT_APPLICABLE" and isinstance(evidence, list):
-        kinds = {item.get("kind") for item in evidence if isinstance(item, dict)}
-        if not {"scope", "inheritance", "dependency", "environment"} <= kinds:
-            errors.append(f"{canonical_id}: NOT_APPLICABLE needs typed scope/inheritance/dependency/environment evidence")
+        errors.extend(absence_evidence_errors(evidence, record.get("scope_complete"), str(canonical_id)))
     if status == "CONFIRMED" and has_placeholder(*(record.get(field) for field in ("applicability", "code_path", "preconditions", "exploitability", "impact", "proof"))):
         errors.append(f"{canonical_id}: CONFIRMED cannot contain UNKNOWN/UNRESOLVED/TODO fields")
+    if status == "CONFIRMED":
+        if record.get("review_stage") != "PROOF":
+            errors.append(f"{canonical_id}: CONFIRMED requires review_stage=PROOF")
+        if not isinstance(evidence, list) or not any(item.get("kind") in {"test", "trace", "invariant", "calculation"} for item in evidence if isinstance(item, dict)):
+            errors.append(f"{canonical_id}: CONFIRMED requires strong proof evidence")
     return errors
 
 
@@ -159,7 +174,38 @@ def validate_records(records: list[dict[str, Any]], manifest: dict[str, Any], re
     return errors
 
 
+def collect_review_records(
+    paths: list[Path],
+    manifest: dict[str, Any],
+    registry: dict[str, Any],
+    expected_ids: set[str],
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Validate and combine ledgers without allowing cross-ledger overwrites."""
+    validate_target_snapshot(manifest)
+    records: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            values = load(path)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            errors.append(f"{path}: {error}")
+            continue
+        errors.extend(f"{path}: {error}" for error in validate_records(values, manifest, registry, expected_ids))
+        for record in values[1:]:
+            if record.get("record_type") != "review":
+                continue
+            canonical_id = record.get("canonical_id")
+            if canonical_id in records:
+                errors.append(f"duplicate Deep record across ledgers: {canonical_id}")
+            else:
+                records[canonical_id] = record
+    return records, errors
+
+
 def append(path: Path, manifest: dict[str, Any], record: dict[str, Any], registry: dict[str, Any] | None = None, expected_ids: set[str] | None = None) -> None:
+    validate_target_snapshot(manifest)
     if record.get("record_type") != "review":
         raise ValueError("append requires record_type=review")
     if record.get("schema_version") != SCHEMA_VERSION:
@@ -188,6 +234,7 @@ def append(path: Path, manifest: dict[str, Any], record: dict[str, Any], registr
 
 
 def pending(manifest: dict[str, Any], screen: dict[str, Any], ledgers: list[Path], registry: dict[str, Any], domain_resolution: dict[str, Any] | None = None) -> dict[str, list[str]]:
+    validate_target_snapshot(manifest)
     validate_schema(ROOT, "screen-results.schema.json", screen)
     validate_artifact_identity(screen, manifest)
     selected = {entry["canonical_id"] for entry in selected_entries(manifest, domain_resolution=domain_resolution)}
@@ -197,19 +244,15 @@ def pending(manifest: dict[str, Any], screen: dict[str, Any], ledgers: list[Path
         raise ValueError("partial screen results contain duplicate or non-selected IDs")
     for entry in screen_records:
         if entry["result"] == "NOT_APPLICABLE_CONFIRMED":
-            kinds = {item["kind"] for item in entry["evidence"]}
-            if not {"scope", "inheritance", "interface", "deployment"} <= kinds:
-                raise ValueError(f"{entry['canonical_id']} needs complete scope/inheritance/interface/deployment evidence")
+            errors = absence_evidence_errors(
+                entry["evidence"], entry.get("scope_complete"), entry["canonical_id"]
+            )
+            if errors:
+                raise ValueError("; ".join(errors))
     candidates = {entry["canonical_id"] for entry in screen_records if entry["result"] == "CANDIDATE"}
-    records: dict[str, dict[str, Any]] = {}
-    for path in ledgers:
-        values = load(path)
-        if values and (errors := validate_records(values, manifest, registry, candidates)):
-            raise ValueError(f"invalid ledger {path}: {'; '.join(errors)}")
-        if not values:
-            continue
-        for record in values[1:]:
-            records[record["canonical_id"]] = record
+    records, errors = collect_review_records(ledgers, manifest, registry, candidates)
+    if errors:
+        raise ValueError("; ".join(errors))
     safe_done = {canonical_id for canonical_id, record in records.items() if record["status"] in {"NOT_APPLICABLE", "REVIEWED_SAFE", "CONFIRMED"}}
     return {
         "screen_pending": sorted(selected - screened),
@@ -252,6 +295,7 @@ def render_markdown(records: list[dict[str, Any]], manifest: dict[str, Any], reg
 
 
 def write_ledger(path: Path, manifest: dict[str, Any], records: Iterable[dict[str, Any]], registry: dict[str, Any] | None = None, expected_ids: set[str] | None = None) -> None:
+    validate_target_snapshot(manifest)
     if path.exists():
         raise ValueError(f"refusing to overwrite existing ledger: {path}")
     values = [checkpoint(manifest), *records]
@@ -276,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         manifest, registry = read_json(args.manifest), read_json(args.registry)
         validate_manifest(ROOT, manifest, registry)
+        validate_target_snapshot(manifest)
         screen = read_json(args.screen_results)
         domain_resolution = read_json(args.domain_resolution) if args.domain_resolution else None
         if domain_resolution is not None:
@@ -289,15 +334,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("--append-record requires exactly one --ledger output")
             append(args.ledger[0], manifest, read_json(args.append_record), registry, candidates)
         if args.render_markdown:
-            values: list[dict[str, Any]] = []
-            for path in args.ledger:
-                loaded = load(path)
-                if validate_records(loaded, manifest, registry, candidates):
-                    raise ValueError(f"invalid ledger: {path}")
-                if not values:
-                    values.extend(loaded)
-                else:
-                    values.extend(loaded[1:])
+            records, errors = collect_review_records(args.ledger, manifest, registry, candidates)
+            if errors:
+                raise ValueError("; ".join(errors))
+            values = [checkpoint(manifest), *records.values()]
             args.render_markdown.parent.mkdir(parents=True, exist_ok=True)
             args.render_markdown.write_text(render_markdown(values, manifest, registry), encoding="utf-8")
         return 0

@@ -50,7 +50,7 @@ Use a three-stage funnel for every routed canonical check:
    runnable PoC, transaction trace, or deterministic invariant violation before
    using `CONFIRMED`.
 
-The immutable routing-v6 manifest must account for every canonical ID in the considered
+The immutable routing-v7 manifest must account for every canonical ID in the considered
 Domain scope as `SELECTED`, `FILTERED_ENVIRONMENT`, or `FILTERED_FEATURE` and
 must separately account for Selected, Deferred, and filtered Domains. Deferred
 Domains must resolve before clean completion. It
@@ -95,7 +95,7 @@ The JSONL checkpoint carries `routing_snapshot_id`, `registry_sha256`,
 `source_digest`, and `compilation_input_digest`; every review record also
 carries the routed `check_body_hash`. Typed evidence entries use `kind`,
 `location`, and `reason`.
-The current review-record schema is v3. A ledger belongs to exactly one routing
+The current review-record schema is v4. A ledger belongs to exactly one routing
 snapshot; if any identity or schema value changes, start a new audit run.
 Markdown ledgers are not runtime input; `review_ledger.py` renders them from
 JSONL when a human view is needed.
@@ -124,7 +124,7 @@ where a field does not support the selected status.
 ### `NOT_APPLICABLE`
 
 - Set `Applicability` to `NOT_APPLICABLE` and state the concrete absence of the relevant surface.
-- Cite the source inventory, inheritance/proxy map, interface usage, or other code evidence.
+- Set `scope_complete` to true and cite scope evidence plus evidence for the actual exclusion dimension (source, inheritance, interface, dependency, deployment, or environment).
 - “I did not find it quickly,” an unfamiliar dependency, or an inability to run a test is not enough. Use `SUSPICIOUS` when applicability is uncertain.
 - When a selected item is later shown to be not applicable, record the concrete
   scope evidence. Do not emit a blanket set of deep fields merely to satisfy a
@@ -155,7 +155,7 @@ All of the following must be concrete and supported:
 4. A specific impact on funds, accounting, authorization, availability, or another stated security invariant.
 5. Either a runnable PoC/transaction trace with observed results, or a deterministic invariant violation with a complete path and state relation.
 
-Code pattern matching, a hypothetical “could,” a severity label, or a recommendation alone cannot produce `CONFIRMED`.
+Code pattern matching, a hypothetical “could,” a severity label, or a recommendation alone cannot produce `CONFIRMED`. The record must be at `PROOF` stage and include strong `test`, `trace`, `invariant`, or `calculation` evidence.
 
 Accepted proof includes a named Foundry/Hardhat test and result, a reproducible transaction sequence and state delta, or a static proof of a violated invariant that does not depend on an unverified assumption. If proof depends on unavailable fork state, deployment configuration, or external behavior, keep the record `SUSPICIOUS` until that dependency is established.
 

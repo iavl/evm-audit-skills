@@ -23,7 +23,7 @@ python3 scripts/recon.py <target-project-or-solidity-file> --audit-root <target-
 
 ## Routing
 
-Routing v6 applies environment, Domain, and canonical feature gates. Domains
+Routing v7 applies environment, Domain, and canonical feature gates. Domains
 are `SELECTED`, `DEFERRED`, or `FILTERED`; an `UNKNOWN` Domain is Deferred with
 a small screening card, and only confirmed absence or confirmed environment
 mismatch can filter. Related Domains never auto-expand.
@@ -37,10 +37,11 @@ python3 scripts/select_checks.py --feature-map recon-features.json --target-root
   --format json
 ```
 
-The v6 manifest records selected, Deferred, and filtered Domain/check stages;
+The v7 manifest records selected, Deferred, and filtered Domain/check stages;
 registry, source, dependency, build-config, and compilation fingerprints; and
-evidence-backed environment facts. `fork_block` is reproducibility metadata,
-not hardfork inference.
+evidence-backed environment facts. It also snapshots immutable required-context
+definitions; resolution state lives in `domain-context.json`. `fork_block` is
+reproducibility metadata, not hardfork inference.
 
 Canonical predicates use `all_of` / `any_of` / `none_of`. Only a curated
 predicate can filter on `FALSE`; an inferred `FALSE` becomes `UNKNOWN` and
@@ -49,5 +50,6 @@ proving non-applicability.
 
 The manifest is immutable; `render_runtime.py` never re-runs routing. Screen
 cards can promote candidates to Deep Review but never filter uncertainty.
-Deferred Domain resolution and `screen-results.json` are separately evidenced
-artifacts.
+Deferred Domain resolution, Domain Context, and `screen-results.json` are
+separately evidenced snapshot-bound artifacts. A Deferred `UNKNOWN` or required
+Domain Context `UNKNOWN` blocks Deep and completion.

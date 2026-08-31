@@ -84,6 +84,13 @@ class GenerationTests(unittest.TestCase):
             self.assertTrue((root / "skills/evm-audit-example/SKILL.md").exists())
             self.assertTrue((root / "skills/evm-audit-example/references/checklist.md").exists())
 
+    def test_no_third_party_notices_links_exist(self) -> None:
+        for path in ROOT.rglob("*.md"):
+            if ".git" in path.parts:
+                continue
+            with self.subTest(path=path):
+                self.assertNotIn("THIRD_PARTY_" + "NOTICES.md", path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

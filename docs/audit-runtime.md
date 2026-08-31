@@ -4,7 +4,8 @@ The runtime flow is:
 
 ```text
 source → Recon/Feature Map v4 → Environment Gate → Domain Gate → Check Gate
-       → Screen → candidate-only Deep → proof → independently derived state → confirmed-only synthesis
+       → Deferred Domain Resolution → Required Domain Context → Screen
+       → candidate-only Deep → proof → independently derived state → confirmed-only synthesis
 ```
 
 Standalone runs create `audits/<repo>-<UTC timestamp>/` and run Recon/Selector
@@ -17,16 +18,27 @@ Render the runtime views from the immutable manifest:
 
 ```bash
 python3 scripts/render_runtime.py --manifest routing/manifest.json --profile screen \
-  --output runtime/screen.md --screen-results-out reviews/screen-results.json \
+  --output runtime/screen.md \
   --domain-resolution-out reviews/domain-resolution.json
+python3 scripts/render_runtime.py --manifest routing/manifest.json --profile screen \
+  --domain-resolution reviews/domain-resolution.json \
+  --domain-context-out reviews/domain-context.json --output runtime/screen.md
+python3 scripts/render_runtime.py --manifest routing/manifest.json --profile screen \
+  --domain-resolution reviews/domain-resolution.json \
+  --domain-context reviews/domain-context.json \
+  --screen-results-out reviews/screen-results.json --output runtime/screen.md
 python3 scripts/render_runtime.py --manifest routing/manifest.json --profile deep \
+  --domain-resolution reviews/domain-resolution.json \
+  --domain-context reviews/domain-context.json \
   --screen-results reviews/screen-results.json --output runtime/deep.md
 ```
 
 `screen` carries only ID, title, trigger, and detection. It may classify a
 check only as `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`; only `CANDIDATE` cards
-reach `deep`. Resolve every Deferred Domain and rerun Screen with
-`--domain-resolution` before Deep when a Deferred Domain is `PRESENT`.
+reach `deep`. Resolve every Deferred Domain, then resolve the required
+snapshot-bound Domain Context and rerun Screen with both artifacts.
+`NOT_APPLICABLE_CONFIRMED` requires `scope_complete: true`, scope evidence, and
+evidence for the relevant exclusion dimension; uncertainty remains `CANDIDATE`.
 `LIKELY_SAFE` is not a valid state.
 
 Each candidate canonical ID receives exactly one owner-Domain JSONL review
@@ -35,7 +47,7 @@ path, preconditions, exploitability, impact, PoC/invariant evidence, and one
 of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
 
 `--append-record` accepts a current review payload with `record_type: "review"`
-and `schema_version: 3`; the ledger binds its identity fields to the manifest.
+and `schema_version: 4`; `CONFIRMED` requires `PROOF` and strong proof evidence.
 Missing, stale, or older record shapes are rejected.
 
 Runtime Markdown is a generated view with snapshot, registry, source,
@@ -49,8 +61,10 @@ resolution, and owner-Domain ledgers:
 
 ```bash
 python3 scripts/validate_audit_run.py --manifest routing/manifest.json \
+  --context context.json \
   --screen-results reviews/screen-results.json \
   --domain-resolution reviews/domain-resolution.json \
+  --domain-context reviews/domain-context.json \
   --ledger reviews/review-<owner-domain>.jsonl \
   --output audit-state.json
 ```
@@ -68,7 +82,7 @@ Confirmed findings use this format:
 ## [X-N] Title
 **Status**: CONFIRMED
 **Checklist reference**: `<canonical-id>`
-**Provenance references**: `<source IDs or aliases from canonical registry>`
+**Provenance references**: `<source IDs from canonical registry>`
 **Severity**: Critical / High / Medium / Low / Info
 **Category**: [skill name]
 **Location**: `functionName()` or file:line

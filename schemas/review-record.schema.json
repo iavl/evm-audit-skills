@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:review-record:v3",
+  "$id": "urn:evm-audit-skills:review-record:v4",
   "oneOf": [
     {
       "type": "object",
@@ -8,7 +8,7 @@
       "required": ["record_type", "schema_version", "routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest"],
       "properties": {
         "record_type": {"const": "checkpoint"},
-        "schema_version": {"const": 3},
+        "schema_version": {"const": 4},
         "routing_snapshot_id": {"$ref": "#/$defs/hash"},
         "registry_sha256": {"$ref": "#/$defs/hash"},
         "source_digest": {"$ref": "#/$defs/hash"},
@@ -25,7 +25,7 @@
       ],
       "properties": {
         "record_type": {"const": "review"},
-        "schema_version": {"const": 3},
+        "schema_version": {"const": 4},
         "canonical_id": {"type": "string", "minLength": 1},
         "owner_domain": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
         "routing_snapshot_id": {"$ref": "#/$defs/hash"},
@@ -35,6 +35,7 @@
         "check_body_hash": {"$ref": "#/$defs/hash"},
         "review_stage": {"enum": ["DEEP_REVIEW", "PROOF"]},
         "status": {"enum": ["NOT_APPLICABLE", "REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"]},
+        "scope_complete": {"type": "boolean"},
         "applicability": {"type": "string", "minLength": 1},
         "code_path": {"type": "string", "minLength": 1},
         "preconditions": {"type": "string", "minLength": 1},
@@ -47,7 +48,25 @@
       },
       "allOf": [
         {"if": {"properties": {"status": {"const": "REVIEWED_SAFE"}}}, "then": {"required": ["preserved_invariant"]}},
-        {"if": {"properties": {"status": {"const": "SUSPICIOUS"}}}, "then": {"required": ["unresolved_reason"]}}
+        {"if": {"properties": {"status": {"const": "SUSPICIOUS"}}}, "then": {"required": ["unresolved_reason"]}},
+        {
+          "if": {"properties": {"status": {"const": "NOT_APPLICABLE"}}},
+          "then": {"required": ["scope_complete"], "properties": {"scope_complete": {"const": true}}}
+        },
+        {
+          "if": {"properties": {"status": {"const": "CONFIRMED"}}},
+          "then": {
+            "properties": {
+              "review_stage": {"const": "PROOF"},
+              "evidence": {
+                "contains": {
+                  "type": "object",
+                  "properties": {"kind": {"enum": ["test", "trace", "invariant", "calculation"]}}
+                }
+              }
+            }
+          }
+        }
       ]
     }
   ],

@@ -11,29 +11,36 @@ from typing import Any
 
 try:
     from audit_artifacts import (
+        absence_evidence_errors,
         canonical_sha256,
         check_body_hash,
         load_json,
         registry_sha256,
+        validate_domain_context,
+        validate_domain_resolution,
         validate_artifact_identity,
         validate_routing_snapshot,
         validate_schema,
+        validate_target_snapshot,
     )
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
+        absence_evidence_errors,
         canonical_sha256,
         check_body_hash,
         load_json,
         registry_sha256,
+        validate_domain_context,
+        validate_domain_resolution,
         validate_artifact_identity,
         validate_routing_snapshot,
         validate_schema,
+        validate_target_snapshot,
     )
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTE_BUCKETS = ("selected", "deferred", "filtered")
-SCREEN_ABSENCE_KINDS = {"scope", "inheritance", "interface", "deployment"}
 
 
 def one_line(value: Any) -> str:
@@ -55,6 +62,10 @@ def validate_manifest(root: Path, manifest: dict[str, Any], registry: dict[str, 
     snapshot = validate_routing_snapshot(manifest)
     if manifest["audit_context"]["registry_sha256"] != registry_sha256(registry):
         raise ValueError("routing manifest does not match this registry")
+    recon_context = manifest["feature_map"]["recon_context"]
+    for key in ("source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest"):
+        if manifest["audit_context"][key] != recon_context[key]:
+            raise ValueError(f"routing manifest {key} does not match Recon")
     checks = {check["canonical_id"]: check for check in registry["checks"]}
     ids_by_bucket: dict[str, list[str]] = {}
     for bucket in ROUTE_BUCKETS:
@@ -86,6 +97,11 @@ def validate_manifest(root: Path, manifest: dict[str, Any], registry: dict[str, 
     selected_domains = domain_buckets[0]
     deferred_domains = domain_buckets[1]
     filtered_domains = domain_buckets[2]
+    required_context_domains = set(manifest["required_context_requirements"])
+    if required_context_domains != selected_domains | deferred_domains:
+        raise ValueError("required_context_requirements must cover selected and Deferred Domains only")
+    if required_context_domains & filtered_domains:
+        raise ValueError("filtered Domains must not have required context")
     for entry in manifest["selected"]:
         if not set(entry["domains"]) & selected_domains:
             raise ValueError(f"selected check is not owned by a selected Domain: {entry['canonical_id']}")
@@ -101,7 +117,7 @@ def validate_manifest(root: Path, manifest: dict[str, Any], registry: dict[str, 
 def _empty_identity(manifest: dict[str, Any]) -> dict[str, Any]:
     audit = manifest["audit_context"]
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "routing_snapshot_id": manifest["routing_snapshot_id"],
         "registry_sha256": audit["registry_sha256"],
         "source_digest": audit["source_digest"],
@@ -113,7 +129,7 @@ def screen_results_template(manifest: dict[str, Any], domain_resolution: dict[st
     return {
         **_empty_identity(manifest),
         "results": [
-            {"canonical_id": entry["canonical_id"], "result": "CANDIDATE", "evidence": []}
+            {"canonical_id": entry["canonical_id"], "result": "CANDIDATE", "scope_complete": False, "evidence": []}
             for entry in selected_entries(manifest, domain_resolution=domain_resolution)
         ],
     }
@@ -129,12 +145,28 @@ def domain_resolution_template(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_domain_resolution(root: Path, manifest: dict[str, Any], value: dict[str, Any]) -> None:
-    validate_schema(root, "domain-resolution.schema.json", value)
-    validate_artifact_identity(value, manifest)
-    expected = {entry["domain"] for entry in manifest["deferred_domains"]}
-    if set(value["domains"]) != expected:
-        raise ValueError("domain resolution must contain exactly Deferred Domains")
+def domain_context_template(
+    manifest: dict[str, Any],
+    domain_resolution: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    eligible = {entry["domain"] for entry in manifest["selected_domains"]}
+    if domain_resolution is not None:
+        eligible |= {
+            domain
+            for domain, resolution in domain_resolution["domains"].items()
+            if resolution["status"] == "PRESENT"
+        }
+    return {
+        **_empty_identity(manifest),
+        "domains": {
+            domain: {
+                key: {"status": "UNKNOWN", "evidence": []}
+                for key in manifest["required_context_requirements"].get(domain, {})
+            }
+            for domain in sorted(eligible)
+            if domain in manifest["required_context_requirements"]
+        },
+    }
 
 
 def validate_screen_results(root: Path, manifest: dict[str, Any], value: dict[str, Any], domain_resolution: dict[str, Any] | None = None) -> set[str]:
@@ -147,9 +179,11 @@ def validate_screen_results(root: Path, manifest: dict[str, Any], value: dict[st
         raise ValueError("screen results must resolve every selected ID exactly once")
     for entry in results:
         if entry["result"] == "NOT_APPLICABLE_CONFIRMED":
-            kinds = {item["kind"] for item in entry["evidence"]}
-            if not SCREEN_ABSENCE_KINDS <= kinds:
-                raise ValueError(f"{entry['canonical_id']} needs complete scope/inheritance/interface/deployment evidence")
+            errors = absence_evidence_errors(
+                entry["evidence"], entry.get("scope_complete"), entry["canonical_id"]
+            )
+            if errors:
+                raise ValueError("; ".join(errors))
     return {entry["canonical_id"] for entry in results if entry["result"] == "CANDIDATE"}
 
 
@@ -212,18 +246,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--domain-resolution", type=Path, help="resolved Deferred Domain artifact")
     parser.add_argument("--screen-results-out", type=Path, help="write a conservative Screen result template")
     parser.add_argument("--domain-resolution-out", type=Path, help="write an unresolved Deferred Domain template")
+    parser.add_argument("--domain-context", type=Path, help="snapshot-bound required Domain context")
+    parser.add_argument("--domain-context-out", type=Path, help="write an unresolved Domain Context template")
     parser.add_argument("--owner-domain", help="render only checks owned by this Domain")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)
     try:
         manifest, registry = load_json(args.manifest), load_json(args.registry)
         validate_manifest(ROOT, manifest, registry)
+        validate_target_snapshot(manifest)
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
         if domain_resolution is not None:
-            validate_domain_resolution(ROOT, manifest, domain_resolution)
+            validate_domain_resolution(
+                ROOT, manifest, domain_resolution, require_terminal=args.profile == "deep"
+            )
+        domain_context = load_json(args.domain_context) if args.domain_context else None
+        if domain_context is not None:
+            validate_domain_context(
+                ROOT,
+                manifest,
+                domain_context,
+                domain_resolution,
+                require_complete=args.profile == "deep",
+            )
         if args.profile == "deep":
             if not args.screen_results:
                 raise ValueError("--profile deep requires --screen-results")
+            if manifest["deferred_domains"] and not domain_resolution:
+                raise ValueError("--profile deep requires --domain-resolution for Deferred Domains")
+            if not args.domain_context:
+                raise ValueError("--profile deep requires --domain-context")
             candidates = validate_screen_results(ROOT, manifest, load_json(args.screen_results), domain_resolution)
         else:
             candidates = set()
@@ -233,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
                 write_json(args.screen_results_out, screen_results_template(manifest, domain_resolution))
             if args.domain_resolution_out:
                 write_json(args.domain_resolution_out, domain_resolution_template(manifest))
+            if args.domain_context_out:
+                write_json(args.domain_context_out, domain_context_template(manifest, domain_resolution))
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(render(manifest, registry, args.profile, candidates, args.owner_domain, domain_resolution), encoding="utf-8")
         return 0

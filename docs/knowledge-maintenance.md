@@ -16,7 +16,10 @@ and freshness metadata.
 [`domains/*.json`](../domains/) contains Domain taxonomy and methodology.
 Feature definitions live in [`data/features.json`](../data/features.json), and
 the feature-map input shape is documented by
-[`data/feature-map.schema.json`](../data/feature-map.schema.json).
+[`schemas/feature-map.schema.json`](../schemas/feature-map.schema.json).
+Historical alias locations and deduplication decisions are retained separately
+in [`tests/knowledge/canonical-history.json`](../tests/knowledge/canonical-history.json);
+they are not runtime checklist fields.
 
 ## Generated views
 
@@ -30,7 +33,7 @@ knowledge.
 The repository is forward-only. `HEAD` defines the only supported canonical
 schema. When the schema changes, update the canonical data, validators,
 generators, and tests in the same change. Older repository or audit-artifact
-schemas are not migrated automatically.
+schemas are rejected and must be regenerated.
 
 For the field-level workflow, use [`Adding a Check`](adding-a-check.md). For
 source history and external integration policy, use

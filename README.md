@@ -71,11 +71,12 @@ audit this contract and file issues: https://github.com/owner/repo/blob/main/con
 
 The workflow will:
 1. Load `evm-audit-master` and build a source, dependency, chain, and evidence-backed feature map.
-2. Use Slither-backed reconnaissance and `data/features.json` to emit one immutable routing-v6 manifest; only curated predicates proven false are filtered.
-3. Render Screen from the manifest, classify only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`, resolve Deferred Domains, then render Deep from candidates only.
-4. Write exactly one JSONL Deep/proof record per candidate; filtered IDs remain only in the machine manifest.
-5. Independently derive `audit-state.json`; synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
-6. File GitHub issues only for confirmed Medium+ findings when explicitly in scope.
+2. Use Slither-backed reconnaissance and `data/features.json` to emit one immutable routing-v7 manifest; only curated predicates proven false are filtered.
+3. Resolve Deferred Domains and required Domain Context from snapshot-bound artifacts before rendering Deep.
+4. Render Screen, classify only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`, then render Deep from candidates only.
+5. Write exactly one JSONL Deep/proof record per candidate; filtered IDs remain only in the machine manifest.
+6. Independently derive `audit-state.json`; synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
+7. File GitHub issues only for confirmed Medium+ findings when explicitly in scope.
 
 ### Runtime-neutral execution
 
@@ -111,9 +112,11 @@ Contract URL/path
   RECON + FEATURE MAP
       │
       ▼
-  IMMUTABLE ROUTING (v6 manifest: selected + deferred + filtered IDs)
+  IMMUTABLE ROUTING (v7 manifest: selected + deferred + filtered IDs)
       │
       ▼
+  DEFERRED DOMAIN RESOLUTION → REQUIRED DOMAIN CONTEXT
+      │
   SCREEN → CANDIDATE-ONLY DEEP REVIEW (parallel when supported; sequential otherwise)
   ├── candidate domain → review-<skill>.jsonl
   └── filtered IDs remain machine-readable in routing-manifest.json
@@ -135,7 +138,9 @@ records become findings. See [Audit Runtime](docs/audit-runtime.md) for the
 review contract, confirmed finding format, severity rules, and unresolved
 review-state requirements.
 
-## License / Third-party Notices
+## License
 
-Third-party license text lives in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-Independently authored repository content is licensed by [`LICENSE`](LICENSE).
+The repository is licensed under the MIT License in [`LICENSE`](LICENSE). The
+root `LICENSE` also preserves the copyright notices for incorporated MIT-licensed
+upstream material. Source provenance and pinned upstream revisions are documented
+in [`docs/knowledge-lineage.md`](docs/knowledge-lineage.md).

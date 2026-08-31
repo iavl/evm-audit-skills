@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.audit_artifacts import validate_schema, validate_target_snapshot
 from scripts.benchmark_routing import fixture_paths, run_profile, validate_fixture
 from scripts.generate_checklists import load_domains
 from scripts.select_checks import (
@@ -120,7 +121,7 @@ class RoutingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_feature_map({"schema_version": 2, "features": {}}, self.feature_names, self.feature_policies, EMPTY_TARGET)
 
-    def test_feature_map_v4_rejects_legacy_cli_and_formats(self) -> None:
+    def test_feature_map_v4_rejects_unsupported_cli_and_formats(self) -> None:
         help_result = subprocess.run(
             [sys.executable, "scripts/select_checks.py", "--help"],
             cwd=ROOT,
@@ -136,6 +137,18 @@ class RoutingTests(unittest.TestCase):
                     self.feature_policies,
                     EMPTY_TARGET,
                 )
+
+    def test_feature_map_has_single_schema_source(self) -> None:
+        self.assertTrue((ROOT / "schemas/feature-map.schema.json").exists())
+        self.assertFalse((ROOT / "data" / ("feature-map" + ".schema.json")).exists())
+        result = subprocess.run(
+            [sys.executable, "scripts/recon.py", str(EMPTY_TARGET)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        validate_schema(ROOT, "feature-map.schema.json", json.loads(result.stdout))
 
     def test_absence_policy_downgrades_dynamic_loop(self) -> None:
         normalized = normalize_feature_map(
@@ -168,6 +181,36 @@ class RoutingTests(unittest.TestCase):
             )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("source_digest", result.stderr)
+
+    def test_dependency_source_change_invalidates_compilation_input_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir)
+            (target / "contracts").mkdir()
+            dependency = target / "lib/foo/src/Foo.sol"
+            dependency.parent.mkdir(parents=True)
+            (target / "contracts/Main.sol").write_text("pragma solidity ^0.8.24; contract Main {}", encoding="utf-8")
+            dependency.write_text("pragma solidity ^0.8.24; contract Foo {}", encoding="utf-8")
+            raw = synthetic_feature_map(target=target)
+            normalized = normalize_feature_map(raw, self.feature_names, self.feature_policies, target)
+            context = audit_context(ROOT, self.registry, raw["recon_context"], target_root=target, audit_timestamp="test")
+            environment = {
+                **{key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")},
+                "environment_facts": context["environment_facts"],
+            }
+            manifest, _ = select(
+                self.registry,
+                normalized,
+                self.feature_names,
+                ["evm-audit-general"],
+                context,
+                load_domains(ROOT),
+                environment,
+                raw["recon_context"],
+            )
+            validate_target_snapshot(manifest)
+            dependency.write_text("pragma solidity ^0.8.24; contract Foo { uint256 value; }", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Target source/build inputs changed"):
+                validate_target_snapshot(manifest)
 
     def test_domain_gate_does_not_expand_related_domains(self) -> None:
         all_absent = synthetic_feature_map({name: "ABSENT_CONFIRMED" for name in self.feature_names})
@@ -296,6 +339,8 @@ class RoutingTests(unittest.TestCase):
         )
         self.assertTrue(manifest["deferred_domains"])
         self.assertNotIn("completion_gate", manifest)
+        self.assertIn("required_context_requirements", manifest)
+        self.assertNotIn("unresolved_" + "required_context", manifest)
 
     def test_curated_predicates_have_select_and_filter_fixtures(self) -> None:
         fixtures = {
@@ -367,6 +412,21 @@ class RoutingTests(unittest.TestCase):
                     "max_runtime_bytes": 0,
                 },
             )
+
+    def test_benchmark_budgets_are_upper_bounds(self) -> None:
+        result = run_profile(
+            ROOT,
+            {
+                "schema_version": 1,
+                "name": "upper-bound",
+                "present_features": [],
+                "absent_features": [],
+                "max_selected_checks": 10_000,
+                "max_runtime_bytes": 10_000_000,
+                "max_total_context_bytes": 10_000_000,
+            },
+        )
+        self.assertGreater(result["screen_runtime_bytes"], 0)
 
 
 if __name__ == "__main__":

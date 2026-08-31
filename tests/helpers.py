@@ -62,11 +62,10 @@ def synthetic_feature_map(
 
 
 def build_manifest(
-    domains: Sequence[str] = ("evm-audit-general",),
+    domains: Sequence[str] | None = ("evm-audit-general",),
     statuses: Mapping[str, str] | None = None,
     *,
     all_features: bool = False,
-    domain_context: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
     registry, feature_names, policies = suite_inputs()
     requested = {name: "PRESENT" for name in feature_names} if all_features else {}
@@ -95,29 +94,14 @@ def build_manifest(
         "environment_facts": context["environment_facts"],
     }
     configs = load_domains(ROOT)
-    if domain_context is None:
-        domain_context = {
-            "domains": {
-                domain: {
-                    requirement["key"]: {
-                        "status": "KNOWN",
-                        "value": "fixture",
-                        "evidence": ["fixture"],
-                    }
-                    for requirement in configs[domain]["required_context"]
-                }
-                for domain in domains
-            }
-        }
     manifest, _ = select(
         registry,
         normalized,
         feature_names,
-        list(domains),
+        list(domains) if domains is not None else None,
         context,
         configs,
         environment,
         raw["recon_context"],
-        domain_context,
     )
     return registry, raw, normalized, manifest

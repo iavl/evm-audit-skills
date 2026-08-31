@@ -32,5 +32,6 @@ audits/<repo>-<UTC timestamp>/
 ```
 
 Open `AUDIT-REPORT.md` for the final findings. Supporting Recon, routing,
-runtime, and review evidence is kept beside it; only `CONFIRMED` records enter
-the final report.
+runtime, Domain Resolution, Domain Context, and review evidence is kept beside
+it; only `CONFIRMED` records enter the final report. Required context and
+unresolved Deferred Domains prevent a clean completion.

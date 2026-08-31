@@ -77,7 +77,6 @@ REGISTRY_REQUIRED_FIELDS = {
     "predicate_source",
     "provenance",
     "related",
-    "aliases",
     "verification",
     "freshness",
     "verified_at",
@@ -203,7 +202,7 @@ def validate_registry(root: Path) -> list[str]:
     errors: list[str] = []
     path = root / "data" / "canonical-checks.json"
     feature_path = root / "data" / "features.json"
-    feature_schema_path = root / "data" / "feature-map.schema.json"
+    feature_schema_path = root / "schemas" / "feature-map.schema.json"
     if not feature_schema_path.exists():
         errors.append(f"missing feature-map schema: {feature_schema_path}")
     else:
@@ -303,21 +302,7 @@ def validate_registry(root: Path) -> list[str]:
     if not isinstance(checks, list) or not checks:
         return errors + [f"{path}: checks must be a non-empty list"]
 
-    dedup = registry.get("dedup_decisions")
-    if not isinstance(dedup, dict) or not isinstance(dedup.get("reviewed_candidates"), list):
-        errors.append(f"{path}: dedup_decisions.reviewed_candidates must be a list")
-    else:
-        decision_ids: set[str] = set()
-        for decision in dedup["reviewed_candidates"]:
-            if not isinstance(decision, dict) or decision.get("decision") not in {"MERGED", "KEEP_DISTINCT"} or not decision.get("canonical_id") or not decision.get("reason"):
-                errors.append(f"{path}: malformed dedup decision {decision!r}")
-                continue
-            if decision["canonical_id"] in decision_ids:
-                errors.append(f"{path}: duplicate dedup decision {decision['canonical_id']}")
-            decision_ids.add(decision["canonical_id"])
-
     ids: set[str] = set()
-    alias_keys: set[tuple[str, int]] = set()
     source_ids: dict[str, str] = {}
     for index, check in enumerate(checks, 1):
         prefix = f"{path}:checks[{index}]"
@@ -487,38 +472,61 @@ def validate_registry(root: Path) -> list[str]:
                     if applicability[field] is not None and (not isinstance(applicability[field], str) or not applicability[field]):
                         errors.append(f"{prefix}: applicability.{field} must be a string or null")
 
-        aliases = check.get("aliases")
-        if not isinstance(aliases, list) or not aliases:
-            errors.append(f"{prefix}: aliases must be a non-empty list")
-        else:
-            for alias in aliases:
-                if not isinstance(alias, dict) or not isinstance(alias.get("path"), str) or not isinstance(alias.get("line"), int) or not alias.get("title"):
-                    errors.append(f"{prefix}: malformed alias {alias!r}")
-                    continue
-                alias_key = (alias["path"], alias["line"])
-                if alias_key in alias_keys:
-                    errors.append(f"{prefix}: duplicate source alias {alias_key}")
-                alias_keys.add(alias_key)
-                for source_id in alias.get("source_ids", []):
-                    if not SOURCE_ID_RE.fullmatch(source_id):
-                        errors.append(f"{prefix}: malformed source ID in alias {source_id!r}")
-                    previous = source_ids.get(source_id)
-                    if previous and previous != canonical_id:
-                        errors.append(f"{prefix}: source ID {source_id} also appears in {previous}")
-                    source_ids[source_id] = canonical_id
-                    if not any(source_id in str(entry.get("label", "")) for entry in provenance if isinstance(entry, dict)):
-                        errors.append(f"{prefix}: source ID {source_id} has no provenance entry")
-
         if not isinstance(check.get("related"), list):
             errors.append(f"{prefix}: related must be a list")
+
+    history_path = root / "tests" / "knowledge" / "canonical-history.json"
+    if not history_path.exists():
+        errors.append(f"missing canonical history: {history_path}")
+    else:
+        try:
+            history = json.loads(history_path.read_text(encoding="utf-8"))
+            if not isinstance(history, dict) or history.get("schema_version") != 1:
+                errors.append(f"{history_path}: schema_version must be 1")
+            aliases = history.get("aliases") if isinstance(history, dict) else None
+            if not isinstance(aliases, list):
+                errors.append(f"{history_path}: aliases must be a list")
+                aliases = []
+            alias_keys: set[tuple[str, int]] = set()
+            alias_ids: set[str] = set()
+            for alias in aliases:
+                if not isinstance(alias, dict) or not isinstance(alias.get("canonical_id"), str) or alias.get("canonical_id") not in ids or not isinstance(alias.get("path"), str) or not isinstance(alias.get("line"), int) or not alias.get("title"):
+                    errors.append(f"{history_path}: malformed alias {alias!r}")
+                    continue
+                canonical_id = alias["canonical_id"]
+                alias_ids.add(canonical_id)
+                alias_key = (alias["path"], alias["line"])
+                if alias_key in alias_keys:
+                    errors.append(f"{history_path}: duplicate source alias {alias_key}")
+                alias_keys.add(alias_key)
+                for source_id in alias.get("source_ids", []):
+                    if not isinstance(source_id, str) or not SOURCE_ID_RE.fullmatch(source_id):
+                        errors.append(f"{history_path}: malformed source ID in alias {source_id!r}")
+                    elif source_ids.get(source_id) != canonical_id:
+                        errors.append(f"{history_path}: source ID {source_id} has no matching provenance entry")
+            if alias_ids != ids:
+                errors.append(f"{history_path}: aliases must cover every canonical ID")
+
+            dedup = history.get("dedup_decisions") if isinstance(history, dict) else None
+            decisions = dedup.get("reviewed_candidates") if isinstance(dedup, dict) else None
+            if not isinstance(decisions, list):
+                errors.append(f"{history_path}: dedup_decisions.reviewed_candidates must be a list")
+            else:
+                decision_ids: set[str] = set()
+                for decision in decisions:
+                    if not isinstance(decision, dict) or decision.get("decision") not in {"MERGED", "KEEP_DISTINCT"} or decision.get("canonical_id") not in ids or not decision.get("reason"):
+                        errors.append(f"{history_path}: malformed dedup decision {decision!r}")
+                        continue
+                    if decision["canonical_id"] in decision_ids:
+                        errors.append(f"{history_path}: duplicate dedup decision {decision['canonical_id']}")
+                    decision_ids.add(decision["canonical_id"])
+        except (OSError, json.JSONDecodeError, AttributeError) as error:
+            errors.append(f"{history_path}: cannot parse canonical history: {error}")
 
     for check in checks:
         for related in check.get("related", []):
             if related not in ids:
                 errors.append(f"{path}: {check.get('canonical_id')} references unknown related ID {related}")
-    for decision in registry.get("dedup_decisions", {}).get("reviewed_candidates", []):
-        if decision.get("canonical_id") not in ids:
-            errors.append(f"{path}: dedup decision references unknown canonical ID {decision.get('canonical_id')}")
     missing_domains = sorted(valid_domains - {domain for check in checks for domain in check.get("domains", [])})
     if missing_domains:
         errors.append(f"{path}: no checks routed to domains {missing_domains}")

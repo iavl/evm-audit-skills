@@ -34,10 +34,7 @@ class KnowledgeTests(unittest.TestCase):
                 check = self.by_id[claim["canonical_id"]]
                 self.assertTrue(claim["evidence"])
                 self.assertTrue(any(item["kind"] in {"official", "executable"} for item in claim["evidence"]))
-                text = json.dumps(
-                    {key: value for key, value in check.items() if key != "aliases"},
-                    ensure_ascii=False,
-                ).lower()
+                text = json.dumps(check, ensure_ascii=False).lower()
                 for term in claim["required_terms"]:
                     self.assertIn(term.lower(), text)
                 for term in claim["forbidden_terms"]:
@@ -50,7 +47,8 @@ class KnowledgeTests(unittest.TestCase):
         ]
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["domains"], ["evm-audit-erc4626"])
-        self.assertTrue(matches[0]["aliases"])
+        history = load_json(ROOT / "tests/knowledge/canonical-history.json")
+        self.assertTrue(any(alias["canonical_id"] == "ERC4626-ROUND-001" for alias in history["aliases"]))
 
     def test_fee_math_check_is_linked_to_erc4626_context(self) -> None:
         self.assertIn("EVM-ERC4626-043", self.by_id["EVM-MATH-007"]["related"])

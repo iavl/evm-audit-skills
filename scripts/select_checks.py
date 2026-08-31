@@ -23,8 +23,8 @@ except ImportError:  # pragma: no cover
 ROOT = Path(__file__).resolve().parents[1]
 FEATURE_STATES = {"PRESENT", "ABSENT_CONFIRMED", "UNKNOWN"}
 PREDICATE_KEYS = ("all_of", "any_of", "none_of")
-SELECTOR_VERSION = "6"
-ROUTING_MANIFEST_VERSION = 6
+SELECTOR_VERSION = "7"
+ROUTING_MANIFEST_VERSION = 7
 FEATURE_MAP_VERSION = 4
 EVIDENCE_KINDS = {"slither-ast", "slither-ir", "compiler-ast", "source", "deployment", "manual"}
 HARD_FORKS = ("frontier", "homestead", "byzantium", "constantinople", "istanbul", "berlin", "london", "paris", "shanghai", "cancun", "prague")
@@ -270,7 +270,9 @@ def validate_recon_context(raw: Any, target_root: Path | None, exclusions: tuple
         raise SelectionInputError("Recon target_root does not match --target-root")
     if raw["excluded_paths"] != excluded:
         raise SelectionInputError("Recon excluded_paths do not match the current audit scope")
-    return dict(raw)
+    normalized = dict(raw)
+    normalized["target_root"] = str(resolved)
+    return normalized
 
 
 def _evidence(value: Any, feature: str) -> list[dict[str, str]]:
@@ -492,36 +494,6 @@ def evaluate_domains(
     return selected, deferred, filtered
 
 
-def evaluate_required_context(
-    selected_domains: list[dict[str, Any]], domain_configs: dict[str, dict[str, Any]],
-    supplied: dict[str, Any] | None,
-) -> tuple[dict[str, Any], list[str]]:
-    supplied_domains = (supplied or {}).get("domains", {})
-    if not isinstance(supplied_domains, dict):
-        raise SelectionInputError("domain context must contain an object named domains")
-    result: dict[str, Any] = {}
-    unresolved: list[str] = []
-    for domain_entry in selected_domains:
-        domain = domain_entry["domain"]
-        values = supplied_domains.get(domain, {})
-        if not isinstance(values, dict):
-            raise SelectionInputError(f"domain context for {domain} must be an object")
-        result[domain] = {}
-        for requirement in domain_configs[domain]["required_context"]:
-            key = requirement["key"]
-            value = values.get(key, {"status": "UNKNOWN"})
-            if not isinstance(value, dict) or value.get("status") not in {"KNOWN", "NOT_APPLICABLE", "UNKNOWN"}:
-                raise SelectionInputError(f"{domain}.{key} must have status KNOWN, NOT_APPLICABLE, or UNKNOWN")
-            if value["status"] == "KNOWN" and ("value" not in value or not value.get("evidence")):
-                raise SelectionInputError(f"{domain}.{key} KNOWN requires value and evidence")
-            if value["status"] == "NOT_APPLICABLE" and not value.get("evidence"):
-                raise SelectionInputError(f"{domain}.{key} NOT_APPLICABLE requires evidence")
-            result[domain][key] = {"description": requirement["description"], **value}
-            if requirement["required"] and value["status"] == "UNKNOWN":
-                unresolved.append(f"{domain}.{key}")
-    return result, unresolved
-
-
 def select(
     registry: dict[str, Any],
     feature_map: dict[str, dict[str, Any]],
@@ -531,7 +503,6 @@ def select(
     domain_configs: dict[str, dict[str, Any]] | None = None,
     environment: dict[str, Any] | None = None,
     recon_context: dict[str, Any] | None = None,
-    domain_context: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     environment = environment or {}
     if domain_configs is None:
@@ -603,9 +574,17 @@ def select(
         else:
             filtered.append(route_entry)
 
-    required_context, unresolved_context = evaluate_required_context(
-        selected_domains, domain_configs or {}, domain_context,
-    ) if domain_configs else ({}, [])
+    eligible_domains = selected_domains + deferred_domains
+    required_context_requirements = {
+        entry["domain"]: {
+            requirement["key"]: {
+                "required": requirement["required"],
+                "description": requirement["description"],
+            }
+            for requirement in (domain_configs or {}).get(entry["domain"], {}).get("required_context", [])
+        }
+        for entry in eligible_domains
+    }
     manifest = {
         "artifact_type": "routing-manifest",
         "immutable": True,
@@ -627,8 +606,7 @@ def select(
         "scope": {"domains": scope_domains, "candidate_count": len(selected) + len(deferred) + len(filtered)},
         "feature_map": {"schema_version": FEATURE_MAP_VERSION, "recon_context": recon_context, "features": feature_map},
         "selected_domains": selected_domains, "deferred_domains": deferred_domains, "filtered_domains": filtered_domains,
-        "required_context": required_context,
-        "unresolved_required_context": unresolved_context,
+        "required_context_requirements": required_context_requirements,
         "selected_count": len(selected), "deferred_count": len(deferred), "filtered_count": len(filtered),
         "selected": selected, "deferred": deferred, "filtered": filtered,
         "filtered_out": [entry["canonical_id"] for entry in filtered],
@@ -692,7 +670,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest-out", type=Path)
     parser.add_argument("--context-out", type=Path)
     parser.add_argument("--environment-out", type=Path, help="write the typed environment facts artifact")
-    parser.add_argument("--domain-context", type=Path, help="evidence-backed required Domain context JSON")
     parser.add_argument("--environment-context", type=Path, help="typed environment facts; CLI values remain DECLARED")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
@@ -721,8 +698,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         environment = {key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}
         environment["environment_facts"] = context["environment_facts"]
-        domain_context = load_json(args.domain_context.resolve()) if args.domain_context else None
-        manifest, _ = select(registry, feature_map, names, scope_domains, context, domain_configs, environment, recon_context, domain_context)
+        manifest, _ = select(registry, feature_map, names, scope_domains, context, domain_configs, environment, recon_context)
 
         if args.manifest_out:
             write_text(args.manifest_out, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")

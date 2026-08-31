@@ -10,10 +10,10 @@ This directory is not required for normal audits.
 This repository is forward-only while it is under active development.
 
 - `main` defines the only supported schema and runtime contract.
-- Old audit artifacts are not upgraded.
+- Old audit artifacts are rejected.
 - Old CLI aliases are not preserved.
 - Canonical data is updated in place.
-- Schema changes update code, data, tests, and docs atomically.
+- Schema changes update code, data, tests, and docs atomically; unsupported artifacts must be regenerated.
 - Unsupported schema versions fail fast and must be regenerated.
 
 Runtime inputs remain outside this directory: [`../skills/`](../skills/),

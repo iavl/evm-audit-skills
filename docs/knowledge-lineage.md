@@ -102,7 +102,7 @@ Phase 3 checks, so no duplicate canonical checks were added.
 | Source | URL | Status |
 |---|---|---|
 | EVM profile checklists (177 checks) | https://github.com/gdroz3r/drozer-lite/tree/fcc489d7eb14208bedcb6290b7b8ca5af6058539/checklists | ✅ pinned to commit `fcc489d7eb14208bedcb6290b7b8ca5af6058539`; Solana and ICP profiles excluded |
-| MIT license | https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/LICENSE | ✅ included in `THIRD_PARTY_NOTICES.md` |
+| MIT license | https://github.com/gdroz3r/drozer-lite/blob/fcc489d7eb14208bedcb6290b7b8ca5af6058539/LICENSE | ✅ applicable notice preserved in the repository root `LICENSE` |
 
 The per-check deduplication map is maintained in
 [`drozer-lite-provenance.md`](../skills/evm-audit-master/references/drozer-lite-provenance.md).
@@ -113,7 +113,7 @@ It is audit metadata and is not a runtime checklist.
 | Source | URL | Status |
 |---|---|---|
 | Attack-vector reference patterns and slippage skill extras | https://github.com/auditmos/skills/tree/c9583babb0ce189d9f39a05caf94b5a5da655010/skills | ✅ pinned to commit `c9583babb0ce189d9f39a05caf94b5a5da655010`; 112 `reference.md` patterns plus 4 slippage patterns listed in `SKILL.md` |
-| MIT license | https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/LICENSE | ✅ included in `THIRD_PARTY_NOTICES.md` |
+| MIT license | https://github.com/auditmos/skills/blob/c9583babb0ce189d9f39a05caf94b5a5da655010/LICENSE | ✅ applicable notice preserved in the repository root `LICENSE` |
 
 The per-pattern deduplication map is maintained in
 [`auditmos-provenance.md`](../skills/evm-audit-master/references/auditmos-provenance.md).
@@ -181,6 +181,9 @@ and deterministic maintenance checks are implemented in
 
 ## Licensing
 
-Third-party license text lives in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
-It does not declare a license for independently authored repository content;
-that content is licensed by [`LICENSE`](../LICENSE).
+The repository root [`LICENSE`](../LICENSE) contains the MIT License and
+preserves the copyright notices for incorporated MIT-licensed upstream
+material.
+
+This document records source provenance, pinned revisions, and integration
+history; it is not a separate license file.

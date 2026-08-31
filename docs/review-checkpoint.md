@@ -1,11 +1,11 @@
-# Audit Resume
+# Review Checkpoint
 
 Use `scripts/review_ledger.py` with the immutable manifest, `screen-results.json`,
 and canonical registry. JSONL records are append-only. An interrupted audit
 continues by loading the existing ledger, validating its checkpoint against the
-current manifest, and appending only missing records.
+same manifest, and appending only missing records.
 
-| Change | Resume same ledger? |
+| Change | Continue the same ledger? |
 |---|---:|
 | No identity change | Yes |
 | Routing snapshot changed | No |

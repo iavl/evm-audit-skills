@@ -1,19 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:routing-manifest:v6",
+  "$id": "urn:evm-audit-skills:routing-manifest:v7",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "artifact_type", "immutable", "schema_version", "stage", "routing_snapshot_id",
     "audit_context", "scope", "feature_map", "selected_domains", "deferred_domains",
-    "filtered_domains", "required_context", "unresolved_required_context",
+    "filtered_domains", "required_context_requirements",
     "selected_count", "deferred_count", "filtered_count", "selected", "deferred",
     "filtered", "filtered_out"
   ],
   "properties": {
     "artifact_type": {"const": "routing-manifest"},
     "immutable": {"const": true},
-    "schema_version": {"const": 6},
+    "schema_version": {"const": 7},
     "stage": {"const": "ENVIRONMENT_DOMAIN_CHECK_ROUTING"},
     "routing_snapshot_id": {"$ref": "#/$defs/hash"},
     "audit_context": {"$ref": "#/$defs/audit_context"},
@@ -30,8 +30,21 @@
     "selected_domains": {"type": "array", "items": {"$ref": "#/$defs/domain_route"}},
     "deferred_domains": {"type": "array", "items": {"$ref": "#/$defs/domain_route"}},
     "filtered_domains": {"type": "array", "items": {"$ref": "#/$defs/domain_route"}},
-    "required_context": {"type": "object"},
-    "unresolved_required_context": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "required_context_requirements": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "description"],
+          "properties": {
+            "required": {"type": "boolean"},
+            "description": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
     "selected_count": {"type": "integer", "minimum": 0},
     "deferred_count": {"type": "integer", "minimum": 0},
     "filtered_count": {"type": "integer", "minimum": 0},

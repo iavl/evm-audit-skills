@@ -1,6 +1,6 @@
 # Runtime Per-Check Review Contract
 
-Review only IDs promoted from Screen to Deep in the immutable routing-v6 manifest.
+Review only IDs promoted from Screen to Deep in the immutable routing-v7 manifest.
 Filtered and Deferred IDs remain manifest-visible. Each deep-review record is
 append-only JSONL at `reviews/review-<owner-domain>.jsonl`; Markdown is a generated view.
 
@@ -24,7 +24,9 @@ The authoritative JSON object includes `routing_snapshot_id`,
 `registry_sha256`, `source_digest`, `compilation_input_digest`, `owner_domain`,
 `check_body_hash`, `review_stage`, `status`, all review fields, and typed
 `evidence` entries (`kind`, `location`, `reason`). It uses review-record schema
-v3 and must match the one routing snapshot that owns the ledger.
+v4 and must match the one routing snapshot that owns the ledger. `CONFIRMED`
+records require `PROOF` stage and strong test, trace, invariant, or calculation
+evidence.
 
 ```markdown
 ### <canonical-id> — <title>
@@ -40,7 +42,8 @@ v3 and must match the one routing snapshot that owns the ledger.
 - **Evidence**: file:line, test, trace, calculation, or scope inventory
 ```
 
-For `NOT_APPLICABLE`, cite complete scope/inheritance/interface/deployment evidence.
+For `NOT_APPLICABLE`, set complete scope evidence and cite the relevant exclusion
+dimension; irrelevant evidence kinds are not required.
 For `REVIEWED_SAFE`, cover alternate, inherited, proxy, callback, and
 delegatecall paths where relevant. For `SUSPICIOUS`, identify the missing proof
 step. Only `CONFIRMED` records enter synthesis or receive severity.

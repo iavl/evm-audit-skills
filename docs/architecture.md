@@ -5,9 +5,9 @@ The suite has four planes:
 ```text
 KNOWLEDGE  canonical-checks.json + domains/*.json
      ↓
-ROUTING    Recon/Feature Map v4 → environment → Domain → check gates → immutable manifest v6
+ROUTING    Recon/Feature Map v4 → environment → Domain → check gates → immutable manifest v7
      ↓
-RUNTIME    manifest → Screen results → candidate-only Deep JSONL → proof
+RUNTIME    manifest → Domain Resolution → Domain Context → Screen results → candidate-only Deep JSONL → proof
      ↓
 REPORTING  confirmed-only synthesis → AUDIT-REPORT.md
 ```
@@ -22,6 +22,7 @@ human-readable reference Markdown; Skills execute the selected runtime artifacts
 Safety invariants: UNKNOWN, Screen uncertainty, and DECLARED environment facts
 never filter; only trusted absence or CONFIRMED environment mismatch filters;
 all filtered/Deferred items stay manifest-visible; Deferred Domains must resolve
-before clean completion; only CONFIRMED records reach reporting and SUSPICIOUS
-records never receive severity. `validate_audit_run.py` derives completion from
-the artifacts instead of trusting an upstream completion flag.
+before clean completion; required Domain Context is a separate snapshot-bound
+artifact; only CONFIRMED records reach reporting and SUSPICIOUS records never
+receive severity. `validate_audit_run.py` derives completion from the artifacts
+instead of trusting an upstream completion flag.

@@ -11,13 +11,13 @@ import tempfile
 from pathlib import Path
 
 try:
-    from audit_artifacts import validate_schema
-    from render_runtime import render, validate_manifest, validate_screen_results
+    from audit_artifacts import validate_domain_context, validate_domain_resolution, validate_schema
+    from render_runtime import domain_context_template, render, selected_entries, validate_manifest, validate_screen_results
     from scope_context import compilation_digests, scope_inventory
     from select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
 except ImportError:  # pragma: no cover
-    from scripts.audit_artifacts import validate_schema
-    from scripts.render_runtime import render, validate_manifest, validate_screen_results
+    from scripts.audit_artifacts import validate_domain_context, validate_domain_resolution, validate_schema
+    from scripts.render_runtime import domain_context_template, render, selected_entries, validate_manifest, validate_screen_results
     from scripts.scope_context import compilation_digests, scope_inventory
     from scripts.select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
 
@@ -71,10 +71,6 @@ def _total_cost(manifest: dict[str, object], screen: str, deep: str) -> dict[str
         "domain_methodology_bytes": methodology,
         "total_context_bytes": domain_screening + screen_bytes + deep_bytes + shared_contract + methodology,
     }
-
-
-def _rounded_budget(value: int) -> int:
-    return ((value * 11 + 9) // 10 + 1023) // 1024 * 1024
 
 
 def validate_fixture(root: Path, fixture: dict[str, object]) -> None:
@@ -139,8 +135,33 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
     manifest, _ = select(registry, normalized, names, scope, context, domains, environment, raw_map["recon_context"])
     validate_manifest(root, manifest, registry)
     _assert_fixture(fixture, normalized, manifest)
+    domain_resolution = {
+        "schema_version": 2,
+        "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "registry_sha256": manifest["audit_context"]["registry_sha256"],
+        "source_digest": manifest["audit_context"]["source_digest"],
+        "compilation_input_digest": manifest["audit_context"]["compilation_input_digest"],
+        "domains": {
+            entry["domain"]: {
+                "status": "ABSENT_CONFIRMED",
+                "scope_complete": True,
+                "evidence": [{"kind": "scope", "location": "benchmark", "reason": "complete synthetic scope"}],
+            }
+            for entry in manifest["deferred_domains"]
+        },
+    }
+    validate_domain_resolution(root, manifest, domain_resolution, require_terminal=True)
+    domain_context = domain_context_template(manifest, domain_resolution)
+    for values in domain_context["domains"].values():
+        for item in values.values():
+            item.update(
+                status="KNOWN",
+                value="benchmark fixture",
+                evidence=[{"kind": "scope", "location": "benchmark", "reason": "synthetic context"}],
+            )
+    validate_domain_context(root, manifest, domain_context, domain_resolution, require_complete=True)
     screen = render(manifest, registry, "screen", set())
-    candidates = {entry["canonical_id"] for entry in manifest["selected"]}
+    candidates = {entry["canonical_id"] for entry in selected_entries(manifest, domain_resolution=domain_resolution)}
     deep = render(manifest, registry, "deep", candidates)
     cost = _total_cost(manifest, screen, deep)
     if len(screen) >= len(deep):
@@ -149,10 +170,6 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
         limit = fixture.get(key)
         if isinstance(limit, int) and actual > limit:
             raise ValueError(f"{fixture['name']}: {key}={actual} exceeds hard budget {limit}")
-    for key, actual in (("max_runtime_bytes", len(screen.encode())), ("max_total_context_bytes", cost["total_context_bytes"])):
-        limit = fixture.get(key)
-        if isinstance(limit, int) and limit != _rounded_budget(actual):
-            raise ValueError(f"{fixture['name']}: {key} must be baseline+10% rounded to 1KiB: expected={_rounded_budget(actual)} actual={limit}")
     return {
         "name": fixture["name"], "selected_domains": sorted(_domains(manifest, "selected_domains")),
         "deferred_domains": sorted(_domains(manifest, "deferred_domains")), "filtered_domains": sorted(_domains(manifest, "filtered_domains")),

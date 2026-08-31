@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:screen-results:v1",
+  "$id": "urn:evm-audit-skills:screen-results:v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest", "results"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "routing_snapshot_id": {"$ref": "#/$defs/hash"},
     "registry_sha256": {"$ref": "#/$defs/hash"},
     "source_digest": {"$ref": "#/$defs/hash"},
@@ -17,14 +17,15 @@
         "additionalProperties": false,
         "required": ["canonical_id", "result", "evidence"],
         "properties": {
-          "canonical_id": {"type": "string", "minLength": 1},
-          "result": {"enum": ["NOT_APPLICABLE_CONFIRMED", "CANDIDATE"]},
-          "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}}
+            "canonical_id": {"type": "string", "minLength": 1},
+            "result": {"enum": ["NOT_APPLICABLE_CONFIRMED", "CANDIDATE"]},
+            "scope_complete": {"type": "boolean"},
+            "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}}
         },
         "allOf": [
           {
             "if": {"properties": {"result": {"const": "NOT_APPLICABLE_CONFIRMED"}}},
-            "then": {"properties": {"evidence": {"minItems": 1}}}
+            "then": {"required": ["scope_complete"], "properties": {"scope_complete": {"const": true}, "evidence": {"minItems": 1}}}
           }
         ]
       }

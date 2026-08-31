@@ -10,8 +10,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.render_runtime import render, screen_results_template, validate_manifest, validate_screen_results
-from scripts.review_ledger import append, check_body_hash, load, validate_record, validate_records
+from scripts.audit_artifacts import (
+    bind_routing_snapshot,
+    validate_context,
+    validate_domain_context,
+    validate_domain_resolution,
+)
+from scripts.render_runtime import domain_context_template, domain_resolution_template, render, screen_results_template, validate_manifest, validate_screen_results
+from scripts.review_ledger import append, check_body_hash, collect_review_records, load, validate_record, validate_records, write_ledger
 from scripts.scope_context import find_suite_root
 from scripts.select_checks import audit_context, load_domains, normalize_feature_map, select
 from scripts.validate_audit_run import validate_run
@@ -99,7 +105,7 @@ class RuntimeTests(unittest.TestCase):
             ("evm-audit-general", "evm-audit-precision-math"),
             all_features=True,
         )
-        self.assertEqual(manifest["schema_version"], 6)
+        self.assertEqual(manifest["schema_version"], 7)
         self.assertTrue(manifest["immutable"])
         self.assertIn("target_repo_commit", manifest["audit_context"])
         shared = next(
@@ -129,6 +135,117 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_manifest(ROOT, load_json(Path(manifest_file.name)), self.registry)
 
+    def test_context_exactly_matches_routing_snapshot(self) -> None:
+        _, _, _, manifest = build_manifest()
+        context = {**manifest["audit_context"], "routing_snapshot_id": manifest["routing_snapshot_id"]}
+        self.assertEqual(validate_context(ROOT, manifest, context), [])
+        changed_values = {
+            "chain_id": 1,
+            "environment_facts": {**context["environment_facts"], "changed": {"value": None, "trust": "UNKNOWN", "source": "test", "evidence": []}},
+            "dependency_digest": "0" * 64,
+            "build_config_digest": "1" * 64,
+            "target_repo_commit": "changed",
+        }
+        for field, changed_value in changed_values.items():
+            changed = {**context, field: changed_value}
+            with self.subTest(field=field):
+                self.assertTrue(any(f"context.{field}" in error for error in validate_context(ROOT, manifest, changed)))
+
+    def test_routing_snapshot_id_ignores_run_timestamp(self) -> None:
+        _, _, _, manifest = build_manifest()
+        changed = {
+            **manifest,
+            "audit_context": {**manifest["audit_context"], "audit_timestamp": "later"},
+        }
+        self.assertEqual(manifest["routing_snapshot_id"], bind_routing_snapshot(changed)["routing_snapshot_id"])
+
+    def test_domain_resolution_present_and_absent_are_valid(self) -> None:
+        _, _, _, manifest = build_manifest(domains=None)
+        resolution = domain_resolution_template(manifest)
+        deferred = sorted(resolution["domains"])
+        resolution["domains"][deferred[0]] = {
+            "status": "PRESENT",
+            "scope_complete": False,
+            "evidence": [{"kind": "source", "location": "fixture", "reason": "surface exists"}],
+        }
+        resolution["domains"][deferred[1]] = {
+            "status": "ABSENT_CONFIRMED",
+            "scope_complete": True,
+            "evidence": [{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+        }
+        unresolved = validate_domain_resolution(ROOT, manifest, resolution)
+        self.assertEqual(unresolved, set(deferred[2:]))
+
+    def test_domain_resolution_unknown_blocks_deep(self) -> None:
+        _, _, _, manifest = build_manifest(domains=None)
+        resolution = domain_resolution_template(manifest)
+        with self.assertRaisesRegex(ValueError, "resolve Domain screening before Deep"):
+            validate_domain_resolution(ROOT, manifest, resolution, require_terminal=True)
+
+    def test_domain_resolution_rejects_untrusted_absence_evidence(self) -> None:
+        _, _, _, manifest = build_manifest(domains=None)
+        resolution = domain_resolution_template(manifest)
+        domain = next(iter(resolution["domains"]))
+        resolution["domains"][domain] = {
+            "status": "ABSENT_CONFIRMED",
+            "scope_complete": True,
+            "evidence": [{"kind": "manual", "location": "fixture", "reason": "not trusted"}],
+        }
+        with self.assertRaisesRegex(ValueError, "trusted_absence_policy"):
+            validate_domain_resolution(ROOT, manifest, resolution)
+
+    def test_domain_resolution_rejects_wrong_snapshot(self) -> None:
+        _, _, _, manifest = build_manifest()
+        resolution = domain_resolution_template(manifest)
+        resolution["routing_snapshot_id"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "mismatched routing_snapshot_id"):
+            validate_domain_resolution(ROOT, manifest, resolution)
+
+    def test_domain_context_template_tracks_selected_and_present_domains(self) -> None:
+        _, _, _, manifest = build_manifest(domains=None)
+        resolution = domain_resolution_template(manifest)
+        deferred = next(iter(resolution["domains"]))
+        resolution["domains"][deferred] = {
+            "status": "PRESENT",
+            "scope_complete": False,
+            "evidence": [{"kind": "source", "location": "fixture", "reason": "present"}],
+        }
+        context = domain_context_template(manifest, resolution)
+        self.assertIn("evm-audit-general", context["domains"])
+        self.assertIn(deferred, context["domains"])
+        filtered = {entry["domain"] for entry in manifest["filtered_domains"]}
+        self.assertTrue(filtered.isdisjoint(context["domains"]))
+
+    def test_domain_context_known_requires_value_and_evidence(self) -> None:
+        _, _, _, manifest = build_manifest()
+        context = domain_context_template(manifest)
+        item = next(iter(next(iter(context["domains"].values())).values()))
+        item["status"] = "KNOWN"
+        with self.assertRaisesRegex(ValueError, "value"):
+            validate_domain_context(ROOT, manifest, context)
+
+    def test_domain_context_not_applicable_requires_evidence(self) -> None:
+        _, _, _, manifest = build_manifest()
+        context = domain_context_template(manifest)
+        item = next(iter(next(iter(context["domains"].values())).values()))
+        item["status"] = "NOT_APPLICABLE"
+        with self.assertRaises(ValueError):
+            validate_domain_context(ROOT, manifest, context)
+
+    def test_optional_unknown_context_does_not_block_completion(self) -> None:
+        _, _, _, manifest = build_manifest()
+        manifest["required_context_requirements"]["evm-audit-general"][next(iter(manifest["required_context_requirements"]["evm-audit-general"]))]["required"] = False
+        manifest = bind_routing_snapshot(manifest)
+        context = domain_context_template(manifest)
+        self.assertEqual(validate_domain_context(ROOT, manifest, context), set())
+
+    def test_domain_context_rejects_wrong_snapshot(self) -> None:
+        _, _, _, manifest = build_manifest()
+        context = domain_context_template(manifest)
+        context["routing_snapshot_id"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "mismatched routing_snapshot_id"):
+            validate_domain_context(ROOT, manifest, context)
+
     def test_screen_deep_uses_only_validated_candidates(self) -> None:
         registry, _, _, manifest = build_manifest(all_features=True)
         screen_results = screen_results_template(manifest)
@@ -137,6 +254,7 @@ class RuntimeTests(unittest.TestCase):
         not_applicable = screen_results["results"][1]
         for result in screen_results["results"][1:]:
             result["result"] = "NOT_APPLICABLE_CONFIRMED"
+            result["scope_complete"] = True
             result["evidence"] = [
                 {"kind": kind, "location": "fixture", "reason": "complete scope evidence"}
                 for kind in ("scope", "inheritance", "interface", "deployment")
@@ -152,6 +270,58 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("**Risk:**", deep)
         self.assertNotIn(f"## [{not_applicable['canonical_id']}]", deep)
         self.assertNotIn("LIKELY_SAFE", screen + deep)
+
+    def test_screen_na_uses_relevant_complete_evidence(self) -> None:
+        _, _, _, manifest = build_manifest()
+        screen = screen_results_template(manifest)
+        screen["results"][0].update(
+            result="NOT_APPLICABLE_CONFIRMED",
+            scope_complete=True,
+            evidence=[
+                {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                {"kind": "source", "location": "fixture", "reason": "trigger absent from source"},
+            ],
+        )
+        validate_screen_results(ROOT, manifest, screen)
+
+    def test_screen_na_does_not_require_irrelevant_deployment_evidence(self) -> None:
+        _, _, _, manifest = build_manifest()
+        screen = screen_results_template(manifest)
+        screen["results"][0].update(
+            result="NOT_APPLICABLE_CONFIRMED",
+            scope_complete=True,
+            evidence=[
+                {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                {"kind": "inheritance", "location": "fixture", "reason": "condition absent"},
+            ],
+        )
+        validate_screen_results(ROOT, manifest, screen)
+
+    def test_screen_na_insufficient_evidence_is_rejected(self) -> None:
+        _, _, _, manifest = build_manifest()
+        screen = screen_results_template(manifest)
+        screen["results"][0].update(
+            result="NOT_APPLICABLE_CONFIRMED",
+            scope_complete=True,
+            evidence=[{"kind": "scope", "location": "fixture", "reason": "scope only"}],
+        )
+        with self.assertRaisesRegex(ValueError, "exclusion dimension"):
+            validate_screen_results(ROOT, manifest, screen)
+
+    def test_deferred_present_expands_screen_and_coverage(self) -> None:
+        _, _, _, manifest = build_manifest(domains=None)
+        resolution = domain_resolution_template(manifest)
+        domain = next(iter(resolution["domains"]))
+        resolution["domains"][domain] = {
+            "status": "PRESENT",
+            "scope_complete": False,
+            "evidence": [{"kind": "source", "location": "fixture", "reason": "surface exists"}],
+        }
+        screen = screen_results_template(manifest, resolution)
+        selected_ids = {entry["canonical_id"] for entry in manifest["selected"]}
+        expanded_ids = {entry["canonical_id"] for entry in manifest["deferred"] if domain in entry["domains"]}
+        self.assertTrue(expanded_ids <= {entry["canonical_id"] for entry in screen["results"]})
+        self.assertEqual(validate_screen_results(ROOT, manifest, screen, resolution), selected_ids | expanded_ids)
 
     def test_global_policies_do_not_enter_deep_cards(self) -> None:
         check = next(
@@ -171,13 +341,24 @@ class RuntimeTests(unittest.TestCase):
         ]
         for result in screen["results"]:
             result["result"] = "NOT_APPLICABLE_CONFIRMED"
+            result["scope_complete"] = True
             result["evidence"] = evidence
-        state = validate_run(ROOT, manifest, self.registry, screen, None, None, [])
+        context = {**manifest["audit_context"], "routing_snapshot_id": manifest["routing_snapshot_id"]}
+        domain_context = domain_context_template(manifest)
+        for values in domain_context["domains"].values():
+            for item in values.values():
+                item.update(
+                    status="KNOWN",
+                    value="fixture",
+                    evidence=[{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+                )
+        state = validate_run(ROOT, manifest, self.registry, screen, None, domain_context, context, [])
         self.assertEqual(state["status"], "COMPLETE")
         self.assertTrue(state["clean"])
         screen["results"][0]["result"] = "CANDIDATE"
+        screen["results"][0]["scope_complete"] = False
         screen["results"][0]["evidence"] = []
-        state = validate_run(ROOT, manifest, self.registry, screen, None, None, [])
+        state = validate_run(ROOT, manifest, self.registry, screen, None, domain_context, context, [])
         self.assertEqual(state["status"], "COMPLETE_WITH_UNRESOLVED_REVIEW")
 
     def test_unknown_deferred_domain_is_not_complete(self) -> None:
@@ -205,14 +386,6 @@ class RuntimeTests(unittest.TestCase):
             "environment_facts": context["environment_facts"],
         }
         configs = load_domains(ROOT)
-        required_key = configs["evm-audit-general"]["required_context"][0]["key"]
-        domain_context = {
-            "domains": {
-                "evm-audit-general": {
-                    required_key: {"status": "KNOWN", "value": "fixture", "evidence": ["fixture"]}
-                }
-            }
-        }
         manifest, _ = select(
             self.registry,
             features,
@@ -222,17 +395,17 @@ class RuntimeTests(unittest.TestCase):
             configs,
             environment,
             raw["recon_context"],
-            domain_context,
         )
         screen = screen_results_template(manifest)
         for result in screen["results"]:
             result["result"] = "NOT_APPLICABLE_CONFIRMED"
+            result["scope_complete"] = True
             result["evidence"] = [
                 {"kind": kind, "location": "fixture", "reason": "complete evidence"}
                 for kind in ("scope", "inheritance", "interface", "deployment")
             ]
         resolution = {
-            "schema_version": 1,
+            "schema_version": 2,
             "routing_snapshot_id": manifest["routing_snapshot_id"],
             "registry_sha256": manifest["audit_context"]["registry_sha256"],
             "source_digest": manifest["audit_context"]["source_digest"],
@@ -242,10 +415,19 @@ class RuntimeTests(unittest.TestCase):
                 for entry in manifest["deferred_domains"]
             },
         }
-        state = validate_run(ROOT, manifest, self.registry, screen, resolution, None, [])
+        context_artifact = {**manifest["audit_context"], "routing_snapshot_id": manifest["routing_snapshot_id"]}
+        domain_context = domain_context_template(manifest, resolution)
+        for values in domain_context["domains"].values():
+            for item in values.values():
+                item.update(
+                    status="KNOWN",
+                    value="fixture",
+                    evidence=[{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+                )
+        state = validate_run(ROOT, manifest, self.registry, screen, resolution, domain_context, context_artifact, [])
         self.assertEqual(state["status"], "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING")
 
-    def test_jsonl_resume_requires_same_snapshot_and_appends(self) -> None:
+    def test_jsonl_checkpoint_requires_same_snapshot_and_appends(self) -> None:
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
@@ -253,7 +435,7 @@ class RuntimeTests(unittest.TestCase):
             path = Path(directory) / "review.jsonl"
             record = {
                 "record_type": "review",
-                "schema_version": 3,
+                "schema_version": 4,
                 "canonical_id": check["canonical_id"],
                 "owner_domain": entry["owner_domain"],
                 "routing_snapshot_id": manifest["routing_snapshot_id"],
@@ -290,7 +472,95 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "record_type=review"):
                 append(path, manifest, {key: value for key, value in record.items() if key != "record_type"})
 
-    def test_cross_snapshot_resume_cli_is_removed(self) -> None:
+    def test_deep_not_applicable_does_not_require_irrelevant_evidence(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        entry = manifest["selected"][0]
+        check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        record = {
+            "record_type": "review",
+            "schema_version": 4,
+            "canonical_id": entry["canonical_id"],
+            "owner_domain": entry["owner_domain"],
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "check_body_hash": check_body_hash(check),
+            "review_stage": "DEEP_REVIEW",
+            "status": "NOT_APPLICABLE",
+            "scope_complete": True,
+            "applicability": "NOT_APPLICABLE — source trigger is absent",
+            "code_path": "no reachable trigger path",
+            "preconditions": "trigger precondition cannot be met",
+            "exploitability": "not exploitable in scope",
+            "impact": "none",
+            "proof": "source evidence proves absence",
+            "evidence": [
+                {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                {"kind": "source", "location": "fixture", "reason": "trigger absent"},
+            ],
+        }
+        record.update({key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")})
+        self.assertEqual(validate_record(record, manifest, registry, {entry["canonical_id"]}), [])
+
+    def test_confirmed_requires_proof_stage_and_strong_evidence(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        entry = manifest["selected"][0]
+        check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        record = {
+            "record_type": "review",
+            "schema_version": 4,
+            "canonical_id": entry["canonical_id"],
+            "owner_domain": entry["owner_domain"],
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "check_body_hash": check_body_hash(check),
+            "review_stage": "DEEP_REVIEW",
+            "status": "CONFIRMED",
+            "applicability": "APPLICABLE — path exists",
+            "code_path": "entry() -> call()",
+            "preconditions": "attacker controls input",
+            "exploitability": "attacker invokes entry",
+            "impact": "state is corrupted",
+            "proof": "deterministic proof",
+            "evidence": [{"kind": "manual", "location": "fixture", "reason": "manual only"}],
+        }
+        record.update({key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")})
+        errors = validate_record(record, manifest, registry, {entry["canonical_id"]})
+        self.assertTrue(any("PROOF" in error or "strong proof" in error for error in errors))
+        record["review_stage"] = "PROOF"
+        errors = validate_record(record, manifest, registry, {entry["canonical_id"]})
+        self.assertTrue(any("strong proof" in error or "not valid" in error for error in errors))
+        record["evidence"] = [{"kind": "trace", "location": "fixture", "reason": "deterministic trace"}]
+        self.assertEqual(validate_record(record, manifest, registry, {entry["canonical_id"]}), [])
+
+    def test_cross_ledger_duplicate_is_rejected(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        entry = manifest["selected"][0]
+        check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        record = {
+            "record_type": "review",
+            "schema_version": 4,
+            "canonical_id": entry["canonical_id"],
+            "owner_domain": entry["owner_domain"],
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "check_body_hash": check_body_hash(check),
+            "review_stage": "DEEP_REVIEW",
+            "status": "REVIEWED_SAFE",
+            "applicability": "APPLICABLE — fixture",
+            "code_path": "fixture entry",
+            "preconditions": "fixture state",
+            "exploitability": "guard holds",
+            "impact": "none",
+            "proof": "fixture invariant",
+            "preserved_invariant": "fixture invariant",
+            "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}],
+        }
+        record.update({key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")})
+        with tempfile.TemporaryDirectory() as directory:
+            first, second = Path(directory) / "first.jsonl", Path(directory) / "second.jsonl"
+            write_ledger(first, manifest, [record], registry, {entry["canonical_id"]})
+            write_ledger(second, manifest, [record], registry, {entry["canonical_id"]})
+            _, errors = collect_review_records([first, second], manifest, registry, {entry["canonical_id"]})
+        self.assertTrue(any("duplicate Deep record across ledgers" in error for error in errors))
+
+    def test_checkpoint_cli_has_no_cross_snapshot_option(self) -> None:
         result = subprocess.run(
             [sys.executable, "scripts/review_ledger.py", "--help"],
             cwd=ROOT,
@@ -299,6 +569,16 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("--" + "resume-from", result.stdout)
+
+    def test_selector_has_no_domain_context_option(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "scripts/select_checks.py", "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("--domain-context", result.stdout)
 
     def test_domain_skills_embed_the_evidence_gate(self) -> None:
         for skill_path in sorted((ROOT / "skills").glob("evm-audit-*/SKILL.md")):
@@ -327,7 +607,7 @@ class RuntimeTests(unittest.TestCase):
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
         base = {
-            "schema_version": 3,
+                "schema_version": 4,
             "record_type": "review",
             "canonical_id": entry["canonical_id"],
             "owner_domain": entry["owner_domain"],
