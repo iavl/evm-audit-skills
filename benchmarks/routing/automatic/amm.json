@@ -1,1 +1,1 @@
-{"name":"amm","detected_features":["uses-amm"],"must_select_domains":["evm-audit-general","evm-audit-defi-amm"],"must_select_checks":["EVM-AMM-001"],"max_selected_checks":190,"max_runtime_bytes":100000}
+{"name":"amm","detected_features":["uses-amm"],"must_select_domains":["evm-audit-general","evm-audit-defi-amm"],"must_select_checks":["EVM-AMM-001"],"max_selected_checks":190,"max_runtime_bytes":151552,"max_total_context_bytes":431104}

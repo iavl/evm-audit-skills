@@ -22,6 +22,7 @@
   "review_requirements": [
     "model price impact, slippage, callback, and accounting invariants"
   ],
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
   "screening_terms": [
     "swap",
     "pool",

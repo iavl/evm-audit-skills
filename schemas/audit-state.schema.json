@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:audit-state:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "routing_snapshot_id", "status", "clean", "reasons", "coverage"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "routing_snapshot_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"enum": ["COMPLETE", "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING", "COMPLETE_WITH_UNRESOLVED_CONTEXT", "COMPLETE_WITH_UNRESOLVED_REVIEW", "INCOMPLETE_COVERAGE", "INVALID_SNAPSHOT"]},
+    "clean": {"type": "boolean"},
+    "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected", "screen_not_applicable", "deep_candidates", "deep_reviewed", "suspicious", "confirmed", "unresolved"],
+      "properties": {
+        "selected": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "screen_not_applicable": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "deep_candidates": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "deep_reviewed": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "suspicious": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "confirmed": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "unresolved": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      }
+    }
+  }
+}

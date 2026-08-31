@@ -92,13 +92,13 @@ def _digest_files(root: Path, files: Iterable[Path]) -> str:
 
 
 def compilation_digests(root: Path, source_files: Iterable[str], compiler_version: str | None = None) -> dict[str, str]:
-    """Fingerprint source plus dependency locks and build configuration, not just Solidity."""
+    """Fingerprint declared compilation inputs; this is not compiled-bytecode identity."""
     if root.is_file():
         return {
             "audit_source_digest": source_digest(root, source_files),
             "dependency_digest": hashlib.sha256(b"").hexdigest(),
             "build_config_digest": hashlib.sha256(b"").hexdigest(),
-            "compilation_digest": hashlib.sha256((source_digest(root, source_files) + (compiler_version or "")).encode()).hexdigest(),
+            "compilation_input_digest": hashlib.sha256((source_digest(root, source_files) + (compiler_version or "")).encode()).hexdigest(),
         }
     configs = [path for path in root.rglob("*") if path.is_file() and (path.name in BUILD_CONFIG_NAMES or path.name.startswith("hardhat.config.")) and not _excluded(path.relative_to(root).as_posix(), ())]
     dependencies = [path for path in configs if path.name in {"forge.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"}]
@@ -107,4 +107,4 @@ def compilation_digests(root: Path, source_files: Iterable[str], compiler_versio
     dependency = _digest_files(root, dependencies)
     build = _digest_files(root, build_configs)
     compilation = hashlib.sha256((audit + dependency + build + (compiler_version or "")).encode()).hexdigest()
-    return {"audit_source_digest": audit, "dependency_digest": dependency, "build_config_digest": build, "compilation_digest": compilation}
+    return {"audit_source_digest": audit, "dependency_digest": dependency, "build_config_digest": build, "compilation_input_digest": compilation}

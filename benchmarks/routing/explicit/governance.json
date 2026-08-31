@@ -3,9 +3,10 @@
   "detected_features": ["uses-governance"],
   "domain_scope": ["evm-audit-general", "evm-audit-governance"],
   "selected_domains": ["evm-audit-general", "evm-audit-governance"],
-  "selected_checks": 160,
-  "filtered_checks": 3,
+  "expected_selected_checks": 163,
+  "expected_filtered_checks": 0,
   "must_select_ids": ["EVM-GEN-001", "EVM-GOV-001"],
   "must_not_filter_ids": ["EVM-GOV-001"],
-  "runtime_bytes": 181207
+  "max_runtime_bytes": 129024,
+  "max_total_context_bytes": 368640
 }

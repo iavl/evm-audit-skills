@@ -21,6 +21,7 @@
   "review_requirements": [
     "model message lifecycle, replay, ordering, and failure recovery"
   ],
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
   "screening_terms": [
     "bridge",
     "cross-chain",

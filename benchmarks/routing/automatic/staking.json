@@ -1,1 +1,1 @@
-{"name":"staking","detected_features":["uses-staking"],"must_select_domains":["evm-audit-general","evm-audit-defi-staking"],"must_select_checks":["EVM-STK-001"],"max_selected_checks":190,"max_runtime_bytes":100000}
+{"name":"staking","detected_features":["uses-staking"],"must_select_domains":["evm-audit-general","evm-audit-defi-staking"],"must_select_checks":["EVM-STK-001"],"max_selected_checks":190,"max_runtime_bytes":126976,"max_total_context_bytes":369664}

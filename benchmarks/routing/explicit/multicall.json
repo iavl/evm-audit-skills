@@ -3,9 +3,10 @@
   "detected_features": ["uses-multicall"],
   "domain_scope": ["evm-audit-general"],
   "selected_domains": ["evm-audit-general"],
-  "selected_checks": 106,
-  "filtered_checks": 3,
+  "expected_selected_checks": 109,
+  "expected_filtered_checks": 0,
   "must_select_ids": ["EVM-GEN-001", "EVM-GEN-020"],
   "must_not_filter_ids": ["EVM-GEN-020"],
-  "runtime_bytes": 126247
+  "max_runtime_bytes": 92160,
+  "max_total_context_bytes": 262144
 }

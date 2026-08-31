@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:routing-manifest:v6",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "immutable", "schema_version", "stage", "routing_snapshot_id",
+    "audit_context", "scope", "feature_map", "selected_domains", "deferred_domains",
+    "filtered_domains", "required_context", "unresolved_required_context",
+    "selected_count", "deferred_count", "filtered_count", "selected", "deferred",
+    "filtered", "filtered_out"
+  ],
+  "properties": {
+    "artifact_type": {"const": "routing-manifest"},
+    "immutable": {"const": true},
+    "schema_version": {"const": 6},
+    "stage": {"const": "ENVIRONMENT_DOMAIN_CHECK_ROUTING"},
+    "routing_snapshot_id": {"$ref": "#/$defs/hash"},
+    "audit_context": {"$ref": "#/$defs/audit_context"},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domains", "candidate_count"],
+      "properties": {
+        "domains": {"type": ["array", "null"], "items": {"type": "string"}},
+        "candidate_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "feature_map": {"type": "object"},
+    "selected_domains": {"type": "array", "items": {"$ref": "#/$defs/domain_route"}},
+    "deferred_domains": {"type": "array", "items": {"$ref": "#/$defs/domain_route"}},
+    "filtered_domains": {"type": "array", "items": {"$ref": "#/$defs/domain_route"}},
+    "required_context": {"type": "object"},
+    "unresolved_required_context": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "selected_count": {"type": "integer", "minimum": 0},
+    "deferred_count": {"type": "integer", "minimum": 0},
+    "filtered_count": {"type": "integer", "minimum": 0},
+    "selected": {"type": "array", "items": {"$ref": "#/$defs/route_entry"}},
+    "deferred": {"type": "array", "items": {"$ref": "#/$defs/route_entry"}},
+    "filtered": {"type": "array", "items": {"$ref": "#/$defs/route_entry"}},
+    "filtered_out": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "audit_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selector_version", "registry_sha256", "knowledge_commit", "knowledge_dirty",
+        "target_repo_commit", "source_digest", "audit_source_digest", "dependency_digest",
+        "build_config_digest", "compilation_input_digest", "chain_id", "chain_family",
+        "execution_environment", "fork_block", "fork_block_semantics", "compiler_version",
+        "evm_fork", "protocol_version", "environment_facts", "audit_timestamp"
+      ],
+      "properties": {
+        "selector_version": {"type": "string", "minLength": 1},
+        "registry_sha256": {"$ref": "#/$defs/hash"},
+        "knowledge_commit": {"type": ["string", "null"]},
+        "knowledge_dirty": {"type": ["boolean", "null"]},
+        "target_repo_commit": {"type": ["string", "null"]},
+        "source_digest": {"$ref": "#/$defs/hash"},
+        "audit_source_digest": {"$ref": "#/$defs/hash"},
+        "dependency_digest": {"$ref": "#/$defs/hash"},
+        "build_config_digest": {"$ref": "#/$defs/hash"},
+        "compilation_input_digest": {"$ref": "#/$defs/hash"},
+        "chain_id": {"type": ["integer", "null"]},
+        "chain_family": {"type": ["string", "null"]},
+        "execution_environment": {"type": ["string", "null"]},
+        "fork_block": {"type": ["integer", "null"]},
+        "fork_block_semantics": {"type": "string", "minLength": 1},
+        "compiler_version": {"type": ["string", "null"]},
+        "evm_fork": {"type": ["string", "null"]},
+        "protocol_version": {"type": ["string", "null"]},
+        "environment_facts": {"$ref": "#/$defs/environment_facts"},
+        "audit_timestamp": {"type": "string", "minLength": 1}
+      }
+    },
+    "environment_facts": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/environment_fact"}
+    },
+    "environment_fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "trust", "source", "evidence"],
+      "properties": {
+        "value": {},
+        "trust": {"enum": ["UNKNOWN", "DECLARED", "OBSERVED", "CONFIRMED"]},
+        "source": {"type": "string", "minLength": 1},
+        "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "trusted_absence_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requires_complete_scope", "allowed_evidence"],
+      "properties": {
+        "requires_complete_scope": {"const": true},
+        "allowed_evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["scope", "inheritance", "interface", "dependency", "deployment"]}}
+      }
+    },
+    "domain_route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "state", "evaluation", "surface_features", "basis", "trusted_absence_policy"],
+      "properties": {
+        "domain": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
+        "state": {"enum": ["SELECTED", "DEFERRED", "FILTERED"]},
+        "evaluation": {"enum": ["TRUE", "FALSE", "UNKNOWN"]},
+        "surface_features": {"type": "array", "items": {"type": "string"}},
+        "basis": {"type": "array", "items": {"type": "string"}},
+        "trusted_absence_policy": {"anyOf": [{"$ref": "#/$defs/trusted_absence_policy"}, {"type": "null"}]}
+      }
+    },
+    "route_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_id", "title", "domains", "check_body_hash", "owner_domain",
+        "freshness", "verified_at", "route_status", "environment_evaluation",
+        "environment_basis", "predicate", "predicate_source", "predicate_evaluation",
+        "feature_evaluation", "matched_features", "unknown_features", "basis"
+      ],
+      "properties": {
+        "canonical_id": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "domains": {"type": "array", "items": {"type": "string"}},
+        "check_body_hash": {"$ref": "#/$defs/hash"},
+        "owner_domain": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
+        "freshness": {"type": ["string", "null"]},
+        "verified_at": {"type": ["string", "null"]},
+        "route_status": {"enum": ["SELECTED", "DEFERRED_DOMAIN", "FILTERED_DOMAIN", "FILTERED_ENVIRONMENT", "FILTERED_FEATURE"]},
+        "environment_evaluation": {"enum": ["TRUE", "FALSE", "UNKNOWN", "NOT_EVALUATED"]},
+        "environment_basis": {"type": "array", "items": {"type": "string"}},
+        "predicate": {"type": ["object", "null"]},
+        "predicate_source": {"type": ["string", "null"]},
+        "predicate_evaluation": {"enum": ["TRUE", "FALSE", "UNKNOWN", "NOT_EVALUATED"]},
+        "feature_evaluation": {"enum": ["TRUE", "FALSE", "UNKNOWN", "NOT_EVALUATED"]},
+        "matched_features": {"type": "array", "items": {"type": "string"}},
+        "unknown_features": {"type": "array", "items": {"type": "string"}},
+        "basis": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

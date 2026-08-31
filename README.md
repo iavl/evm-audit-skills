@@ -53,10 +53,10 @@ audit this contract and file issues: https://github.com/owner/repo/blob/main/con
 
 The workflow will:
 1. Load `evm-audit-master` and build a source, dependency, chain, and evidence-backed feature map.
-2. Use Slither-backed reconnaissance and `data/features.json` to emit a routing manifest; only curated predicates proven false are filtered.
-3. Inject selected check bodies into domain reviews, then prove candidates with a PoC or deterministic invariant.
-4. Write exactly one deep/proof record per selected ID; filtered IDs remain only in the machine manifest.
-5. Synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
+2. Use Slither-backed reconnaissance and `data/features.json` to emit one immutable routing-v6 manifest; only curated predicates proven false are filtered.
+3. Render Screen from the manifest, classify only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`, resolve Deferred Domains, then render Deep from candidates only.
+4. Write exactly one JSONL Deep/proof record per candidate; filtered IDs remain only in the machine manifest.
+5. Independently derive `audit-state.json`; synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
 6. File GitHub issues only for confirmed Medium+ findings when explicitly in scope.
 
 ### Runtime-neutral execution
@@ -80,15 +80,16 @@ knowledge; one-time schema/knowledge transformations live in
 [`scripts/migrations/`](scripts/migrations/). The checked-in migrations have
 already been applied; ordinary maintenance edits the registry or domain config
 and renders without a migration step.
-The pinned Python runtime dependency is listed in
-[`requirements-runtime.txt`](requirements-runtime.txt); CI uses Python 3.12
-and the pinned compiler in [`solc-version.txt`](solc-version.txt).
+The pinned Python runtime roots are listed in
+[`requirements-runtime.txt`](requirements-runtime.txt), with the resolved
+snapshot in [`requirements-runtime.lock`](requirements-runtime.lock); CI uses
+Python 3.12 and the pinned compiler in [`solc-version.txt`](solc-version.txt).
 It is a machine database and should not be loaded into model context. Feature
 definitions live in [`data/features.json`](data/features.json); the input shape
 is documented in [`data/feature-map.schema.json`](data/feature-map.schema.json).
-A v3 reconnaissance feature map uses `PRESENT`, `ABSENT_CONFIRMED`, or
+A v4 reconnaissance feature map uses `PRESENT`, `ABSENT_CONFIRMED`, or
 `UNKNOWN`, and carries a scope-bound `recon_context` with the analyzed files,
-compilation completeness, tool versions, and source digest. Non-v3 maps are
+compilation completeness, tool versions, and source digest. Non-v4 maps are
 rejected. Evidence for confirmed states is typed with `kind`, `location`, and
 `reason`; absence is accepted only when the feature's `absence_policy` allows
 the evidence kind.
@@ -111,15 +112,29 @@ python3 scripts/recon.py <target-project-or-solidity-file> --audit-root <target-
 python3 scripts/select_checks.py --feature-map recon-features.json --target-root <target-repo> \
   --chain-id <id> --chain-family <family> --execution-environment <environment> \
   --fork-block <block> --compiler-version <version> --evm-fork <fork> \
-  --manifest-out routing-manifest.json --checks-out selected-checks.runtime.md \
+  --manifest-out routing/manifest.json --context-out context.json \
+  --environment-out routing/environment-context.json \
   --format json
 ```
 
-The v5 manifest records selected, Deferred, and filtered Domain/check stages;
+The v6 manifest records selected, Deferred, and filtered Domain/check stages;
 registry, source, dependency, build-config, and compilation fingerprints; and
 evidence-backed environment facts. `fork_block` is reproducibility metadata,
-not hardfork inference. `screen` contains only ID/title/trigger/detection;
-only candidates are promoted to `deep`, which carries specific evidence.
+not hardfork inference. Render the runtime views and conservative artifact
+templates with:
+
+```bash
+python3 scripts/render_runtime.py --manifest routing/manifest.json --profile screen \
+  --output runtime/screen.md --screen-results-out reviews/screen-results.json \
+  --domain-resolution-out reviews/domain-resolution.json
+python3 scripts/render_runtime.py --manifest routing/manifest.json --profile deep \
+  --screen-results reviews/screen-results.json --output runtime/deep.md
+```
+
+Screen contains only ID/title/trigger/detection; only `CANDIDATE` cards reach
+Deep. Resolve Deferred Domains and rerun Screen with `--domain-resolution`
+before Deep when a Deferred Domain is `PRESENT`. `LIKELY_SAFE` is not a valid
+state.
 
 Regenerate and validate the runtime views with:
 
@@ -128,8 +143,11 @@ python3 scripts/generate_checklists.py --check
 python3 scripts/validate_checklists.py --strict
 python3 -m unittest discover -s tests -v
 forge test --root tests/semantics -vv
-# When an audit run is complete, also validate global selected/filtered coverage:
-python3 scripts/validate_checklists.py --routing-manifest routing-manifest.json --review-ledger audits/<run>/review-*.md
+python3 scripts/validate_audit_run.py --manifest routing/manifest.json \
+  --screen-results reviews/screen-results.json \
+  --domain-resolution reviews/domain-resolution.json \
+  --ledger reviews/review-<owner-domain>.jsonl \
+  --output audit-state.json
 python3 scripts/knowledge_metrics.py
 ```
 
@@ -166,11 +184,11 @@ Contract URL/path
   RECON + FEATURE MAP
       │
       ▼
-  FAST FILTER (routing manifest: selected + filtered IDs)
+  IMMUTABLE ROUTING (v6 manifest: selected + deferred + filtered IDs)
       │
       ▼
-  SELECTED CHECK BODIES → DEEP REVIEW (parallel when supported; sequential otherwise)
-  ├── selected domain → review-<skill>.md
+  SCREEN → CANDIDATE-ONLY DEEP REVIEW (parallel when supported; sequential otherwise)
+  ├── candidate domain → review-<skill>.jsonl
   └── filtered IDs remain machine-readable in routing-manifest.json
       │
       ▼
@@ -187,9 +205,9 @@ Contract URL/path
 
 ## Review Ledger and Confirmed Finding Format
 
-Each selected canonical ID receives one review record. Filtered IDs are kept in
+Each candidate canonical ID receives one JSONL review record. Filtered IDs are kept in
 the routing manifest and do not generate per-check Markdown records. Deep/proof
-candidates include applicability, code path, preconditions, exploitability,
+candidates include snapshot/hash identity, applicability, code path, preconditions, exploitability,
 impact, PoC/invariant evidence, and exactly one of `NOT_APPLICABLE`,
 `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. Use the compact runtime contract
 at [`evm-audit-master/references/check-review-contract.runtime.md`](evm-audit-master/references/check-review-contract.runtime.md);

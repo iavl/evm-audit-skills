@@ -17,9 +17,11 @@ from urllib.error import HTTPError
 
 from scripts.check_knowledge_health import knowledge_health, source_status
 from scripts.generate_checklists import load_domains, write_outputs
-from scripts.select_checks import audit_context, compact_check, evaluate_check, evaluate_environment, evaluate_group, knowledge_state, normalize_feature_map, select, selected_markdown, validate_environment_context, vocabulary
-from scripts.review_ledger import append, check_body_hash, merge, resumable
-from scripts.validate_checklists import validate_knowledge_claims, validate_review_ledger_text, validate_routing_manifest
+from scripts.render_runtime import render, screen_results_template, validate_manifest
+from scripts.select_checks import audit_context, evaluate_check, evaluate_environment, evaluate_group, knowledge_state, normalize_feature_map, select, validate_environment_context, vocabulary
+from scripts.review_ledger import append, check_body_hash, merge, resumable, validate_record
+from scripts.validate_audit_run import validate_run
+from scripts.validate_checklists import validate_knowledge_claims
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,7 +46,7 @@ class ChecklistTests(unittest.TestCase):
             raise RuntimeError(result.stderr)
         cls.empty_feature_map = json.loads(result.stdout)
 
-    def v3_map(self, statuses: dict[str, str]) -> dict:
+    def v4_map(self, statuses: dict[str, str]) -> dict:
         feature_map = copy.deepcopy(self.empty_feature_map)
         for feature, status in statuses.items():
             feature_map["features"][feature] = {
@@ -52,6 +54,17 @@ class ChecklistTests(unittest.TestCase):
                 "evidence": [] if status == "UNKNOWN" else [{"kind": "manual", "location": "fixture", "reason": "explicit fixture evidence"}],
             }
         return feature_map
+
+    def explicit_manifest(self, domain: str = "evm-audit-general") -> dict:
+        raw = self.v4_map({})
+        features = normalize_feature_map(raw, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
+        context = audit_context(ROOT, self.registry, raw["recon_context"], target_root=ROOT / "tests/fixtures/recon/Empty.sol", audit_timestamp="test")
+        environment = {**{key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}, "environment_facts": context["environment_facts"]}
+        config = load_domains(ROOT)
+        key = config[domain]["required_context"][0]["key"]
+        domain_context = {"domains": {domain: {key: {"status": "KNOWN", "value": "fixture", "evidence": ["fixture"]}}}}
+        manifest, _ = select(self.registry, features, self.feature_names, [domain], context, config, environment, raw["recon_context"], domain_context)
+        return manifest
 
     def test_generated_markdown_is_current(self) -> None:
         result = subprocess.run(
@@ -99,6 +112,7 @@ class ChecklistTests(unittest.TestCase):
                 "screening_terms": ["example"],
                 "required_context": [{"key": "example_context", "required": True, "description": "example context"}],
                 "review_requirements": ["example review"],
+                "trusted_absence_policy": {"requires_complete_scope": True, "allowed_evidence": ["scope"]},
             }), encoding="utf-8")
             write_outputs({"checks": []}, root)
             self.assertTrue((root / "evm-audit-example/SKILL.md").exists())
@@ -166,7 +180,7 @@ class ChecklistTests(unittest.TestCase):
 
     def test_feature_filter_selects_relevant_checks(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as feature_file:
-            json.dump(self.v3_map({"uses-erc4626": "PRESENT", "uses-oracle": "ABSENT_CONFIRMED"}), feature_file)
+            json.dump(self.v4_map({"uses-erc4626": "PRESENT", "uses-oracle": "ABSENT_CONFIRMED"}), feature_file)
             feature_file.flush()
             result = subprocess.run(
                 [
@@ -231,14 +245,14 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(evaluate_group(["a", "c"], "none_of", feature_map), "FALSE")
 
     def test_feature_map_requires_evidence_for_confirmed_states(self) -> None:
-        feature_map = self.v3_map({"uses-erc20": "PRESENT"})
+        feature_map = self.v4_map({"uses-erc20": "PRESENT"})
         feature_map["features"]["uses-erc20"]["evidence"] = []
         with self.assertRaises(ValueError):
             normalize_feature_map(feature_map, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
         with self.assertRaises(ValueError):
             normalize_feature_map({"schema_version": 2, "features": {}}, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
 
-    def test_feature_map_v3_rejects_legacy_cli_and_formats(self) -> None:
+    def test_feature_map_v4_rejects_legacy_cli_and_formats(self) -> None:
         help_result = subprocess.run([sys.executable, "scripts/select_checks.py", "--help"], cwd=ROOT, capture_output=True, text=True)
         self.assertNotIn("--features", help_result.stdout)
         for version in (1, 2):
@@ -246,7 +260,7 @@ class ChecklistTests(unittest.TestCase):
                 normalize_feature_map({"schema_version": version, "features": {}}, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
 
     def test_absence_policy_downgrades_dynamic_loop(self) -> None:
-        feature_map = self.v3_map({"uses-dynamic-loop": "ABSENT_CONFIRMED"})
+        feature_map = self.v4_map({"uses-dynamic-loop": "ABSENT_CONFIRMED"})
         normalized = normalize_feature_map(
             feature_map,
             self.feature_names,
@@ -288,24 +302,27 @@ class ChecklistTests(unittest.TestCase):
             temp = Path(temp_dir)
             feature_path = temp / "feature-map.json"
             feature_path.write_text(json.dumps(self.empty_feature_map), encoding="utf-8")
-            manifest_path, checks_path, context_path = temp / "manifest.json", temp / "selected.md", temp / "context.json"
-            runtime_dir = temp / "runtime"
+            manifest_path, checks_path, context_path = temp / "manifest.json", temp / "screen.md", temp / "context.json"
             result = subprocess.run(
                 [
                     sys.executable, "scripts/select_checks.py", "--feature-map", str(feature_path),
                     "--target-root", "tests/fixtures/recon/Empty.sol", "--domain", "evm-audit-erc20",
-                    "--manifest-out", str(manifest_path), "--checks-out", str(checks_path),
-                    "--runtime-dir", str(runtime_dir), "--context-out", str(context_path), "--profile", "compact",
+                    "--manifest-out", str(manifest_path), "--context-out", str(context_path),
                 ],
                 cwd=ROOT, capture_output=True, text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             manifest = load_json(manifest_path)
-            self.assertTrue(manifest_path.exists() and checks_path.exists() and context_path.exists())
+            self.assertTrue(manifest_path.exists() and context_path.exists())
+            render_result = subprocess.run(
+                [sys.executable, "scripts/render_runtime.py", "--manifest", str(manifest_path), "--profile", "screen", "--output", str(checks_path)],
+                cwd=ROOT, capture_output=True, text=True,
+            )
+            self.assertEqual(render_result.returncode, 0, render_result.stderr)
             runtime = checks_path.read_text(encoding="utf-8")
             for entry in manifest["selected"]:
                 self.assertIn(f"[{entry['canonical_id']}]", runtime)
-            self.assertTrue((runtime_dir / "selected-evm-audit-erc20.md").exists())
+            self.assertNotIn("LIKELY_SAFE", runtime)
 
     def test_domain_gate_does_not_expand_related_domains(self) -> None:
         all_absent = {
@@ -326,15 +343,15 @@ class ChecklistTests(unittest.TestCase):
             "predicate_source": "curated", "always_screen": True,
             "applicability": {"chain_ids": [], "chain_families": ["op-stack"], "execution_environments": ["ethereum-evm"], "compiler": ">=0.8.20", "evm_fork_from": "cancun", "evm_fork_until": None, "protocol_versions": []},
         }
-        confirmed = {"chain_family": "arbitrum", "execution_environment": "ethereum-evm", "compiler_version": "0.8.24", "evm_fork": "cancun", "chain_id": None, "protocol_version": None, "environment_facts": {key: {"status": "CONFIRMED", "value": value} for key, value in {"chain_family": "arbitrum", "execution_environment": "ethereum-evm", "compiler_version": "0.8.24", "evm_fork": "cancun"}.items()}}
+        confirmed = {"chain_family": "arbitrum", "execution_environment": "ethereum-evm", "compiler_version": "0.8.24", "evm_fork": "cancun", "chain_id": None, "protocol_version": None, "environment_facts": {key: {"trust": "CONFIRMED", "value": value, "source": "fixture", "evidence": ["fixture"]} for key, value in {"chain_family": "arbitrum", "execution_environment": "ethereum-evm", "compiler_version": "0.8.24", "evm_fork": "cancun"}.items()}}
         self.assertEqual(evaluate_environment(check, confirmed)[0], "FALSE")
         self.assertEqual(evaluate_environment(check, {"environment_facts": {}})[0], "UNKNOWN")
 
     def test_zksync_environment_gate_keeps_native_and_interpreter_distinct(self) -> None:
         check = self.by_id["EVM-CHAIN-013"]
-        native = {"chain_family": "zksync-era", "execution_environment": "eravm-native", "compiler_version": None, "evm_fork": None, "chain_id": None, "protocol_version": None, "environment_facts": {"chain_family": {"status": "CONFIRMED", "value": "zksync-era"}, "execution_environment": {"status": "CONFIRMED", "value": "eravm-native"}}}
-        interpreter = {**native, "execution_environment": "zksync-evm-interpreter", "environment_facts": {**native["environment_facts"], "execution_environment": {"status": "CONFIRMED", "value": "zksync-evm-interpreter"}}}
-        other = {**native, "execution_environment": "ethereum-evm", "environment_facts": {**native["environment_facts"], "execution_environment": {"status": "CONFIRMED", "value": "ethereum-evm"}}}
+        native = {"chain_family": "zksync-era", "execution_environment": "eravm-native", "compiler_version": None, "evm_fork": None, "chain_id": None, "protocol_version": None, "environment_facts": {"chain_family": {"trust": "CONFIRMED", "value": "zksync-era", "source": "fixture", "evidence": ["fixture"]}, "execution_environment": {"trust": "CONFIRMED", "value": "eravm-native", "source": "fixture", "evidence": ["fixture"]}}}
+        interpreter = {**native, "execution_environment": "zksync-evm-interpreter", "environment_facts": {**native["environment_facts"], "execution_environment": {"trust": "CONFIRMED", "value": "zksync-evm-interpreter", "source": "fixture", "evidence": ["fixture"]}}}
+        other = {**native, "execution_environment": "ethereum-evm", "environment_facts": {**native["environment_facts"], "execution_environment": {"trust": "CONFIRMED", "value": "ethereum-evm", "source": "fixture", "evidence": ["fixture"]}}}
         self.assertEqual(evaluate_environment(check, native)[0], "TRUE")
         self.assertEqual(evaluate_environment(check, interpreter)[0], "TRUE")
         self.assertEqual(evaluate_environment(check, other)[0], "FALSE")
@@ -353,35 +370,78 @@ class ChecklistTests(unittest.TestCase):
             validate_environment_context(recon, compiler_version="0.8.20")
 
     def test_unknown_domain_is_deferred_and_blocks_clean_completion(self) -> None:
-        raw = self.v3_map({})
+        raw = self.v4_map({})
         features = normalize_feature_map(raw, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
         manifest, _ = select(self.registry, features, self.feature_names, None, {"source_digest": raw["recon_context"]["source_digest"]}, load_domains(ROOT), {}, raw["recon_context"])
         self.assertTrue(manifest["deferred_domains"])
-        self.assertEqual(manifest["completion_gate"]["status"], "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING")
+        self.assertNotIn("completion_gate", manifest)
+
+    def test_audit_state_is_derived_from_screen_coverage(self) -> None:
+        manifest = self.explicit_manifest()
+        screen = screen_results_template(manifest)
+        evidence = [{"kind": kind, "location": "fixture", "reason": "complete evidence"} for kind in ("scope", "inheritance", "interface", "deployment")]
+        for result in screen["results"]:
+            result["result"] = "NOT_APPLICABLE_CONFIRMED"
+            result["evidence"] = evidence
+        state = validate_run(ROOT, manifest, self.registry, screen, None, None, [])
+        self.assertEqual(state["status"], "COMPLETE")
+        self.assertTrue(state["clean"])
+        screen["results"][0]["result"] = "CANDIDATE"
+        screen["results"][0]["evidence"] = []
+        state = validate_run(ROOT, manifest, self.registry, screen, None, None, [])
+        self.assertEqual(state["status"], "COMPLETE_WITH_UNRESOLVED_REVIEW")
+
+    def test_unknown_deferred_domain_is_not_complete(self) -> None:
+        raw = self.v4_map({})
+        features = normalize_feature_map(raw, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
+        context = audit_context(ROOT, self.registry, raw["recon_context"], target_root=ROOT / "tests/fixtures/recon/Empty.sol", audit_timestamp="test")
+        environment = {**{key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}, "environment_facts": context["environment_facts"]}
+        config = load_domains(ROOT)
+        key = config["evm-audit-general"]["required_context"][0]["key"]
+        domain_context = {"domains": {"evm-audit-general": {key: {"status": "KNOWN", "value": "fixture", "evidence": ["fixture"]}}}}
+        manifest, _ = select(self.registry, features, self.feature_names, None, context, config, environment, raw["recon_context"], domain_context)
+        screen = screen_results_template(manifest)
+        for result in screen["results"]:
+            result["result"] = "NOT_APPLICABLE_CONFIRMED"
+            result["evidence"] = [{"kind": kind, "location": "fixture", "reason": "complete evidence"} for kind in ("scope", "inheritance", "interface", "deployment")]
+        resolution = {"schema_version": 1, "routing_snapshot_id": manifest["routing_snapshot_id"], "registry_sha256": manifest["audit_context"]["registry_sha256"], "source_digest": manifest["audit_context"]["source_digest"], "compilation_input_digest": manifest["audit_context"]["compilation_input_digest"], "domains": {entry["domain"]: {"status": "UNKNOWN", "scope_complete": False, "evidence": []} for entry in manifest["deferred_domains"]}}
+        state = validate_run(ROOT, manifest, self.registry, screen, resolution, None, [])
+        self.assertEqual(state["status"], "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING")
 
     def test_global_policies_do_not_enter_deep_cards(self) -> None:
         check = next(item for item in self.registry["checks"] if item["fp_policy"] == "global" and item["proof_policy"] == "global")
-        deep = compact_check(check, "deep")
-        self.assertEqual(deep["false_positive_gates"], [])
-        self.assertEqual(deep["proof"], [])
+        self.assertEqual(check["false_positive_gates"], [])
+        self.assertEqual(check["proof"], [])
 
     def test_candidate_is_promoted_from_screen_to_deep(self) -> None:
-        check = self.registry["checks"][0]
-        manifest = {"selected": [{"canonical_id": check["canonical_id"], "basis": []}], "selected_count": 1, "deferred_count": 0, "filtered_count": 0}
-        screen = selected_markdown(manifest, [check], "screen")
-        deep = selected_markdown(manifest, [check], "deep", {check["canonical_id"]})
+        raw = self.v4_map({})
+        features = normalize_feature_map(raw, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
+        context = audit_context(ROOT, self.registry, raw["recon_context"], target_root=ROOT / "tests/fixtures/recon/Empty.sol")
+        environment = {**{key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}, "environment_facts": context["environment_facts"]}
+        manifest, _ = select(self.registry, features, self.feature_names, ["evm-audit-general"], context, load_domains(ROOT), environment, raw["recon_context"])
+        check = next(item for item in self.registry["checks"] if item["canonical_id"] == manifest["selected"][0]["canonical_id"])
+        screen = render(manifest, self.registry, "screen", set())
+        deep = render(manifest, self.registry, "deep", {check["canonical_id"]})
         self.assertIn("**Trigger:**", screen)
         self.assertIn("**Risk:**", deep)
 
     def test_jsonl_resume_reuses_only_matching_terminal_record(self) -> None:
-        check = self.registry["checks"][0]
-        context = {"registry_sha256": "a", "source_digest": "b", "compilation_digest": "c"}
+        raw = self.v4_map({})
+        features = normalize_feature_map(raw, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
+        context = audit_context(ROOT, self.registry, raw["recon_context"], target_root=ROOT / "tests/fixtures/recon/Empty.sol")
+        environment = {**{key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}, "environment_facts": context["environment_facts"]}
+        manifest, _ = select(self.registry, features, self.feature_names, ["evm-audit-general"], context, load_domains(ROOT), environment, raw["recon_context"])
+        check = next(item for item in self.registry["checks"] if item["canonical_id"] == manifest["selected"][0]["canonical_id"])
+        entry = manifest["selected"][0]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "review.jsonl"
-            append(path, context, {"canonical_id": check["canonical_id"], "status": "REVIEWED_SAFE", "check_body_hash": check_body_hash(check)})
-            self.assertIn(check["canonical_id"], resumable(path, context, {"checks": [check]}))
-            self.assertIn(check["canonical_id"], merge([path], context, {"checks": [check]}))
-            self.assertEqual(resumable(path, {**context, "source_digest": "changed"}, {"checks": [check]}), {})
+            record = {"canonical_id": check["canonical_id"], "owner_domain": entry["owner_domain"], "routing_snapshot_id": manifest["routing_snapshot_id"], "check_body_hash": check_body_hash(check), "review_stage": "DEEP_REVIEW", "status": "REVIEWED_SAFE", "applicability": "APPLICABLE - fixture", "code_path": "fixture entry", "preconditions": "fixture state", "exploitability": "blocked by fixture guard", "impact": "N/A - invariant holds", "proof": "fixture invariant holds", "preserved_invariant": "fixture invariant", "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}]}
+            append(path, manifest, record)
+            self.assertIn(check["canonical_id"], resumable(path, manifest, self.registry, {check["canonical_id"]}))
+            self.assertIn(check["canonical_id"], merge([path], manifest, self.registry, {check["canonical_id"]}))
+            changed = copy.deepcopy(manifest)
+            changed["audit_context"]["source_digest"] = "0" * 64
+            self.assertEqual(resumable(path, changed, self.registry, {check["canonical_id"]}), {})
 
     def test_knowledge_dirty_is_tristate_with_build_info_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -430,49 +490,37 @@ class ChecklistTests(unittest.TestCase):
             123,
         )
 
-    def test_selected_markdown_contains_bodies_only(self) -> None:
+    def test_screen_and_deep_render_from_manifest(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as feature_file:
-            json.dump(self.v3_map({"uses-erc4626": "PRESENT"}), feature_file)
+            json.dump(self.v4_map({"uses-erc4626": "PRESENT"}), feature_file)
             feature_file.flush()
-            result = subprocess.run(
-                [sys.executable, "scripts/select_checks.py", "--feature-map", feature_file.name, "--target-root", "tests/fixtures/recon/Empty.sol", "--domain", "evm-audit-erc4626", "--emit-checks", "--format", "markdown"],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("## [EVM-ERC4626-001]", result.stdout)
-        self.assertIn("**Detection:**", result.stdout)
-        self.assertNotIn("## [EVM-TIME-001]", result.stdout)
+            manifest_path = Path(feature_file.name).with_name("manifest.json")
+            selector = subprocess.run([sys.executable, "scripts/select_checks.py", "--feature-map", feature_file.name, "--target-root", "tests/fixtures/recon/Empty.sol", "--domain", "evm-audit-erc4626", "--manifest-out", str(manifest_path)], cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(selector.returncode, 0, selector.stderr)
+            manifest = load_json(manifest_path)
+        screen = render(manifest, self.registry, "screen", set())
+        candidate = manifest["selected"][0]["canonical_id"]
+        deep = render(manifest, self.registry, "deep", {candidate})
+        self.assertIn("## [EVM-ERC4626-001]", screen)
+        self.assertIn("**Detection:**", screen)
+        self.assertNotIn("**Risk:**", screen)
+        self.assertIn(f"## [{candidate}]", deep)
+        self.assertIn("**Risk:**", deep)
 
-    def test_selected_markdown_is_smaller_than_full_domain_view(self) -> None:
+    def test_screen_is_smaller_than_candidate_deep_view(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as feature_file:
-            json.dump(self.v3_map({name: "PRESENT" for name in self.feature_names}), feature_file)
+            json.dump(self.v4_map({name: "PRESENT" for name in self.feature_names}), feature_file)
             feature_file.flush()
-            result = subprocess.run(
-                [sys.executable, "scripts/select_checks.py", "--feature-map", feature_file.name, "--target-root", "tests/fixtures/recon/Empty.sol", "--domain", "evm-audit-general", "--emit-checks", "--profile", "compact", "--format", "markdown"],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-            full_result = subprocess.run(
-                [sys.executable, "scripts/select_checks.py", "--feature-map", feature_file.name, "--target-root", "tests/fixtures/recon/Empty.sol", "--domain", "evm-audit-general", "--emit-checks", "--profile", "full", "--format", "markdown"],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-            )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(full_result.returncode, 0, full_result.stderr)
-        self.assertLess(len(result.stdout), len(full_result.stdout))
-
-    def test_compact_profile_contains_only_review_fields(self) -> None:
-        screen = compact_check(self.by_id["ERC4626-ROUND-001"], "screen")
-        self.assertEqual(set(screen), {"canonical_id", "title", "trigger", "detection"})
-        deep = compact_check(self.by_id["ERC4626-ROUND-001"], "deep")
-        self.assertTrue({"description", "risk", "verification", "provenance"} <= set(deep))
+            manifest_path = Path(feature_file.name).with_name("manifest.json")
+            selector = subprocess.run([sys.executable, "scripts/select_checks.py", "--feature-map", feature_file.name, "--target-root", "tests/fixtures/recon/Empty.sol", "--domain", "evm-audit-general", "--manifest-out", str(manifest_path)], cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(selector.returncode, 0, selector.stderr)
+            manifest = load_json(manifest_path)
+        screen = render(manifest, self.registry, "screen", set())
+        deep = render(manifest, self.registry, "deep", {entry["canonical_id"] for entry in manifest["selected"]})
+        self.assertLess(len(screen), len(deep))
 
     def test_routing_manifest_covers_scope_and_shared_owner(self) -> None:
-        raw_map = self.v3_map({name: "PRESENT" for name in self.feature_names})
+        raw_map = self.v4_map({name: "PRESENT" for name in self.feature_names})
         target_root = ROOT / "tests/fixtures/recon/Empty.sol"
         feature_map = normalize_feature_map(raw_map, self.feature_names, self.feature_policies, target_root)
         context = audit_context(ROOT, self.registry, raw_map["recon_context"], target_root=target_root)
@@ -486,35 +534,12 @@ class ChecklistTests(unittest.TestCase):
             {},
             raw_map["recon_context"],
         )
-        self.assertEqual(manifest["schema_version"], 5)
+        self.assertEqual(manifest["schema_version"], 6)
+        self.assertTrue(manifest["immutable"])
         self.assertIn("target_repo_commit", manifest["audit_context"])
         shared = next(item for item in manifest["selected"] + manifest["filtered"] if item["canonical_id"] == "EVM-TIME-001")
         self.assertEqual(shared["owner_domain"], "evm-audit-precision-math")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            manifest_path = Path(temp_dir) / "routing-manifest.json"
-            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-            ledgers: list[Path] = []
-            for owner in sorted({entry["owner_domain"] for entry in manifest["selected"]}):
-                ledger_path = Path(temp_dir) / f"review-{owner}.md"
-                with ledger_path.open("w", encoding="utf-8") as ledger_file:
-                    for entry in manifest["selected"]:
-                        if entry["owner_domain"] != owner:
-                            continue
-                        ledger_file.write(
-                            f"### {entry['canonical_id']} — Example\n"
-                            "- **Review stage**: DEEP_REVIEW\n"
-                            "- **Routing basis**: fixture\n"
-                            "- **Status**: REVIEWED_SAFE\n"
-                            "- **Applicability**: APPLICABLE — fixture\n"
-                            "- **Code path**: fixture\n"
-                            "- **Preconditions**: fixture\n"
-                            "- **Exploitability**: fixture\n"
-                            "- **Impact**: N/A — invariant holds\n"
-                            "- **PoC / Invariant violation**: fixture invariant holds\n"
-                            "- **Evidence**: fixture\n\n"
-                        )
-                ledgers.append(ledger_path)
-            self.assertEqual(validate_routing_manifest(ROOT, manifest_path, ledgers), [])
+        validate_manifest(ROOT, manifest, self.registry)
 
     def test_recon_uses_slither_evidence_and_confirms_supported_absence(self) -> None:
         result = subprocess.run(
@@ -566,7 +591,7 @@ class ChecklistTests(unittest.TestCase):
         for feature in ("uses-dynamic-loop", "uses-delegatecall", "uses-proxy", "uses-oracle", "uses-signature", "uses-reentrancy-callback", "uses-arbitrary-external-call", "uses-multicall"):
             self.assertEqual(features[feature]["status"], "UNKNOWN")
 
-    def test_routing_manifest_reports_invalid_feature_map_without_crashing(self) -> None:
+    def test_routing_manifest_rejects_invalid_shape(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as manifest_file:
             json.dump({
                 "schema_version": 1,
@@ -579,8 +604,8 @@ class ChecklistTests(unittest.TestCase):
                 "filtered": [],
             }, manifest_file)
             manifest_file.flush()
-            errors = validate_routing_manifest(ROOT, Path(manifest_file.name))
-        self.assertTrue(any("invalid feature_map" in error for error in errors))
+            with self.assertRaises(ValueError):
+                validate_manifest(ROOT, load_json(Path(manifest_file.name)), self.registry)
 
     def test_domain_skills_embed_the_evidence_gate(self) -> None:
         for skill_path in sorted(ROOT.glob("evm-audit-*/SKILL.md")):
@@ -613,37 +638,21 @@ class ChecklistTests(unittest.TestCase):
         self.assertFalse(any(item["kind"] == "unverified-freshness" for item in report["findings"]))
 
     def test_review_ledger_enforces_status_evidence_gate(self) -> None:
-        suspicious = """### EVM-GEN-001 — Example
-- **Review stage**: DEEP_REVIEW
-- **Routing basis**: uses-low-level-call
-- **Status**: SUSPICIOUS
-- **Applicability**: APPLICABLE — call path exists
-- **Code path**: UNRESOLVED — alternate path pending
-- **Preconditions**: UNRESOLVED — missing deployment state
-- **Exploitability**: UNRESOLVED — missing proof
-- **Impact**: UNRESOLVED — missing bound
-- **PoC / Invariant violation**: UNRESOLVED — test unavailable
-- **Evidence**: source:line
-- **Severity**: High
-"""
-        self.assertTrue(any("assigns severity" in error for error in validate_review_ledger_text(suspicious)))
-
-        confirmed = """### EVM-GEN-001 — Example
-- **Review stage**: PROOF
-- **Routing basis**: uses-low-level-call
-- **Status**: CONFIRMED
-- **Applicability**: APPLICABLE — call path exists
-- **Code path**: entry() → call()
-- **Preconditions**: attacker controls target address
-- **Exploitability**: attacker calls entry() with a no-code target
-- **Impact**: accounting accepts a false success
-- **PoC / Invariant violation**: Foundry test demonstrates success=true with empty returndata
-- **Evidence**: test/Example.t.sol:42
-"""
-        self.assertEqual(validate_review_ledger_text(confirmed, {"EVM-GEN-001"}), [])
-
-        incomplete = confirmed.replace("- **PoC / Invariant violation**: Foundry test demonstrates success=true with empty returndata\n", "")
-        self.assertTrue(any("missing deep-review fields" in error for error in validate_review_ledger_text(incomplete)))
+        raw = self.v4_map({})
+        features = normalize_feature_map(raw, self.feature_names, self.feature_policies, ROOT / "tests/fixtures/recon/Empty.sol")
+        context = audit_context(ROOT, self.registry, raw["recon_context"], target_root=ROOT / "tests/fixtures/recon/Empty.sol")
+        environment = {**{key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}, "environment_facts": context["environment_facts"]}
+        manifest, _ = select(self.registry, features, self.feature_names, ["evm-audit-general"], context, load_domains(ROOT), environment, raw["recon_context"])
+        entry = manifest["selected"][0]
+        check = next(item for item in self.registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        base = {"schema_version": 2, "record_type": "review", "canonical_id": entry["canonical_id"], "owner_domain": entry["owner_domain"], "routing_snapshot_id": manifest["routing_snapshot_id"], "check_body_hash": check_body_hash(check), "review_stage": "PROOF", "applicability": "APPLICABLE - path exists", "code_path": "entry() -> call()", "preconditions": "attacker controls target", "exploitability": "attacker invokes entry", "impact": "accounting accepts false success", "proof": "test demonstrates false success", "evidence": [{"kind": "test", "location": "fixture", "reason": "executable evidence"}]}
+        base.update({key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")})
+        suspicious = {**base, "status": "SUSPICIOUS", "unresolved_reason": "missing alternate path", "code_path": "UNRESOLVED - alternate path pending", "severity": "High"}
+        self.assertTrue(any("not valid" in error or "additional" in error for error in validate_record(suspicious, manifest, self.registry, {entry["canonical_id"]})))
+        confirmed = {**base, "status": "CONFIRMED"}
+        self.assertEqual(validate_record(confirmed, manifest, self.registry, {entry["canonical_id"]}), [])
+        incomplete = {key: value for key, value in confirmed.items() if key != "proof"}
+        self.assertTrue(any("missing review fields" in error or "not valid" in error for error in validate_record(incomplete, manifest, self.registry, {entry["canonical_id"]})))
 
 
 if __name__ == "__main__":

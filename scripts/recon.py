@@ -321,7 +321,7 @@ def build_feature_map(
     solc_version = command_version(solc)
     digests = compilation_digests(scope_root, scope_files, solc_version)
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "recon_context": {
             "target_root": str(scope_root),
             "files_analyzed": files_analyzed,

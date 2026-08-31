@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:audit-context:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["routing_snapshot_id", "selector_version", "registry_sha256", "source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest", "environment_facts", "audit_timestamp"],
+  "properties": {
+    "routing_snapshot_id": {"$ref": "#/$defs/hash"},
+    "selector_version": {"type": "string", "minLength": 1},
+    "registry_sha256": {"$ref": "#/$defs/hash"},
+    "knowledge_commit": {"type": ["string", "null"]},
+    "knowledge_dirty": {"type": ["boolean", "null"]},
+    "target_repo_commit": {"type": ["string", "null"]},
+    "source_digest": {"$ref": "#/$defs/hash"},
+    "audit_source_digest": {"$ref": "#/$defs/hash"},
+    "dependency_digest": {"$ref": "#/$defs/hash"},
+    "build_config_digest": {"$ref": "#/$defs/hash"},
+    "compilation_input_digest": {"$ref": "#/$defs/hash"},
+    "chain_id": {"type": ["integer", "null"]},
+    "chain_family": {"type": ["string", "null"]},
+    "execution_environment": {"type": ["string", "null"]},
+    "fork_block": {"type": ["integer", "null"]},
+    "fork_block_semantics": {"type": "string", "minLength": 1},
+    "compiler_version": {"type": ["string", "null"]},
+    "evm_fork": {"type": ["string", "null"]},
+    "protocol_version": {"type": ["string", "null"]},
+    "environment_facts": {"$ref": "#/$defs/environment_facts"},
+    "audit_timestamp": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "environment_facts": {"type": "object", "additionalProperties": {"$ref": "#/$defs/environment_fact"}},
+    "environment_fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "trust", "source", "evidence"],
+      "properties": {
+        "value": {},
+        "trust": {"enum": ["UNKNOWN", "DECLARED", "OBSERVED", "CONFIRMED"]},
+        "source": {"type": "string", "minLength": 1},
+        "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

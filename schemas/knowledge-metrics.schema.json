@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:knowledge-metrics:v1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "registry_sha256", "canonical_checks", "per_domain"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "registry_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "canonical_checks": {"type": "integer", "minimum": 0},
+    "per_domain": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["canonical_checks", "specific_fp_count", "specific_proof_count"],
+        "properties": {
+          "canonical_checks": {"type": "integer", "minimum": 0},
+          "specific_fp_count": {"type": "integer", "minimum": 0},
+          "specific_proof_count": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

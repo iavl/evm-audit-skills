@@ -23,25 +23,15 @@ from urllib.request import Request, urlopen
 try:
     from generate_checklists import check_outputs, load_domains, load_registry, normalize_registry
     from select_checks import (
-        FEATURE_STATES,
         PREDICATE_KEYS,
         check_predicate,
-        evaluate_check,
-        evaluate_environment,
-        normalize_feature_map,
-        registry_sha256,
         vocabulary as feature_vocabulary,
     )
 except ImportError:  # pragma: no cover - supports importing this file from another cwd
     from scripts.generate_checklists import check_outputs, load_domains, load_registry, normalize_registry
     from scripts.select_checks import (
-        FEATURE_STATES,
         PREDICATE_KEYS,
         check_predicate,
-        evaluate_check,
-        evaluate_environment,
-        normalize_feature_map,
-        registry_sha256,
         vocabulary as feature_vocabulary,
     )
 
@@ -65,7 +55,6 @@ URL_VALUE_RE = re.compile(r"^https?://[^\s]+$")
 CHECK_TYPES = {"normative", "semantic", "exploit-pattern", "heuristic"}
 CONFIDENCES = {"high", "medium", "contextual"}
 VERIFICATION_STATUSES = {"verified", "qualified"}
-ROUTING_MANIFEST_VERSION = 5
 CLAIMS_SCHEMA_VERSION = 3
 CLAIM_EVIDENCE_KINDS = {"official", "executable", "text-regression"}
 FRESHNESS_CLASSES = {"static", "versioned", "time-sensitive"}
@@ -222,7 +211,7 @@ def validate_registry(root: Path) -> list[str]:
     else:
         try:
             feature_schema = json.loads(feature_schema_path.read_text(encoding="utf-8"))
-            if not isinstance(feature_schema, dict) or feature_schema.get("properties", {}).get("schema_version", {}).get("const") != 3:
+            if not isinstance(feature_schema, dict) or feature_schema.get("properties", {}).get("schema_version", {}).get("const") != 4:
                 errors.append(f"{feature_schema_path}: invalid feature-map schema")
         except (OSError, json.JSONDecodeError) as error:
             errors.append(f"{feature_schema_path}: cannot parse JSON: {error}")
@@ -256,7 +245,7 @@ def validate_registry(root: Path) -> list[str]:
     valid_domains = set(domain_configs)
     required_domain_fields = {
         "id", "name", "checklist_title", "description", "surface_features", "related_domains",
-        "always_screen", "screening_terms", "required_context", "review_requirements",
+        "always_screen", "screening_terms", "required_context", "review_requirements", "trusted_absence_policy",
     }
     for domain, config in domain_configs.items():
         prefix = f"{root / 'domains'}:{domain}"
@@ -286,6 +275,11 @@ def validate_registry(root: Path) -> list[str]:
                 keys.add(value["key"])
         if not isinstance(config.get("review_requirements"), list) or not config["review_requirements"] or any(not isinstance(value, str) or not value.strip() for value in config["review_requirements"]):
             errors.append(f"{prefix}: review_requirements must be a non-empty string list")
+        policy = config.get("trusted_absence_policy")
+        if not isinstance(policy, dict) or set(policy) != {"requires_complete_scope", "allowed_evidence"} or policy.get("requires_complete_scope") is not True:
+            errors.append(f"{prefix}: trusted_absence_policy must require complete scope")
+        elif not isinstance(policy.get("allowed_evidence"), list) or not policy["allowed_evidence"] or any(kind not in {"scope", "inheritance", "interface", "dependency", "deployment"} for kind in policy["allowed_evidence"]):
+            errors.append(f"{prefix}: trusted_absence_policy.allowed_evidence is invalid")
         if not (root / domain / "SKILL.md").exists():
             errors.append(f"{prefix}: missing skill directory")
 
@@ -542,6 +536,20 @@ def validate_registry(root: Path) -> list[str]:
     return errors
 
 
+def validate_artifact_schemas(root: Path) -> list[str]:
+    errors: list[str] = []
+    try:
+        from jsonschema import Draft202012Validator
+    except ImportError:
+        return ["schemas: jsonschema is required; install requirements-runtime.txt"]
+    for path in sorted((root / "schemas").glob("*.schema.json")):
+        try:
+            Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError, ValueError) as error:
+            errors.append(f"{path}: invalid Draft 2020-12 schema: {error}")
+    return errors
+
+
 def validate_generated_registry(root: Path, registry: dict[str, object]) -> list[str]:
     errors: list[str] = []
     generated_errors = check_outputs(registry, root)
@@ -562,209 +570,6 @@ def validate_generated_registry(root: Path, registry: dict[str, object]) -> list
             actual[canonical_id] = actual.get(canonical_id, 0) + 1
     if actual != expected:
         errors.append(f"generated checklist coverage differs from registry (expected={expected}, actual={actual})")
-    return errors
-
-
-def validate_review_ledger_text(text: str, expected_ids: set[str] | None = None) -> list[str]:
-    """Validate the machine-checkable shape of a per-check review ledger."""
-    errors: list[str] = []
-    records: list[tuple[str, dict[str, str], int]] = []
-    current: tuple[str, dict[str, str], int] | None = None
-    for line_number, line in enumerate(text.splitlines(), 1):
-        heading = LEDGER_HEADING_RE.match(line)
-        if heading:
-            if current:
-                records.append(current)
-            current = (heading.group(1), {}, line_number)
-            continue
-        if current:
-            field = LEDGER_FIELD_RE.match(line)
-            if field:
-                current[1][field.group(1)] = field.group(2).strip()
-    if current:
-        records.append(current)
-    if not records:
-        return ["review ledger contains no records"]
-
-    seen: set[str] = set()
-    common = {"Review stage", "Routing basis", "Status", "Applicability", "Evidence"}
-    deep = {"Code path", "Preconditions", "Exploitability", "Impact", "PoC / Invariant violation"}
-    for canonical_id, fields, line_number in records:
-        if canonical_id in seen:
-            errors.append(f"ledger:{line_number}: duplicate record {canonical_id}")
-        seen.add(canonical_id)
-        missing_common = sorted(common - set(fields))
-        if missing_common:
-            errors.append(f"ledger:{line_number}: {canonical_id} missing fields {missing_common}")
-            continue
-        stage = fields["Review stage"]
-        status = fields["Status"]
-        if stage not in LEDGER_STAGES:
-            errors.append(f"ledger:{line_number}: {canonical_id} has invalid stage {stage!r}")
-        if status not in LEDGER_STATUSES:
-            errors.append(f"ledger:{line_number}: {canonical_id} has invalid status {status!r}")
-        if status == "SUSPICIOUS" and any(key.lower() == "severity" for key in fields):
-            errors.append(f"ledger:{line_number}: {canonical_id} assigns severity to SUSPICIOUS")
-        if stage in {"DEEP_REVIEW", "PROOF"} and status in {"REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}:
-            missing_deep = sorted(deep - set(fields))
-            if missing_deep:
-                errors.append(f"ledger:{line_number}: {canonical_id} missing deep-review fields {missing_deep}")
-        if status == "CONFIRMED":
-            unresolved = [key for key in deep if fields.get(key, "").startswith("UNRESOLVED")]
-            if unresolved:
-                errors.append(f"ledger:{line_number}: {canonical_id} is CONFIRMED with unresolved fields {unresolved}")
-            if not fields.get("Code path") or not fields.get("Preconditions") or not fields.get("Impact") or not fields.get("PoC / Invariant violation"):
-                errors.append(f"ledger:{line_number}: {canonical_id} CONFIRMED lacks concrete path, preconditions, impact, or proof")
-    if expected_ids is not None:
-        missing = sorted(expected_ids - seen)
-        unknown = sorted(seen - expected_ids)
-        if missing:
-            errors.append(f"review ledger missing canonical IDs: {missing}")
-        if unknown:
-            errors.append(f"review ledger has unknown canonical IDs: {unknown}")
-    return errors
-
-
-def _ledger_ids(text: str) -> list[str]:
-    return [match.group(1) for line in text.splitlines() if (match := LEDGER_HEADING_RE.match(line))]
-
-
-def validate_routing_manifest(root: Path, manifest_path: Path, ledger_paths: list[Path] | None = None) -> list[str]:
-    """Validate a routing-v4 snapshot and optional selected-check ledgers."""
-
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        return [f"{manifest_path}: cannot parse routing manifest: {error}"]
-    if not isinstance(manifest, dict):
-        return [f"{manifest_path}: routing manifest root must be an object"]
-    errors: list[str] = []
-    if manifest.get("schema_version") != ROUTING_MANIFEST_VERSION:
-        errors.append(f"{manifest_path}: schema_version must be {ROUTING_MANIFEST_VERSION}")
-    if manifest.get("stage") != "ENVIRONMENT_DOMAIN_CHECK_ROUTING":
-        errors.append(f"{manifest_path}: invalid routing stage")
-
-    audit = manifest.get("audit_context")
-    audit_fields = {
-        "selector_version", "registry_sha256", "knowledge_commit", "knowledge_dirty", "target_repo_commit",
-        "source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_digest",
-        "chain_id", "chain_family", "execution_environment", "fork_block", "fork_block_semantics",
-        "compiler_version", "evm_fork", "protocol_version", "environment_facts", "audit_timestamp",
-    }
-    if not isinstance(audit, dict) or set(audit) != audit_fields:
-        errors.append(f"{manifest_path}: audit_context fields must be {sorted(audit_fields)}")
-        audit = audit if isinstance(audit, dict) else {}
-    if audit.get("knowledge_dirty") not in {True, False, None}:
-        errors.append(f"{manifest_path}: knowledge_dirty must be true, false, or null")
-    for digest_field in ("registry_sha256", "source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_digest"):
-        if not isinstance(audit.get(digest_field), str) or not re.fullmatch(r"[0-9a-f]{64}", audit[digest_field]):
-            errors.append(f"{manifest_path}: audit_context.{digest_field} must be a SHA-256")
-    try:
-        datetime.fromisoformat(str(audit.get("audit_timestamp", "")).replace("Z", "+00:00"))
-    except ValueError:
-        errors.append(f"{manifest_path}: audit_timestamp must be ISO-8601")
-
-    try:
-        feature_data = json.loads((root / "data/features.json").read_text(encoding="utf-8"))
-        feature_names, policies = feature_vocabulary(feature_data)
-        raw_feature_map = manifest["feature_map"]
-        recon = raw_feature_map["recon_context"]
-        feature_map = normalize_feature_map(
-            raw_feature_map,
-            feature_names,
-            policies,
-            Path(recon["target_root"]),
-            tuple(recon.get("exclusion_patterns", [])),
-        )
-    except (OSError, KeyError, json.JSONDecodeError, ValueError) as error:
-        errors.append(f"{manifest_path}: invalid feature_map: {error}")
-        feature_names, feature_map = set(), {}
-
-    try:
-        registry = normalize_registry(load_registry(root / "data/canonical-checks.json"))
-    except (OSError, json.JSONDecodeError, ValueError) as error:
-        return errors + [f"{manifest_path}: cannot load canonical registry: {error}"]
-    if audit.get("registry_sha256") != registry_sha256(registry):
-        errors.append(f"{manifest_path}: registry_sha256 does not match the current registry")
-    checks = {check["canonical_id"]: check for check in registry.get("checks", [])}
-
-    selected_domains, deferred_domains, filtered_domains = manifest.get("selected_domains"), manifest.get("deferred_domains"), manifest.get("filtered_domains")
-    if not all(isinstance(bucket, list) for bucket in (selected_domains, deferred_domains, filtered_domains)):
-        errors.append(f"{manifest_path}: selected/deferred/filtered_domains must be lists")
-        selected_domains, deferred_domains, filtered_domains = [], [], []
-    selected_domain_ids = {entry.get("domain") for entry in selected_domains if isinstance(entry, dict)}
-    deferred_domain_ids = {entry.get("domain") for entry in deferred_domains if isinstance(entry, dict)}
-    filtered_domain_ids = {entry.get("domain") for entry in filtered_domains if isinstance(entry, dict)}
-    if selected_domain_ids & deferred_domain_ids or selected_domain_ids & filtered_domain_ids or deferred_domain_ids & filtered_domain_ids:
-        errors.append(f"{manifest_path}: domains appear in both routing buckets")
-    candidate_ids = {canonical_id for canonical_id, check in checks.items() if set(check.get("domains", [])) & (selected_domain_ids | deferred_domain_ids | filtered_domain_ids)}
-    scope = manifest.get("scope")
-    if not isinstance(scope, dict) or scope.get("candidate_count") != len(candidate_ids):
-        errors.append(f"{manifest_path}: scope.candidate_count does not match selected domains")
-
-    selected = manifest.get("selected") if isinstance(manifest.get("selected"), list) else []
-    deferred = manifest.get("deferred") if isinstance(manifest.get("deferred"), list) else []
-    filtered = manifest.get("filtered") if isinstance(manifest.get("filtered"), list) else []
-    if not all(isinstance(manifest.get(key), list) for key in ("selected", "deferred", "filtered")):
-        errors.append(f"{manifest_path}: selected/deferred/filtered must be lists")
-    selected_ids = [entry.get("canonical_id") for entry in selected if isinstance(entry, dict)]
-    deferred_ids = [entry.get("canonical_id") for entry in deferred if isinstance(entry, dict)]
-    filtered_ids = [entry.get("canonical_id") for entry in filtered if isinstance(entry, dict)]
-    selected_set, deferred_set, filtered_set = set(selected_ids), set(deferred_ids), set(filtered_ids)
-    if any(len(ids) != len(set(ids)) for ids in (selected_ids, deferred_ids, filtered_ids)):
-        errors.append(f"{manifest_path}: duplicate routed canonical IDs")
-    if selected_set & deferred_set or selected_set & filtered_set or deferred_set & filtered_set or selected_set | deferred_set | filtered_set != candidate_ids:
-        errors.append(f"{manifest_path}: routing bucket coverage differs from considered-domain candidates")
-    if manifest.get("selected_count") != len(selected) or manifest.get("deferred_count") != len(deferred) or manifest.get("filtered_count") != len(filtered):
-        errors.append(f"{manifest_path}: selected/deferred/filtered counts do not match entries")
-    if manifest.get("filtered_out") != filtered_ids:
-        errors.append(f"{manifest_path}: filtered_out must match filtered IDs")
-
-    environment = {key: audit.get(key) for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}
-    environment["environment_facts"] = audit.get("environment_facts", {})
-    route_fields = {
-        "canonical_id", "title", "domains", "owner_domain", "freshness", "verified_at", "route_status",
-        "environment_evaluation", "environment_basis", "predicate", "predicate_source", "predicate_evaluation",
-        "feature_evaluation", "matched_features", "unknown_features", "basis",
-    }
-    for bucket_name, bucket in (("selected", selected), ("deferred", deferred), ("filtered", filtered)):
-        for index, entry in enumerate(bucket, 1):
-            if not isinstance(entry, dict) or not route_fields <= set(entry):
-                errors.append(f"{manifest_path}:{bucket_name}[{index}] has invalid fields")
-                continue
-            canonical_id = entry.get("canonical_id")
-            if canonical_id not in checks:
-                errors.append(f"{manifest_path}: unknown canonical ID {canonical_id!r}")
-                continue
-            if bucket_name != "selected" and entry.get("route_status") in {"DEFERRED_DOMAIN", "FILTERED_DOMAIN"}:
-                continue
-            feature = evaluate_check(checks[canonical_id], feature_map, feature_names)
-            environment_result, _ = evaluate_environment(checks[canonical_id], environment)
-            expected_status = "FILTERED_ENVIRONMENT" if environment_result == "FALSE" else "FILTERED_FEATURE" if feature["result"] == "FALSE" else "SELECTED"
-            if entry.get("route_status") != expected_status or entry.get("environment_evaluation") != environment_result or entry.get("feature_evaluation") != feature["result"]:
-                errors.append(f"{manifest_path}: {canonical_id} has stale routing evaluation")
-            if (bucket_name == "selected") != (expected_status == "SELECTED"):
-                errors.append(f"{manifest_path}: {canonical_id} is in the wrong routing bucket")
-            if entry.get("owner_domain") not in set(checks[canonical_id].get("domains", [])) & selected_domain_ids:
-                errors.append(f"{manifest_path}: {canonical_id} has invalid owner_domain")
-
-    if ledger_paths:
-        seen_ledger: set[str] = set()
-        owner_by_id = {entry["canonical_id"]: entry.get("owner_domain") for entry in selected if isinstance(entry, dict)}
-        for ledger_path in ledger_paths:
-            try:
-                ledger_ids = _ledger_ids(ledger_path.read_text(encoding="utf-8"))
-            except OSError as error:
-                errors.append(f"{ledger_path}: cannot read review ledger: {error}")
-                continue
-            for canonical_id in ledger_ids:
-                if canonical_id in seen_ledger or canonical_id not in selected_set:
-                    errors.append(f"{ledger_path}: duplicate or non-selected ledger ID {canonical_id}")
-                seen_ledger.add(canonical_id)
-                if canonical_id in owner_by_id and ledger_path.name != f"review-{owner_by_id[canonical_id]}.md":
-                    errors.append(f"{ledger_path}: {canonical_id} is assigned to {owner_by_id[canonical_id]}")
-        if selected_set != seen_ledger:
-            errors.append(f"{manifest_path}: selected IDs missing from review ledgers: {sorted(selected_set - seen_ledger)}")
     return errors
 
 
@@ -1058,20 +863,6 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="perform network liveness checks for external source URLs",
     )
-    parser.add_argument(
-        "--review-ledger",
-        action="append",
-        type=Path,
-        default=[],
-        help="validate one or more run-specific review ledger files",
-    )
-    parser.add_argument(
-        "--routing-manifest",
-        action="append",
-        type=Path,
-        default=[],
-        help="validate one or more machine routing manifests and their selected-ledger coverage",
-    )
     args = parser.parse_args(argv)
     root = args.root.resolve()
 
@@ -1087,6 +878,7 @@ def main(argv: list[str]) -> int:
         errors.append(f"expected {expected_checklists} domain checklists, found {len(checklist_paths)}")
 
     errors.extend(validate_registry(root))
+    errors.extend(validate_artifact_schemas(root))
     registry_path = root / "data" / "canonical-checks.json"
     if registry_path.exists():
         try:
@@ -1133,13 +925,6 @@ def main(argv: list[str]) -> int:
     errors.extend(relative_link_errors(root))
     if args.check_external_links:
         errors.extend(external_link_errors(root))
-    for ledger_path in args.review_ledger:
-        try:
-            errors.extend(validate_review_ledger_text(ledger_path.read_text(encoding="utf-8")))
-        except OSError as error:
-            errors.append(f"{ledger_path}: cannot read review ledger: {error}")
-    for manifest_path in args.routing_manifest:
-        errors.extend(validate_routing_manifest(root, manifest_path.resolve(), args.review_ledger))
     errors.extend(validate_counts(root, counts))
     review_errors, review_warnings = validate_review_record(root, args.strict)
     errors.extend(review_errors)

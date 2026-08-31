@@ -1,1 +1,1 @@
-{"name":"bridge","detected_features":["uses-bridge"],"must_select_domains":["evm-audit-general","evm-audit-bridges"],"must_select_checks":["EVM-BRIDGE-001"],"max_selected_checks":190,"max_runtime_bytes":100000}
+{"name":"bridge","detected_features":["uses-bridge"],"must_select_domains":["evm-audit-general","evm-audit-bridges"],"must_select_checks":["EVM-BRIDGE-001"],"max_selected_checks":190,"max_runtime_bytes":130048,"max_total_context_bytes":376832}

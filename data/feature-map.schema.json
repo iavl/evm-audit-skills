@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:feature-map:v3",
+  "$id": "urn:evm-audit-skills:feature-map:v4",
   "title": "EVM audit reconnaissance feature map",
   "type": "object",
   "required": ["schema_version", "recon_context", "features"],
   "properties": {
-    "schema_version": {"const": 3},
+    "schema_version": {"const": 4},
     "recon_context": {
       "type": "object",
-      "required": ["target_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "uncompiled_paths", "source_digest", "compilation_complete", "slither_version", "solc_version"],
+      "required": ["target_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "uncompiled_paths", "source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest", "compilation_complete", "slither_version", "solc_version"],
       "properties": {
         "target_root": {"type": "string", "minLength": 1},
         "files_analyzed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
@@ -16,6 +16,10 @@
         "exclusion_patterns": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "uncompiled_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "audit_source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "dependency_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "build_config_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "compilation_input_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "compilation_complete": {"type": "boolean"},
         "slither_version": {"type": "string", "minLength": 1},
         "solc_version": {"type": ["string", "null"]}

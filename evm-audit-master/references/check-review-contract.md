@@ -35,14 +35,14 @@ One terminal status
 
 Use a three-stage funnel for every routed canonical check:
 
-1. **`FAST_FILTER`** — verify the scope-bound Feature Map v3, evaluate
+1. **`FAST_FILTER`** — verify the scope-bound Feature Map v4, evaluate
    environment applicability, gate Domains by their surface predicate, then
    compare each candidate check with the feature map. Only a `curated` predicate
    proven `FALSE` is feature-filtered. A `FALSE` result from an `inferred`
    keyword predicate is downgraded to `UNKNOWN`; it remains selected and must
    not become `NOT_APPLICABLE`.
-2. **`SCREEN`** — classify selected cards as `NOT_APPLICABLE`, `LIKELY_SAFE`,
-or `CANDIDATE`. Uncertainty is always `CANDIDATE`; Screen never filters.
+2. **`SCREEN`** — classify selected cards as `NOT_APPLICABLE_CONFIRMED` or
+`CANDIDATE`. Uncertainty is always `CANDIDATE`; Screen never filters.
 3. **`DEEP_REVIEW`** — for candidates, trace reachability, preconditions,
    guards, and invariants. Use `REVIEWED_SAFE` or `SUSPICIOUS` when proof is not
    complete.
@@ -50,22 +50,21 @@ or `CANDIDATE`. Uncertainty is always `CANDIDATE`; Screen never filters.
    runnable PoC, transaction trace, or deterministic invariant violation before
    using `CONFIRMED`.
 
-The routing-v5 manifest must account for every canonical ID in the considered
+The immutable routing-v6 manifest must account for every canonical ID in the considered
 Domain scope as `SELECTED`, `FILTERED_ENVIRONMENT`, or `FILTERED_FEATURE` and
 must separately account for Selected, Deferred, and filtered Domains. Deferred
 Domains must resolve before clean completion. It
 must include the feature evidence used for the decision. Filtered IDs are
-machine coverage entries only; they do not receive per-check Markdown ledger
+machine coverage entries only; they do not receive per-check review ledger
 records. Selected IDs receive exactly one deep/proof record, including shared
 IDs that are listed in more than one Domain. The manifest also records the
 registry/source digests, selector version, knowledge/target commits,
 chain/runtime/fork/compiler context, and audit timestamp so a later review can
 reproduce the routing input.
 
-Validate a completed ledger with
-`python3 scripts/validate_checklists.py --review-ledger <path>`. Use
-`--routing-manifest <manifest> --review-ledger <path>` once per complete audit
-run to enforce selected/filtered coverage and shared-ID ownership.
+Validate a completed run with `python3 scripts/validate_audit_run.py`; it
+independently derives completion from the immutable manifest, Screen results,
+Domain resolution, and JSONL ledgers.
 
 ## Terminal Statuses
 
@@ -86,14 +85,21 @@ input. Preserve existing source identifiers, including `SAS-AV-*`,
 `DROZER-*`, and `AUDITMOS-*`, only as provenance. A legacy path/section/title
 alias may be included for traceability, but it is not a second review item.
 
-Each selected skill writes one `review-<skill>.md` ledger. The filename must
+Each selected skill writes one `review-<skill>.jsonl` ledger for its Screen
+candidate IDs. The filename must
 match the selected record's `owner_domain` (for example,
-`review-evm-audit-erc20.md`). Preserve routed order
-and write exactly one record per selected checklist item:
+`review-evm-audit-erc20.jsonl`). Preserve routed order
+and write exactly one record per candidate checklist item:
+
+The JSONL checkpoint and every review record carry `routing_snapshot_id`,
+`registry_sha256`, `source_digest`, `compilation_input_digest`, and the routed
+`check_body_hash`. Typed evidence entries use `kind`, `location`, and `reason`.
+Markdown ledgers are not runtime input; `review_ledger.py` renders them from
+JSONL when a human view is needed.
 
 ```markdown
 ### <check-ref> — <title>
-- **Review stage**: FAST_FILTER | DEEP_REVIEW | PROOF
+- **Review stage**: DEEP_REVIEW | PROOF
 - **Routing basis**: matched feature IDs and reconnaissance evidence, or the concrete reason the feature is absent
 - **Status**: NOT_APPLICABLE | REVIEWED_SAFE | SUSPICIOUS | CONFIRMED
 - **Applicability**: APPLICABLE — ... | NOT_APPLICABLE — ...

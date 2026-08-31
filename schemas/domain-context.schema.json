@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:domain-context:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["domains"],
+  "properties": {
+    "domains": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["status"],
+          "properties": {"status": {"enum": ["KNOWN", "NOT_APPLICABLE", "UNKNOWN"]}}
+        }
+      }
+    }
+  }
+}

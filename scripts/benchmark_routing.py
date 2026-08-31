@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark normalized production routing for explicit and automatic scopes."""
+"""Benchmark routing recall, forbidden filters, and runtime context cost."""
 
 from __future__ import annotations
 
@@ -11,15 +11,18 @@ import tempfile
 from pathlib import Path
 
 try:
+    from render_runtime import render, validate_manifest, validate_screen_results
     from scope_context import compilation_digests, scope_inventory
-    from select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, selected_markdown, vocabulary
+    from select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
 except ImportError:  # pragma: no cover
+    from scripts.render_runtime import render, validate_manifest, validate_screen_results
     from scripts.scope_context import compilation_digests, scope_inventory
-    from scripts.select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, selected_markdown, vocabulary
+    from scripts.select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SYNTHETIC_TARGET = ROOT / "tests/fixtures/recon/Empty.sol"
+CONTRACT_PATH = ROOT / "evm-audit-master/references/check-review-contract.runtime.md"
 
 
 def recon_context(target: Path) -> dict[str, object]:
@@ -37,17 +40,79 @@ def feature_map(names: set[str], policies: dict[str, dict[str, object]], present
     entries: dict[str, object] = {}
     for name in sorted(names):
         status = "PRESENT" if name in present else "ABSENT_CONFIRMED" if name in absent else "UNKNOWN"
-        evidence = []
+        evidence: list[dict[str, str]] = []
         if status != "UNKNOWN":
             allowed = policies[name]["allowed_absence_evidence"] if status == "ABSENT_CONFIRMED" else ["manual"]
-            kind = allowed[0] if allowed else "manual"
-            evidence = [{"kind": kind, "location": "benchmark", "reason": "declared benchmark scope"}]
+            if allowed:
+                evidence = [{"kind": allowed[0], "location": "benchmark", "reason": "declared benchmark scope"}]
         entries[name] = {"status": status, "evidence": evidence}
-    return {"schema_version": 3, "recon_context": recon_context(SYNTHETIC_TARGET), "features": entries}
+    return {"schema_version": 4, "recon_context": recon_context(SYNTHETIC_TARGET), "features": entries}
 
 
 def _domains(manifest: dict[str, object], bucket: str) -> list[str]:
     return [entry["domain"] for entry in manifest[bucket]]  # type: ignore[index]
+
+
+def _total_cost(manifest: dict[str, object], screen: str, deep: str) -> dict[str, int]:
+    selected_domains = manifest.get("selected_domains", [])
+    deferred_domains = manifest.get("deferred_domains", [])
+    domain_screening = len(json.dumps(deferred_domains, ensure_ascii=False, sort_keys=True).encode())
+    screen_bytes = len(screen.encode())
+    deep_bytes = len(deep.encode())
+    shared_contract = len(CONTRACT_PATH.read_bytes())
+    methodology = len(json.dumps(selected_domains, ensure_ascii=False, sort_keys=True).encode())
+    return {
+        "domain_screening_bytes": domain_screening,
+        "screen_bytes": screen_bytes,
+        "candidate_deep_bytes": deep_bytes,
+        "shared_contract_bytes": shared_contract,
+        "domain_methodology_bytes": methodology,
+        "total_context_bytes": domain_screening + screen_bytes + deep_bytes + shared_contract + methodology,
+    }
+
+
+def _rounded_budget(value: int) -> int:
+    return ((value * 11 + 9) // 10 + 1023) // 1024 * 1024
+
+
+def _assert_fixture(fixture: dict[str, object], normalized: dict[str, dict[str, object]], manifest: dict[str, object]) -> None:
+    name = fixture.get("name")
+    selected_domains, deferred_domains, filtered_domains = map(lambda bucket: set(_domains(manifest, bucket)), ("selected_domains", "deferred_domains", "filtered_domains"))
+    selected_ids = {entry["canonical_id"] for entry in manifest["selected"]}  # type: ignore[index]
+    filtered_ids = {entry["canonical_id"] for entry in manifest["filtered"]}  # type: ignore[index]
+    for feature in fixture.get("must_detect_features", fixture.get("detected_features", [])):
+        if normalized.get(feature, {}).get("status") != "PRESENT":
+            raise ValueError(f"{name}: must-detect feature is not PRESENT: {feature}")
+    must_select = set(fixture.get("must_select_checks", fixture.get("must_select_ids", [])))
+    if not must_select <= selected_ids:
+        raise ValueError(f"{name}: must-select checks missing: {sorted(must_select - selected_ids)}")
+    expected_selected_checks = fixture.get("expected_selected_checks")
+    if isinstance(expected_selected_checks, int) and expected_selected_checks != len(selected_ids):
+        raise ValueError(f"{name}: selected check count mismatch: expected={expected_selected_checks} actual={len(selected_ids)}")
+    expected_filtered_checks = fixture.get("expected_filtered_checks")
+    if isinstance(expected_filtered_checks, int) and expected_filtered_checks != len(filtered_ids):
+        raise ValueError(f"{name}: filtered check count mismatch: expected={expected_filtered_checks} actual={len(filtered_ids)}")
+    must_not_filter = set(fixture.get("must_not_filter_checks", fixture.get("must_not_filter_ids", [])))
+    if must_not_filter & filtered_ids:
+        raise ValueError(f"{name}: must-not-filter checks filtered: {sorted(must_not_filter & filtered_ids)}")
+    for key, actual in (
+        ("expected_selected_domains", selected_domains),
+        ("expected_deferred_domains", deferred_domains),
+        ("expected_filtered_domains", filtered_domains),
+    ):
+        expected = fixture.get(key)
+        if expected is None and key == "expected_selected_domains" and fixture.get("domain_scope") is not None:
+            expected = fixture.get("selected_domains")
+        if expected is not None and set(expected) != actual:
+            raise ValueError(f"{name}: {key} mismatch: expected={sorted(expected)} actual={sorted(actual)}")
+    required = set(fixture.get("must_select_domains", fixture.get("selected_domains", [])))
+    if not required <= selected_domains:
+        raise ValueError(f"{name}: selected Domains missing: {sorted(required - selected_domains)}")
+    forbidden = set(fixture.get("must_not_filter_domains", [])) | set(fixture.get("must_not_select_domains", []))
+    if forbidden & filtered_domains:
+        raise ValueError(f"{name}: forbidden Domains were filtered: {sorted(forbidden & filtered_domains)}")
+    if forbidden & selected_domains:
+        raise ValueError(f"{name}: forbidden Domains were selected: {sorted(forbidden & selected_domains)}")
 
 
 def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
@@ -64,79 +129,93 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
         raise ValueError(f"domain_scope must be a non-empty list in {fixture.get('name')}")
     context = audit_context(root, registry, raw_map["recon_context"], target_root=SYNTHETIC_TARGET, audit_timestamp="benchmark")
     environment = {**{key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}, "environment_facts": context["environment_facts"]}
-    manifest, checks = select(registry, normalized, names, scope, context, domains, environment, raw_map["recon_context"])
-
-    selected_ids = {entry["canonical_id"] for entry in manifest["selected"]}
-    deferred_ids = {entry["canonical_id"] for entry in manifest["deferred"]}
-    filtered_ids = {entry["canonical_id"] for entry in manifest["filtered"]}
-    must_select = set(fixture.get("must_select_checks", fixture.get("must_select_ids", [])))
-    must_not_filter = set(fixture.get("must_not_filter_checks", fixture.get("must_not_filter_ids", [])))
-    if not must_select <= selected_ids:
-        raise ValueError(f"{fixture.get('name')}: must-select checks missing: {sorted(must_select - selected_ids)}")
-    if must_not_filter & filtered_ids:
-        raise ValueError(f"{fixture.get('name')}: must-not-filter checks filtered: {sorted(must_not_filter & filtered_ids)}")
-
-    selected_domains = _domains(manifest, "selected_domains")
-    deferred_domains = _domains(manifest, "deferred_domains")
-    filtered_domains = _domains(manifest, "filtered_domains")
-    expected = fixture.get("selected_domains", fixture.get("must_select_domains"))
-    if expected is not None and not set(expected) <= set(selected_domains):
-        raise ValueError(f"{fixture.get('name')}: selected Domains missing: {sorted(set(expected) - set(selected_domains))}")
-    if set(fixture.get("must_not_filter_domains", [])) & set(filtered_domains):
-        raise ValueError(f"{fixture.get('name')}: must-not-filter Domains were filtered")
-
-    screen_bytes = len(selected_markdown(manifest, checks, "screen").encode())
-    deep_bytes = len(selected_markdown(manifest, checks, "deep").encode())
-    if screen_bytes >= deep_bytes:
-        raise ValueError(f"{fixture.get('name')}: screen runtime must be smaller than deep runtime")
-    for key, actual in (("max_selected_checks", len(selected_ids)), ("max_runtime_bytes", screen_bytes)):
+    manifest, _ = select(registry, normalized, names, scope, context, domains, environment, raw_map["recon_context"])
+    validate_manifest(root, manifest, registry)
+    _assert_fixture(fixture, normalized, manifest)
+    screen = render(manifest, registry, "screen", set())
+    candidates = {entry["canonical_id"] for entry in manifest["selected"]}
+    deep = render(manifest, registry, "deep", candidates)
+    cost = _total_cost(manifest, screen, deep)
+    if len(screen) >= len(deep):
+        raise ValueError(f"{fixture.get('name')}: screen runtime must be smaller than candidate Deep runtime")
+    for key, actual in (("max_selected_checks", len(candidates)), ("max_runtime_bytes", len(screen.encode())), ("max_total_context_bytes", cost["total_context_bytes"])):
         limit = fixture.get(key)
         if isinstance(limit, int) and actual > limit:
-            print(f"WARNING: {fixture.get('name')} {key}={actual} exceeds staged budget {limit}", file=sys.stderr)
+            raise ValueError(f"{fixture.get('name')}: {key}={actual} exceeds hard budget {limit}")
+    for key, actual in (("max_runtime_bytes", len(screen.encode())), ("max_total_context_bytes", cost["total_context_bytes"])):
+        limit = fixture.get(key)
+        if isinstance(limit, int) and limit != _rounded_budget(actual):
+            raise ValueError(f"{fixture.get('name')}: {key} must be baseline+10% rounded to 1KiB: expected={_rounded_budget(actual)} actual={limit}")
     return {
-        "name": fixture.get("name"), "selected_domains": selected_domains,
-        "deferred_domains": deferred_domains, "filtered_domains": filtered_domains,
-        "selected_checks": len(selected_ids), "deferred_checks": len(deferred_ids),
-        "filtered_checks": len(filtered_ids), "screen_runtime_bytes": screen_bytes,
-        "deep_runtime_bytes": deep_bytes,
+        "name": fixture.get("name"), "selected_domains": sorted(_domains(manifest, "selected_domains")),
+        "deferred_domains": sorted(_domains(manifest, "deferred_domains")), "filtered_domains": sorted(_domains(manifest, "filtered_domains")),
+        "selected_checks": len(candidates), "deferred_checks": manifest["deferred_count"],
+        "filtered_checks": manifest["filtered_count"], "screen_runtime_bytes": len(screen.encode()),
+        "deep_runtime_bytes": len(deep.encode()), "cost": cost,
     }
 
 
-def run_e2e(root: Path) -> dict[str, object]:
-    target = root / "tests/fixtures/recon/ReconFixture.sol"
-    with tempfile.TemporaryDirectory() as directory:
-        feature_path, manifest_path = Path(directory) / "feature-map.json", Path(directory) / "manifest.json"
-        recon = subprocess.run([sys.executable, str(root / "scripts/recon.py"), str(target), "--output", str(feature_path)], capture_output=True, text=True)
-        if recon.returncode:
-            raise ValueError(f"e2e Recon failed: {recon.stderr.strip()}")
-        selector = subprocess.run([sys.executable, str(root / "scripts/select_checks.py"), "--feature-map", str(feature_path), "--target-root", str(target), "--manifest-out", str(manifest_path), "--profile", "screen"], capture_output=True, text=True)
-        if selector.returncode:
-            raise ValueError(f"e2e Selector failed: {selector.stderr.strip()}")
-        manifest = load_json(manifest_path)
+def run_e2e(root: Path) -> list[dict[str, object]]:
+    cases = {
+        "erc20": ({"uses-erc20"}, {"EVM-GEN-001", "EVM-ERC20-001"}),
+        "erc4626": ({"uses-erc4626"}, {"EVM-GEN-001", "EVM-ERC4626-001"}),
+        "proxy": ({"uses-proxy", "uses-delegatecall", "uses-assembly"}, {"EVM-GEN-001", "EVM-PROXY-001"}),
+        "lending-oracle": ({"uses-lending", "uses-oracle"}, {"EVM-GEN-001", "EVM-LEND-001", "EVM-ORACLE-001"}),
+        "bridge": ({"uses-bridge"}, {"EVM-GEN-001", "EVM-BRIDGE-001"}),
+        "governance": ({"uses-governance"}, {"EVM-GEN-001", "EVM-GOV-001"}),
+        "mixed-defi": ({"uses-erc20", "uses-erc4626", "uses-amm", "uses-lending", "uses-oracle", "uses-staking"}, {"EVM-GEN-001", "EVM-ERC20-001", "EVM-ERC4626-001", "EVM-AMM-001", "EVM-LEND-001", "EVM-ORACLE-001", "EVM-STK-001"}),
+    }
     registry = load_json(root / "data/canonical-checks.json")
-    selected_ids = {entry["canonical_id"] for entry in manifest["selected"]}
-    checks = [check for check in registry["checks"] if check["canonical_id"] in selected_ids]
-    screen_bytes = len(selected_markdown(manifest, checks, "screen").encode())
-    deep_bytes = len(selected_markdown(manifest, checks, "deep").encode())
-    return {
-        "name": "e2e-recon-fixture", "selected_domains": _domains(manifest, "selected_domains"),
-        "deferred_domains": _domains(manifest, "deferred_domains"), "filtered_domains": _domains(manifest, "filtered_domains"),
-        "selected_checks": manifest["selected_count"], "deferred_checks": manifest["deferred_count"],
-        "filtered_checks": manifest["filtered_count"], "screen_runtime_bytes": screen_bytes, "deep_runtime_bytes": deep_bytes,
-    }
+    results: list[dict[str, object]] = []
+    for name, (must_detect, expected_checks) in cases.items():
+        target_root = root / "tests/fixtures/e2e" / name
+        target = target_root / "Main.sol"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            feature_path, manifest_path = output / "feature-map.json", output / "manifest.json"
+            screen_path, screen_results_path = output / "screen.md", output / "screen-results.json"
+            recon = subprocess.run([sys.executable, str(root / "scripts/recon.py"), str(target), "--audit-root", str(target_root), "--output", str(feature_path)], capture_output=True, text=True)
+            if recon.returncode:
+                raise ValueError(f"e2e {name} Recon failed: {recon.stderr.strip()}")
+            feature_map = load_json(feature_path)
+            missing_features = sorted(feature for feature in must_detect if feature_map["features"].get(feature, {}).get("status") != "PRESENT")
+            if missing_features:
+                raise ValueError(f"e2e {name} Recon missed must-detect features: {missing_features}")
+            selector = subprocess.run([sys.executable, str(root / "scripts/select_checks.py"), "--feature-map", str(feature_path), "--target-root", str(target_root), "--manifest-out", str(manifest_path)], capture_output=True, text=True)
+            if selector.returncode:
+                raise ValueError(f"e2e {name} Selector failed: {selector.stderr.strip()}")
+            manifest = load_json(manifest_path)
+            render_result = subprocess.run([sys.executable, str(root / "scripts/render_runtime.py"), "--manifest", str(manifest_path), "--profile", "screen", "--output", str(screen_path), "--screen-results-out", str(screen_results_path)], capture_output=True, text=True)
+            if render_result.returncode:
+                raise ValueError(f"e2e {name} Screen render failed: {render_result.stderr.strip()}")
+            screen = screen_path.read_text(encoding="utf-8")
+            screen_results = load_json(screen_results_path)
+        validate_manifest(root, manifest, registry)
+        candidates = validate_screen_results(root, manifest, screen_results)
+        missing_checks = sorted(expected_checks - candidates)
+        if missing_checks:
+            raise ValueError(f"e2e {name} Screen lost must-select checks: {missing_checks}")
+        results.append({
+            "name": f"e2e-{name}", "selected_domains": sorted(_domains(manifest, "selected_domains")),
+            "deferred_domains": sorted(_domains(manifest, "deferred_domains")), "filtered_domains": sorted(_domains(manifest, "filtered_domains")),
+            "selected_checks": manifest["selected_count"], "deferred_checks": manifest["deferred_count"],
+            "filtered_checks": manifest["filtered_count"], "screen_runtime_bytes": len(screen.encode()),
+            "deep_runtime_bytes": None, "e2e_recall": {"must_detect_features": len(must_detect), "must_select_checks": len(expected_checks), "candidates": len(candidates)}, "e2e_artifacts": ["multi-file feature-map.json", "manifest.json", "screen-results.json"],
+        })
+    return results
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
-    parser.add_argument("--e2e", action="store_true", help="also execute Recon -> Selector on Solidity")
+    parser.add_argument("--e2e", action="store_true", help="also execute Recon -> Selector -> Renderer on Solidity")
     args = parser.parse_args(argv)
     try:
         root = args.root.resolve()
         paths = sorted((root / "benchmarks/routing").glob("*/*.json")) or sorted((root / "benchmarks/routing").glob("*.json"))
         results = [run_profile(root, load_json(path)) for path in paths]
         if args.e2e:
-            results.append(run_e2e(root))
+            results.extend(run_e2e(root))
         if not results:
             raise ValueError("no routing benchmark fixtures found")
         for item in results:

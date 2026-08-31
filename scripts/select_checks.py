@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Route canonical checks from a scope-bound Feature Map v3."""
+"""Route canonical checks once from a scope-bound Feature Map v4."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import subprocess
@@ -14,17 +13,19 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from audit_artifacts import bind_routing_snapshot, check_body_hash, registry_sha256, validate_schema
     from scope_context import compilation_digests, resolve_scope_root, scope_inventory, source_digest
 except ImportError:  # pragma: no cover
+    from scripts.audit_artifacts import bind_routing_snapshot, check_body_hash, registry_sha256, validate_schema
     from scripts.scope_context import compilation_digests, resolve_scope_root, scope_inventory, source_digest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 FEATURE_STATES = {"PRESENT", "ABSENT_CONFIRMED", "UNKNOWN"}
 PREDICATE_KEYS = ("all_of", "any_of", "none_of")
-SELECTOR_VERSION = "5"
-ROUTING_MANIFEST_VERSION = 5
-FEATURE_MAP_VERSION = 3
+SELECTOR_VERSION = "6"
+ROUTING_MANIFEST_VERSION = 6
+FEATURE_MAP_VERSION = 4
 EVIDENCE_KINDS = {"slither-ast", "slither-ir", "compiler-ast", "source", "deployment", "manual"}
 HARD_FORKS = ("frontier", "homestead", "byzantium", "constantinople", "istanbul", "berlin", "london", "paris", "shanghai", "cancun", "prague")
 CHAIN_FAMILY_BY_ID = {
@@ -49,11 +50,6 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise SelectionInputError(f"JSON root must be an object: {path}")
     return value
-
-
-def registry_sha256(registry: dict[str, Any]) -> str:
-    encoded = json.dumps(registry, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
 
 
 def git_value(root: Path, *args: str) -> str | None:
@@ -97,12 +93,13 @@ def audit_context(
     evm_fork: str | None = None,
     protocol_version: str | None = None,
     audit_timestamp: str | None = None,
+    trusted_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     knowledge_commit, knowledge_dirty = knowledge_state(root)
     environment = validate_environment_context(
         recon_context, chain_id=chain_id, chain_family=chain_family,
         execution_environment=execution_environment, compiler_version=compiler_version,
-        evm_fork=evm_fork, protocol_version=protocol_version,
+        evm_fork=evm_fork, protocol_version=protocol_version, trusted_facts=trusted_facts,
     )
     return {
         "selector_version": SELECTOR_VERSION,
@@ -114,7 +111,7 @@ def audit_context(
         "audit_source_digest": recon_context["audit_source_digest"],
         "dependency_digest": recon_context["dependency_digest"],
         "build_config_digest": recon_context["build_config_digest"],
-        "compilation_digest": recon_context["compilation_digest"],
+        "compilation_input_digest": recon_context["compilation_input_digest"],
         **environment,
         "fork_block": fork_block,
         "fork_block_semantics": "reproducibility metadata only; does not derive evm_fork",
@@ -127,18 +124,8 @@ def validate_environment_context(
     chain_family: str | None = None, execution_environment: str | None = None,
     compiler_version: str | None = None, evm_fork: str | None = None,
     protocol_version: str | None = None,
+    trusted_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    mapped_family = CHAIN_FAMILY_BY_ID.get(chain_id)
-    if mapped_family and chain_family and chain_family != mapped_family:
-        raise SelectionInputError(
-            f"chain_id {chain_id} maps to {mapped_family}, not {chain_family}"
-        )
-    if chain_id in EXECUTION_ENVIRONMENTS_BY_CHAIN_ID and execution_environment:
-        allowed = EXECUTION_ENVIRONMENTS_BY_CHAIN_ID[chain_id]
-        if execution_environment not in allowed:
-            raise SelectionInputError(
-                f"chain_id {chain_id} is incompatible with execution_environment {execution_environment}"
-            )
     recon_compiler = recon_context.get("solc_version")
     if compiler_version and recon_compiler:
         cli_version, detected_version = _version(compiler_version), _version(recon_compiler)
@@ -146,27 +133,69 @@ def validate_environment_context(
             raise SelectionInputError(
                 f"compiler_version {compiler_version} conflicts with Recon solc_version {recon_compiler}"
             )
-    resolved_family = mapped_family or chain_family
-    resolved_compiler = compiler_version or recon_compiler
+    supplied = trusted_facts or {}
+    allowed_keys = {"chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version"}
+    if set(supplied) - allowed_keys:
+        raise SelectionInputError(f"unknown environment facts: {sorted(set(supplied) - allowed_keys)}")
 
-    def fact(value: Any, evidence: str) -> dict[str, Any]:
-        return {"value": value, "status": "CONFIRMED" if value is not None else "UNKNOWN", "evidence": evidence if value is not None else None}
+    declared = {
+        "chain_id": chain_id, "chain_family": chain_family,
+        "execution_environment": execution_environment,
+        "compiler_version": compiler_version, "evm_fork": evm_fork,
+        "protocol_version": protocol_version,
+    }
+
+    def fact(key: str, detected: Any = None) -> dict[str, Any]:
+        provided = supplied.get(key)
+        if provided is not None:
+            if not isinstance(provided, dict) or provided.get("trust") not in {"UNKNOWN", "DECLARED", "OBSERVED", "CONFIRMED"}:
+                raise SelectionInputError(f"environment fact {key} has invalid trust")
+            if declared[key] is not None and provided.get("value") != declared[key]:
+                raise SelectionInputError(f"environment fact {key} conflicts with CLI value")
+            if detected is not None and provided.get("value") != detected:
+                raise SelectionInputError(f"environment fact {key} conflicts with Recon evidence")
+            value = provided.get("value")
+            if key == "chain_id" and value is not None and (not isinstance(value, int) or isinstance(value, bool) or value < 0):
+                raise SelectionInputError("environment fact chain_id must be a non-negative integer or null")
+            if key != "chain_id" and value is not None and not isinstance(value, str):
+                raise SelectionInputError(f"environment fact {key} must be a string or null")
+            if provided["trust"] != "UNKNOWN" and (not provided.get("source") or not provided.get("evidence")):
+                raise SelectionInputError(f"environment fact {key} requires source and evidence")
+            return dict(provided)
+        if detected is not None:
+            return {"value": detected, "trust": "CONFIRMED", "source": "recon-compilation", "evidence": ["successful complete compilation"]}
+        value = declared[key]
+        return {
+            "value": value,
+            "trust": "DECLARED" if value is not None else "UNKNOWN",
+            "source": "cli" if value is not None else "none",
+            "evidence": ["explicit CLI declaration"] if value is not None else [],
+        }
+
+    facts = {key: fact(key, recon_compiler if key == "compiler_version" and recon_compiler else None) for key in sorted(allowed_keys)}
+    resolved_chain_id = facts["chain_id"]["value"]
+    mapped_family = CHAIN_FAMILY_BY_ID.get(resolved_chain_id)
+    family_fact = facts["chain_family"]
+    if mapped_family:
+        if family_fact["value"] not in {None, mapped_family}:
+            raise SelectionInputError(f"chain_id {resolved_chain_id} maps to {mapped_family}, not {family_fact['value']}")
+        if family_fact["value"] is None:
+            family_fact = {
+                "value": mapped_family,
+                "trust": facts["chain_id"]["trust"],
+                "source": "chain-id mapping",
+                "evidence": list(facts["chain_id"]["evidence"]),
+            }
+        facts["chain_family"] = family_fact
+    resolved_environment = facts["execution_environment"]["value"]
+    if resolved_chain_id in EXECUTION_ENVIRONMENTS_BY_CHAIN_ID and resolved_environment:
+        allowed = EXECUTION_ENVIRONMENTS_BY_CHAIN_ID[resolved_chain_id]
+        if resolved_environment not in allowed:
+            raise SelectionInputError(f"chain_id {resolved_chain_id} is incompatible with execution_environment {resolved_environment}")
 
     return {
-        "chain_id": chain_id,
-        "chain_family": resolved_family,
-        "execution_environment": execution_environment,
-        "compiler_version": resolved_compiler,
-        "evm_fork": evm_fork,
-        "protocol_version": protocol_version,
-        "environment_facts": {
-            "chain_id": fact(chain_id, "cli"),
-            "chain_family": fact(resolved_family, "chain-id mapping" if mapped_family else "cli"),
-            "execution_environment": fact(execution_environment, "cli validated against chain_id" if chain_id else "cli"),
-            "compiler_version": fact(resolved_compiler, "Recon compiler evidence" if recon_compiler else "cli"),
-            "evm_fork": fact(evm_fork, "explicit cli; fork_block does not derive this value"),
-            "protocol_version": fact(protocol_version, "cli"),
-        },
+        **{key: facts[key]["value"] for key in sorted(allowed_keys)},
+        "environment_facts": facts,
     }
 
 
@@ -199,10 +228,10 @@ def _string_list(value: Any, label: str) -> list[str]:
 
 def validate_recon_context(raw: Any, target_root: Path | None, exclusions: tuple[str, ...]) -> dict[str, Any]:
     if not isinstance(raw, dict):
-        raise SelectionInputError("Feature Map v3 requires recon_context")
+        raise SelectionInputError("Feature Map v4 requires recon_context")
     required = {
         "target_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "uncompiled_paths", "source_digest",
-        "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_digest",
+        "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest",
         "compilation_complete", "slither_version", "solc_version",
     }
     if set(raw) != required:
@@ -215,7 +244,7 @@ def validate_recon_context(raw: Any, target_root: Path | None, exclusions: tuple
     uncompiled = _string_list(raw["uncompiled_paths"], "recon_context.uncompiled_paths")
     if not isinstance(raw["target_root"], str) or not raw["target_root"]:
         raise SelectionInputError("recon_context.target_root must be a path")
-    for key in ("source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_digest"):
+    for key in ("source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest"):
         if not isinstance(raw[key], str) or not re.fullmatch(r"[0-9a-f]{64}", raw[key]):
             raise SelectionInputError(f"recon_context.{key} must be a SHA-256 digest")
     if raw["source_digest"] != raw["audit_source_digest"]:
@@ -227,7 +256,7 @@ def validate_recon_context(raw: Any, target_root: Path | None, exclusions: tuple
     if raw["solc_version"] is not None and not isinstance(raw["solc_version"], str):
         raise SelectionInputError("recon_context.solc_version must be a string or null")
     if target_root is None:
-        raise SelectionInputError("Feature Map v3 selection requires --target-root")
+        raise SelectionInputError("Feature Map v4 selection requires --target-root")
     resolved = resolve_scope_root(target_root)
     files, excluded = scope_inventory(resolved, exclusions)
     actual_digest = source_digest(resolved, files)
@@ -403,20 +432,20 @@ def evaluate_environment(check: dict[str, Any], environment: dict[str, Any]) -> 
         if not allowed:
             continue
         fact = environment.get("environment_facts", {}).get(actual_key, {})
-        actual = fact.get("value") if fact.get("status") == "CONFIRMED" else None
+        actual = fact.get("value") if fact.get("trust") == "CONFIRMED" else None
         result = "UNKNOWN" if actual is None else "TRUE" if actual in allowed else "FALSE"
         results.append(result)
-        basis.append(f"{actual_key}={result}")
+        basis.append(f"{actual_key}={result}({fact.get('trust', 'UNKNOWN')})")
     constraint = applicability.get("compiler")
     if constraint:
         fact = environment.get("environment_facts", {}).get("compiler_version", {})
-        actual = fact.get("value") if fact.get("status") == "CONFIRMED" else None
+        actual = fact.get("value") if fact.get("trust") == "CONFIRMED" else None
         match = None if actual is None else compiler_matches(constraint, actual)
         result = "UNKNOWN" if match is None else "TRUE" if match else "FALSE"
         results.append(result)
         basis.append(f"compiler={result}")
     fork_fact = environment.get("environment_facts", {}).get("evm_fork", {})
-    actual_fork = fork_fact.get("value") if fork_fact.get("status") == "CONFIRMED" else None
+    actual_fork = fork_fact.get("value") if fork_fact.get("trust") == "CONFIRMED" else None
     for bound_key, comparison in (("evm_fork_from", "from"), ("evm_fork_until", "until")):
         bound = applicability.get(bound_key)
         if not bound:
@@ -457,89 +486,10 @@ def evaluate_domains(
         entry = {
             "domain": domain, "state": state, "evaluation": result,
             "surface_features": config["surface_features"], "basis": basis,
+            "trusted_absence_policy": config.get("trusted_absence_policy"),
         }
         {"SELECTED": selected, "DEFERRED": deferred, "FILTERED": filtered}[state].append(entry)
     return selected, deferred, filtered
-
-
-def compact_check(check: dict[str, Any], profile: str = "screen") -> dict[str, Any]:
-    profile = {"compact": "screen", "full": "deep"}.get(profile, profile)
-    result = {
-        "canonical_id": check["canonical_id"], "title": check["title"],
-        "trigger": check.get("trigger", []), "detection": check.get("detection", []),
-    }
-    if profile == "deep":
-        result.update({key: check.get(key) for key in (
-            "description", "risk", "type", "confidence", "fp_policy", "proof_policy",
-            "verification", "applicability",
-        )})
-        result["false_positive_gates"] = check.get("false_positive_gates", []) if check.get("fp_policy") == "specific" else []
-        result["proof"] = check.get("proof", []) if check.get("proof_policy") == "specific" else []
-        result["provenance"] = [
-            {key: value for key, value in entry.items() if key in {"label", "url", "kind", "locator"}}
-            for entry in check.get("provenance", []) if entry.get("kind") == "official"
-        ]
-        if check.get("related"):
-            result["related"] = check["related"]
-    return result
-
-
-def one_line(value: Any) -> str:
-    return " ".join(str(part).strip() for part in value if str(part).strip()) if isinstance(value, list) else str(value).strip()
-
-
-def selected_markdown(
-    manifest: dict[str, Any], checks: list[dict[str, Any]], profile: str = "deep",
-    candidate_ids: set[str] | None = None,
-) -> str:
-    profile = {"compact": "screen", "full": "deep"}.get(profile, profile)
-    selected_by_id = {item["canonical_id"]: item for item in manifest["selected"]}
-    checks = [check for check in checks if candidate_ids is None or check["canonical_id"] in candidate_ids]
-    lines = [
-        "<!-- GENERATED ROUTED CHECKS: source is data/canonical-checks.json; do not edit by hand. -->",
-        "# Selected EVM Audit Checks", "",
-        f"Routing result: {manifest['selected_count']} selected, {manifest['deferred_count']} deferred, {manifest['filtered_count']} filtered.",
-        "Screen uncertainty escalates to Deep Review; it never filters a check.", "",
-    ]
-    if profile == "deep":
-        lines.extend([
-            "Global review contract: verify every reachable path before REVIEWED_SAFE; confirm only with reachable preconditions, concrete impact, and a runnable PoC/trace or deterministic invariant violation.", "",
-        ])
-    for check in checks:
-        entry = compact_check(check, profile)
-        selected = selected_by_id[check["canonical_id"]]
-        lines.append(f"## [{entry['canonical_id']}] {entry['title']}")
-        if profile == "deep":
-            lines.extend([
-                f"- **Type / confidence:** {entry['type']} / {entry['confidence']}",
-                f"- **Risk:** {one_line(entry['risk'])}",
-            ])
-            if entry.get("applicability"):
-                lines.append(f"- **Environment applicability:** `{json.dumps(entry['applicability'], ensure_ascii=False, sort_keys=True)}`")
-        if profile == "deep":
-            lines.append(f"- **Routing basis:** {one_line(selected['basis'])}")
-        lines.extend([f"- **Trigger:** {one_line(entry['trigger'])}", f"- **Detection:** {one_line(entry['detection'])}"])
-        if profile == "deep" and entry["false_positive_gates"]:
-            lines.append(f"- **Specific FP:** {one_line(entry['false_positive_gates'])}")
-        if profile == "deep" and entry["proof"]:
-            lines.append(f"- **Specific proof:** {one_line(entry['proof'])}")
-        if entry.get("provenance"):
-            lines.append("- **Provenance:** " + "; ".join(
-                f"[{item.get('label', 'source')}]({item['url']})" if item.get("url") else str(item.get("label", "source"))
-                for item in entry["provenance"]
-            ))
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def domain_screening_markdown(deferred_domains: list[dict[str, Any]], domain_configs: dict[str, dict[str, Any]]) -> str:
-    lines = ["# Deferred Domain Screening Cards", "", "A Deferred Domain must become Selected or Filtered before a clean/complete audit.", ""]
-    for entry in deferred_domains:
-        domain = entry["domain"]
-        lines.extend([f"## {domain}", "", "Look for:"])
-        lines.extend(f"- {term}" for term in domain_configs[domain]["screening_terms"])
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
 
 
 def evaluate_required_context(
@@ -616,6 +566,7 @@ def select(
                 owner_domain = bucket_domains[0]
             route_entry = {
                 "canonical_id": check["canonical_id"], "title": check.get("title", ""), "domains": domains,
+                "check_body_hash": check_body_hash(check),
                 "owner_domain": owner_domain, "freshness": check.get("freshness"), "verified_at": check.get("verified_at"),
                 "route_status": "DEFERRED_DOMAIN" if deferred_for_check else "FILTERED_DOMAIN",
                 "environment_evaluation": "NOT_EVALUATED", "environment_basis": [],
@@ -638,6 +589,7 @@ def select(
             route_status = "SELECTED"
         route_entry = {
             "canonical_id": check["canonical_id"], "title": check.get("title", ""), "domains": domains,
+            "check_body_hash": check_body_hash(check),
             "owner_domain": owner_domain, "freshness": check.get("freshness"), "verified_at": check.get("verified_at"),
             "route_status": route_status, "environment_evaluation": environment_result, "environment_basis": environment_basis,
             "predicate": feature["predicate"], "predicate_source": feature["predicate_source"],
@@ -654,13 +606,9 @@ def select(
     required_context, unresolved_context = evaluate_required_context(
         selected_domains, domain_configs or {}, domain_context,
     ) if domain_configs else ({}, [])
-    if deferred_domains:
-        completion_status = "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING"
-    elif unresolved_context:
-        completion_status = "COMPLETE_WITH_UNRESOLVED_CONTEXT"
-    else:
-        completion_status = "READY_FOR_REVIEW"
     manifest = {
+        "artifact_type": "routing-manifest",
+        "immutable": True,
         "schema_version": ROUTING_MANIFEST_VERSION,
         "stage": "ENVIRONMENT_DOMAIN_CHECK_ROUTING",
         "audit_context": context or {
@@ -670,7 +618,7 @@ def select(
             "audit_source_digest": (recon_context or {}).get("audit_source_digest"),
             "dependency_digest": (recon_context or {}).get("dependency_digest"),
             "build_config_digest": (recon_context or {}).get("build_config_digest"),
-            "compilation_digest": (recon_context or {}).get("compilation_digest"),
+            "compilation_input_digest": (recon_context or {}).get("compilation_input_digest"),
             "chain_id": None, "chain_family": None,
             "execution_environment": None, "fork_block": None, "fork_block_semantics": "reproducibility metadata only; does not derive evm_fork",
             "compiler_version": None, "evm_fork": None, "protocol_version": None, "environment_facts": {},
@@ -680,16 +628,12 @@ def select(
         "feature_map": {"schema_version": FEATURE_MAP_VERSION, "recon_context": recon_context, "features": feature_map},
         "selected_domains": selected_domains, "deferred_domains": deferred_domains, "filtered_domains": filtered_domains,
         "required_context": required_context,
-        "completion_gate": {
-            "status": completion_status,
-            "unresolved_deferred_domains": sorted(deferred_domain_ids),
-            "unresolved_required_context": unresolved_context,
-        },
+        "unresolved_required_context": unresolved_context,
         "selected_count": len(selected), "deferred_count": len(deferred), "filtered_count": len(filtered),
         "selected": selected, "deferred": deferred, "filtered": filtered,
         "filtered_out": [entry["canonical_id"] for entry in filtered],
     }
-    return manifest, selected_checks
+    return bind_routing_snapshot(manifest), selected_checks
 
 
 def load_domains(root: Path) -> dict[str, dict[str, Any]]:
@@ -720,17 +664,22 @@ def write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def environment_artifact(context: dict[str, Any], snapshot_id: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "routing_snapshot_id": snapshot_id,
+        "facts": context.get("environment_facts", {}),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
-    parser.add_argument("--feature-map", type=Path, required=True, help="scope-bound Feature Map v3")
+    parser.add_argument("--feature-map", type=Path, required=True, help="scope-bound Feature Map v4")
     parser.add_argument("--target-root", type=Path, required=True, help="current audit scope used to verify recon source_digest")
     parser.add_argument("--exclude", action="append", default=[], help="additional audit-scope glob; must match Recon")
     parser.add_argument("--domain", help="explicit single-domain scope")
     parser.add_argument("--domains", help="explicit comma-separated domain scope")
-    parser.add_argument("--emit-checks", action="store_true", help="include/render selected check bodies on stdout")
-    parser.add_argument("--profile", choices=("screen", "deep", "full", "compact"), default="screen")
-    parser.add_argument("--candidate-ids", help="comma-separated selected IDs to promote from screen to deep")
     parser.add_argument("--target-commit")
     parser.add_argument("--chain-id", type=int)
     parser.add_argument("--chain-family")
@@ -741,12 +690,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--protocol-version")
     parser.add_argument("--audit-timestamp")
     parser.add_argument("--manifest-out", type=Path)
-    parser.add_argument("--checks-out", type=Path, help="single-domain selected Markdown")
-    parser.add_argument("--runtime-dir", type=Path, help="write selected-<owner-domain>.md files")
     parser.add_argument("--context-out", type=Path)
-    parser.add_argument("--screening-out", type=Path, help="write tiny screening cards for Deferred Domains")
+    parser.add_argument("--environment-out", type=Path, help="write the typed environment facts artifact")
     parser.add_argument("--domain-context", type=Path, help="evidence-backed required Domain context JSON")
-    parser.add_argument("--format", choices=("text", "json", "markdown"), default="text")
+    parser.add_argument("--environment-context", type=Path, help="typed environment facts; CLI values remain DECLARED")
+    parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
     root = args.root.resolve()
 
@@ -760,50 +708,32 @@ def main(argv: list[str] | None = None) -> int:
         recon_context = validate_recon_context(raw_feature_map["recon_context"], args.target_root, exclusions)
         domain_configs = load_domains(root)
         scope_domains = parse_domains(args, set(domain_configs))
-        if args.checks_out and (not scope_domains or len(scope_domains) != 1):
-            raise SelectionInputError("--checks-out requires exactly one --domain")
+        environment_context = load_json(args.environment_context.resolve()) if args.environment_context else {"schema_version": 1, "facts": {}}
+        if environment_context.get("schema_version", 1) != 1 or not isinstance(environment_context.get("facts"), dict):
+            raise SelectionInputError("environment context must have schema_version 1 and facts")
+        validate_schema(root, "environment-context.schema.json", environment_context)
         context = audit_context(
             root, registry, recon_context, target_root=args.target_root, target_commit=args.target_commit,
             chain_id=args.chain_id, chain_family=args.chain_family, execution_environment=args.execution_environment,
             fork_block=args.fork_block, compiler_version=args.compiler_version, evm_fork=args.evm_fork,
             protocol_version=args.protocol_version, audit_timestamp=args.audit_timestamp,
+            trusted_facts=environment_context["facts"],
         )
         environment = {key: context[key] for key in ("chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version")}
         environment["environment_facts"] = context["environment_facts"]
         domain_context = load_json(args.domain_context.resolve()) if args.domain_context else None
-        manifest, checks = select(registry, feature_map, names, scope_domains, context, domain_configs, environment, recon_context, domain_context)
-        candidate_ids = {value.strip() for value in (args.candidate_ids or "").split(",") if value.strip()} or None
-        selected_ids = {entry["canonical_id"] for entry in manifest["selected"]}
-        if candidate_ids and not candidate_ids <= selected_ids:
-            raise SelectionInputError(f"candidate IDs are not selected: {', '.join(sorted(candidate_ids - selected_ids))}")
-        if candidate_ids and {"compact": "screen", "full": "deep"}.get(args.profile, args.profile) != "deep":
-            raise SelectionInputError("--candidate-ids requires --profile deep")
+        manifest, _ = select(registry, feature_map, names, scope_domains, context, domain_configs, environment, recon_context, domain_context)
 
         if args.manifest_out:
             write_text(args.manifest_out, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
         if args.context_out:
-            write_text(args.context_out, json.dumps(context, ensure_ascii=False, indent=2) + "\n")
-        if args.checks_out:
-            write_text(args.checks_out, selected_markdown(manifest, checks, args.profile, candidate_ids))
-        if args.screening_out:
-            write_text(args.screening_out, domain_screening_markdown(manifest["deferred_domains"], domain_configs))
-        if args.runtime_dir:
-            by_owner: dict[str, list[dict[str, Any]]] = {}
-            owner_by_id = {entry["canonical_id"]: entry["owner_domain"] for entry in manifest["selected"]}
-            for check in checks:
-                by_owner.setdefault(owner_by_id[check["canonical_id"]], []).append(check)
-            for owner, owner_checks in sorted(by_owner.items()):
-                write_text(args.runtime_dir / f"selected-{owner}.md", selected_markdown(manifest, owner_checks, args.profile, candidate_ids))
-
-        output_manifest = dict(manifest)
-        if args.emit_checks:
-            output_manifest["selected_checks"] = [compact_check(check, args.profile) for check in checks if candidate_ids is None or check["canonical_id"] in candidate_ids]
+            write_text(args.context_out, json.dumps({**context, "routing_snapshot_id": manifest["routing_snapshot_id"]}, ensure_ascii=False, indent=2) + "\n")
+        if args.environment_out:
+            write_text(args.environment_out, json.dumps(environment_artifact(context, manifest["routing_snapshot_id"]), ensure_ascii=False, indent=2) + "\n")
         if args.format == "json":
-            print(json.dumps(output_manifest, ensure_ascii=False, indent=2))
-        elif args.format == "markdown":
-            print(selected_markdown(manifest, checks, args.profile, candidate_ids), end="")
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
         else:
-            print(f"stage={manifest['stage']} selected_domains={len(manifest['selected_domains'])} deferred_domains={len(manifest['deferred_domains'])} selected={manifest['selected_count']} deferred={manifest['deferred_count']} filtered={manifest['filtered_count']}")
+            print(f"stage={manifest['stage']} snapshot={manifest['routing_snapshot_id']} selected_domains={len(manifest['selected_domains'])} deferred_domains={len(manifest['deferred_domains'])} selected={manifest['selected_count']} deferred={manifest['deferred_count']} filtered={manifest['filtered_count']}")
             for entry in manifest["selected"]:
                 print(f"{entry['canonical_id']}\t{','.join(entry['matched_features']) or 'UNKNOWN/always_screen'}\t{entry['title']}")
         return 0

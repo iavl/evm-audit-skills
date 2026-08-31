@@ -20,6 +20,7 @@
   "review_requirements": [
     "prove conversion and accounting invariants at boundary values"
   ],
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
   "screening_terms": [
     "division",
     "rounding",

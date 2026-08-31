@@ -3,9 +3,10 @@
   "detected_features": ["uses-lending", "uses-oracle"],
   "domain_scope": ["evm-audit-general", "evm-audit-defi-lending", "evm-audit-oracles"],
   "selected_domains": ["evm-audit-general", "evm-audit-defi-lending", "evm-audit-oracles"],
-  "selected_checks": 242,
-  "filtered_checks": 3,
+  "expected_selected_checks": 245,
+  "expected_filtered_checks": 0,
   "must_select_ids": ["EVM-GEN-001", "EVM-LEND-033", "EVM-ORACLE-001"],
   "must_not_filter_ids": ["EVM-LEND-033"],
-  "runtime_bytes": 272326
+  "max_runtime_bytes": 196608,
+  "max_total_context_bytes": 552960
 }

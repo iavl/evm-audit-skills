@@ -23,6 +23,7 @@
   "review_requirements": [
     "compare Yul/EVM behavior with the selected runtime"
   ],
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
   "screening_terms": [
     "assembly",
     "opcode",

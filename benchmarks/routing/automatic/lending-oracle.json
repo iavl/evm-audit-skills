@@ -1,1 +1,1 @@
-{"name":"lending-oracle","detected_features":["uses-lending","uses-oracle"],"must_select_domains":["evm-audit-general","evm-audit-defi-lending","evm-audit-oracles"],"must_select_checks":["EVM-LEND-001","EVM-ORACLE-001"],"max_selected_checks":260,"max_runtime_bytes":140000}
+{"name":"lending-oracle","detected_features":["uses-lending","uses-oracle"],"must_select_domains":["evm-audit-general","evm-audit-defi-lending","evm-audit-oracles"],"must_select_checks":["EVM-LEND-001","EVM-ORACLE-001"],"max_selected_checks":260,"max_runtime_bytes":196608,"max_total_context_bytes":558080}

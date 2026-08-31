@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:environment-context:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "facts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "routing_snapshot_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "facts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["value", "trust", "source", "evidence"],
+        "properties": {
+          "value": {},
+          "trust": {"enum": ["UNKNOWN", "DECLARED", "OBSERVED", "CONFIRMED"]},
+          "source": {"type": "string", "minLength": 1},
+          "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    }
+  }
+}

@@ -1,8 +1,8 @@
 # Runtime Per-Check Review Contract
 
-Review only IDs promoted from Screen to Deep in the routing-v5 manifest.
+Review only IDs promoted from Screen to Deep in the immutable routing-v6 manifest.
 Filtered and Deferred IDs remain manifest-visible. Each deep-review record is
-append-only JSONL at `reviews/review-<owner-domain>.jsonl`; Markdown is a view.
+append-only JSONL at `reviews/review-<owner-domain>.jsonl`; Markdown is a generated view.
 
 Global review contract: verify every reachable path before `REVIEWED_SAFE`.
 Use `CONFIRMED` only with reachable preconditions, concrete impact, and a
@@ -15,10 +15,15 @@ runnable PoC/trace or deterministic invariant violation.
 - `SUSPICIOUS`: a plausible concern remains but reachability, preconditions, exploitability, impact, or proof is unresolved. Never assign severity.
 - `CONFIRMED`: the defect has a reachable path, satisfiable preconditions, concrete exploitability and impact, plus a runnable PoC/trace or deterministic invariant violation.
 
-Use exactly one terminal status. Pattern similarity, an unavailable test, or one
+Use exactly one terminal status. `LIKELY_SAFE` is not a status. Pattern similarity, an unavailable test, or one
 safe path cannot establish `REVIEWED_SAFE` or `CONFIRMED`.
 
 ## Record
+
+The authoritative JSON object includes `routing_snapshot_id`,
+`registry_sha256`, `source_digest`, `compilation_input_digest`, `owner_domain`,
+`check_body_hash`, `review_stage`, `status`, all review fields, and typed
+`evidence` entries (`kind`, `location`, `reason`).
 
 ```markdown
 ### <canonical-id> — <title>
@@ -34,7 +39,7 @@ safe path cannot establish `REVIEWED_SAFE` or `CONFIRMED`.
 - **Evidence**: file:line, test, trace, calculation, or scope inventory
 ```
 
-For `NOT_APPLICABLE`, cite the complete scope/inheritance/dependency evidence.
+For `NOT_APPLICABLE`, cite complete scope/inheritance/interface/deployment evidence.
 For `REVIEWED_SAFE`, cover alternate, inherited, proxy, callback, and
 delegatecall paths where relevant. For `SUSPICIOUS`, identify the missing proof
 step. Only `CONFIRMED` records enter synthesis or receive severity.

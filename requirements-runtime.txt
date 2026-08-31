@@ -1,2 +1,4 @@
 # Python version: .python-version (3.12)
+# Full resolved pins: requirements-runtime.lock
 slither-analyzer==0.11.6
+jsonschema==4.25.1

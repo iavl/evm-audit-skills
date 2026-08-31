@@ -21,6 +21,7 @@
   "review_requirements": [
     "verify preview parity, rounding, donation, and inflation resistance"
   ],
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
   "screening_terms": [
     "ERC4626",
     "vault",

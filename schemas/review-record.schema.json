@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:review-record:v2",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_type", "schema_version", "routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest"],
+      "properties": {
+        "record_type": {"const": "checkpoint"},
+        "schema_version": {"const": 2},
+        "routing_snapshot_id": {"$ref": "#/$defs/hash"},
+        "registry_sha256": {"$ref": "#/$defs/hash"},
+        "source_digest": {"$ref": "#/$defs/hash"},
+        "compilation_input_digest": {"$ref": "#/$defs/hash"},
+        "resumed_from": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_type", "schema_version", "canonical_id", "owner_domain", "routing_snapshot_id",
+        "registry_sha256", "source_digest", "compilation_input_digest", "check_body_hash", "review_stage", "status", "applicability", "code_path",
+        "preconditions", "exploitability", "impact", "proof", "evidence"
+      ],
+      "properties": {
+        "record_type": {"const": "review"},
+        "schema_version": {"const": 2},
+        "canonical_id": {"type": "string", "minLength": 1},
+        "owner_domain": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
+        "routing_snapshot_id": {"$ref": "#/$defs/hash"},
+        "registry_sha256": {"$ref": "#/$defs/hash"},
+        "source_digest": {"$ref": "#/$defs/hash"},
+        "compilation_input_digest": {"$ref": "#/$defs/hash"},
+        "check_body_hash": {"$ref": "#/$defs/hash"},
+        "review_stage": {"enum": ["DEEP_REVIEW", "PROOF"]},
+        "status": {"enum": ["NOT_APPLICABLE", "REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"]},
+        "applicability": {"type": "string", "minLength": 1},
+        "code_path": {"type": "string", "minLength": 1},
+        "preconditions": {"type": "string", "minLength": 1},
+        "exploitability": {"type": "string", "minLength": 1},
+        "impact": {"type": "string", "minLength": 1},
+        "proof": {"type": "string", "minLength": 1},
+        "preserved_invariant": {"type": "string", "minLength": 1},
+        "unresolved_reason": {"type": "string", "minLength": 1},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}},
+        "resumed_from_snapshot_id": {"$ref": "#/$defs/hash"},
+        "resumed_from": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+      },
+      "allOf": [
+        {"if": {"properties": {"status": {"const": "REVIEWED_SAFE"}}}, "then": {"required": ["preserved_invariant"]}},
+        {"if": {"properties": {"status": {"const": "SUSPICIOUS"}}}, "then": {"required": ["unresolved_reason"]}}
+      ]
+    }
+  ],
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "location", "reason"],
+      "properties": {
+        "kind": {"enum": ["scope", "source", "inheritance", "interface", "dependency", "deployment", "environment", "compiler-ast", "test", "trace", "calculation", "invariant", "manual"]},
+        "location": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

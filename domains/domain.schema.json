@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:domain:v3",
+  "$id": "urn:evm-audit-skills:domain:v4",
   "type": "object",
-  "required": ["id", "name", "checklist_title", "description", "surface_features", "related_domains", "always_screen", "screening_terms", "required_context", "review_requirements"],
+  "required": ["id", "name", "checklist_title", "description", "surface_features", "related_domains", "always_screen", "screening_terms", "required_context", "review_requirements", "trusted_absence_policy"],
   "properties": {
     "id": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
     "name": {"type": "string", "minLength": 1},
@@ -26,7 +26,21 @@
         }
       }
     },
-    "review_requirements": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+    "review_requirements": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "trusted_absence_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requires_complete_scope", "allowed_evidence"],
+      "properties": {
+        "requires_complete_scope": {"const": true},
+        "allowed_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["scope", "inheritance", "interface", "dependency", "deployment"]}
+        }
+      }
+    }
   },
   "additionalProperties": false
 }
