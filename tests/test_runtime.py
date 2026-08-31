@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from scripts.audit_artifacts import (
     bind_routing_snapshot,
@@ -42,6 +43,10 @@ class RuntimeTests(unittest.TestCase):
         master_text = master.read_text(encoding="utf-8")
         self.assertIn("<suite-root>/scripts/", master_text)
         self.assertNotIn("../scripts/", master_text)
+        self.assertIn("docs/audit-runtime.md", master_text)
+        self.assertNotIn("scripts/recon.py", master_text)
+        self.assertNotIn("scripts/select_checks.py", master_text)
+        self.assertNotIn("scripts/render_runtime.py", master_text)
 
         skill = ROOT / "skills/evm-audit-erc20/SKILL.md"
         self.assertEqual(find_suite_root(skill), ROOT)
@@ -479,6 +484,40 @@ class RuntimeTests(unittest.TestCase):
         state = validate_run(ROOT, manifest, self.registry, screen, None, domain_context, context, [])
         self.assertEqual(state["status"], "INCOMPLETE_REVIEW")
         self.assertFalse(state["complete"])
+
+    def test_state_schema_failure_forces_incomplete_flags(self) -> None:
+        _, _, _, manifest = build_manifest()
+        screen = screen_results_template(manifest)
+        evidence = [
+            {"kind": kind, "location": "fixture", "reason": "complete evidence"}
+            for kind in ("scope", "inheritance", "interface", "deployment")
+        ]
+        for result in screen["results"]:
+            result.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
+        context = {**manifest["audit_context"], "routing_snapshot_id": manifest["routing_snapshot_id"]}
+        domain_context = domain_context_template(manifest)
+        for values in domain_context["domains"].values():
+            for item in values.values():
+                item.update(
+                    status="KNOWN",
+                    value="fixture",
+                    evidence=[{"kind": "scope", "location": "fixture", "reason": "known context"}],
+                )
+
+        import scripts.validate_audit_run as audit_state
+
+        original = audit_state.validate_schema
+
+        def fail_only_for_state(root: Path, schema_name: str, value: Any) -> None:
+            if schema_name == "audit-state.schema.json":
+                raise ValueError("forced state schema failure")
+            original(root, schema_name, value)
+
+        with patch.object(audit_state, "validate_schema", side_effect=fail_only_for_state):
+            state = validate_run(ROOT, manifest, self.registry, screen, None, domain_context, context, [])
+        self.assertEqual(state["status"], "INVALID_SNAPSHOT")
+        self.assertFalse(state["complete"])
+        self.assertFalse(state["clean"])
 
     def test_unknown_deferred_domain_is_not_complete(self) -> None:
         raw = synthetic_feature_map()

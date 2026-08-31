@@ -195,6 +195,7 @@ def validate_run(
     except ValueError as error:
         state["reasons"].append(str(error))
         state["status"] = "INVALID_SNAPSHOT"
+        state["complete"] = False
         state["clean"] = False
     return state
 

@@ -67,6 +67,49 @@ class ReportingTests(unittest.TestCase):
         )})
         return record
 
+    def severity_artifact(self, manifest: dict, candidate_id: str, severity: str = "High") -> dict:
+        return {
+            "schema_version": 1,
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            **{
+                key: manifest["audit_context"][key]
+                for key in ("registry_sha256", "source_digest", "compilation_input_digest")
+            },
+            "decisions": {
+                candidate_id: {
+                    "severity": severity,
+                    "rationale": "fixture impact and reachability support the selected level",
+                    "dimensions": {
+                        "impact": "material accounting loss",
+                        "exploitability": "permissionless after setup",
+                        "privileges": "ordinary user",
+                        "capital_required": "low",
+                        "repeatability": "repeatable",
+                        "user_interaction": "victim action required",
+                        "loss_bound": "affected position",
+                        "protocol_exposure": "affected users",
+                        "recoverability": "admin-remediable",
+                    },
+                }
+            },
+        }
+
+    def finding_details(self, manifest: dict, candidate_id: str) -> dict:
+        return {
+            "schema_version": 1,
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            **{
+                key: manifest["audit_context"][key]
+                for key in ("registry_sha256", "source_digest", "compilation_input_digest")
+            },
+            "findings": [{
+                "canonical_id": candidate_id,
+                "location": "Fixture.sol:42",
+                "description": "The fixture path demonstrates the confirmed defect.",
+                "recommendation": "Add the missing guard before applying the state transition.",
+            }],
+        }
+
     def test_only_confirmed_records_are_reported(self) -> None:
         registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
         with tempfile.TemporaryDirectory() as directory:
@@ -79,10 +122,16 @@ class ReportingTests(unittest.TestCase):
                 registry,
                 state,
                 [ledger],
-                {candidate_id: "High"},
+                self.severity_artifact(manifest, candidate_id),
+                finding_details=self.finding_details(manifest, candidate_id),
             )
         self.assertEqual(state["status"], "COMPLETE_WITH_FINDINGS")
         self.assertIn(f"## Findings\n\n### [{candidate_id}]", report)
+        self.assertIn("**Status:** `CONFIRMED`", report)
+        self.assertIn("**Checklist reference:**", report)
+        self.assertIn("**Location:** Fixture.sol:42", report)
+        self.assertIn("**Description:**", report)
+        self.assertIn("**Recommendation:**", report)
         self.assertEqual(issues["findings"], [{"canonical_id": candidate_id, "severity": "High"}])
         self.assertEqual(issues["registry_sha256"], manifest["audit_context"]["registry_sha256"])
 
@@ -117,8 +166,121 @@ class ReportingTests(unittest.TestCase):
                     registry,
                     state,
                     [ledger],
-                    {candidate_id: "High"},
+                    self.severity_artifact(manifest, candidate_id),
                     allow_incomplete=True,
+                )
+
+    def test_confirmed_reporting_inputs_are_required_and_strict(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        record = self.confirmed_record(registry, manifest, candidate_id)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            append(ledger, manifest, record, registry, {candidate_id})
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_SEVERITY"):
+                synthesize(ROOT, manifest, registry, state, [ledger])
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_REPORTING"):
+                synthesize(
+                    ROOT,
+                    manifest,
+                    registry,
+                    state,
+                    [ledger],
+                    self.severity_artifact(manifest, candidate_id),
+                )
+            report, issues = synthesize(
+                ROOT,
+                manifest,
+                registry,
+                state,
+                [ledger],
+                self.severity_artifact(manifest, candidate_id, "Info"),
+                finding_details=self.finding_details(manifest, candidate_id),
+            )
+        self.assertIn("**Severity:** Info", report)
+        self.assertEqual(issues["findings"], [])
+
+    def test_legacy_severity_and_missing_dimensions_are_rejected(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        record = self.confirmed_record(registry, manifest, candidate_id)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            append(ledger, manifest, record, registry, {candidate_id})
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            details = self.finding_details(manifest, candidate_id)
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_SEVERITY"):
+                synthesize(
+                    ROOT,
+                    manifest,
+                    registry,
+                    state,
+                    [ledger],
+                    {candidate_id: "High"},
+                    finding_details=details,
+                )
+            invalid = self.severity_artifact(manifest, candidate_id)
+            del invalid["decisions"][candidate_id]["dimensions"]["impact"]
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_SEVERITY"):
+                synthesize(
+                    ROOT,
+                    manifest,
+                    registry,
+                    state,
+                    [ledger],
+                    invalid,
+                    finding_details=details,
+                )
+            invalid_enum = self.severity_artifact(manifest, candidate_id, "Informational")
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_SEVERITY"):
+                synthesize(
+                    ROOT,
+                    manifest,
+                    registry,
+                    state,
+                    [ledger],
+                    invalid_enum,
+                    finding_details=details,
+                )
+
+    def test_finding_details_reject_duplicate_and_extra_ids(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        record = self.confirmed_record(registry, manifest, candidate_id)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            append(ledger, manifest, record, registry, {candidate_id})
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            severity = self.severity_artifact(manifest, candidate_id)
+            duplicate = self.finding_details(manifest, candidate_id)
+            duplicate["findings"].append(dict(duplicate["findings"][0]))
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_REPORTING"):
+                synthesize(ROOT, manifest, registry, state, [ledger], severity, finding_details=duplicate)
+            extra = self.finding_details(manifest, candidate_id)
+            extra["findings"].append({
+                "canonical_id": "EXTRA-001",
+                "location": "Extra.sol:1",
+                "description": "extra",
+                "recommendation": "remove",
+            })
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_REPORTING"):
+                synthesize(ROOT, manifest, registry, state, [ledger], severity, finding_details=extra)
+
+    def test_synthesis_rejects_stale_deep_review_coverage(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        record = self.confirmed_record(registry, manifest, candidate_id)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            append(ledger, manifest, record, registry, {candidate_id})
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            stale = {**state, "coverage": {**state["coverage"], "deep_reviewed": []}}
+            with self.assertRaisesRegex(ValueError, "deep_reviewed coverage"):
+                synthesize(
+                    ROOT,
+                    manifest,
+                    registry,
+                    stale,
+                    [ledger],
+                    self.severity_artifact(manifest, candidate_id),
+                    finding_details=self.finding_details(manifest, candidate_id),
                 )
 
 

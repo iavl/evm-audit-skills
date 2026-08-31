@@ -246,7 +246,7 @@ def validate_recon_context(
     }
     if set(raw) != required:
         raise SelectionInputError(f"recon_context fields must be {sorted(required)}")
-    _string_list(raw["files_analyzed"], "recon_context.files_analyzed")
+    analyzed = set(_string_list(raw["files_analyzed"], "recon_context.files_analyzed"))
     _string_list(raw["excluded_paths"], "recon_context.excluded_paths")
     exclusion_patterns = _string_list(raw["exclusion_patterns"], "recon_context.exclusion_patterns")
     if exclusion_patterns != sorted(set(exclusions)):
@@ -286,6 +286,7 @@ def validate_recon_context(
         raise SelectionInputError("Feature Map v4 selection requires --target-root")
     resolved = resolve_scope_root(target_root)
     files, excluded = scope_inventory(resolved, exclusions)
+    scope_files = set(files)
     actual_digest = source_digest(resolved, files)
     if actual_digest != raw["source_digest"]:
         raise SelectionInputError("Recon source_digest does not match the current audit scope")
@@ -297,6 +298,13 @@ def validate_recon_context(
         raise SelectionInputError("Recon target_root does not match --target-root")
     if raw["excluded_paths"] != excluded:
         raise SelectionInputError("Recon excluded_paths do not match the current audit scope")
+    if not analyzed <= scope_files:
+        raise SelectionInputError("Recon files_analyzed contains paths outside the current audit scope")
+    expected_uncompiled = sorted(scope_files - analyzed)
+    if expected_uncompiled != uncompiled:
+        raise SelectionInputError("Recon uncompiled_paths does not equal scope_files minus files_analyzed")
+    if raw["compilation_complete"] is not (not expected_uncompiled):
+        raise SelectionInputError("Recon compilation_complete does not match compilation coverage")
     normalized = dict(raw)
     normalized["target_root"] = str(resolved)
     return normalized

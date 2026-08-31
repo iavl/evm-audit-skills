@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:finding-details:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest", "findings"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "routing_snapshot_id": {"$ref": "#/$defs/hash"},
+    "registry_sha256": {"$ref": "#/$defs/hash"},
+    "source_digest": {"$ref": "#/$defs/hash"},
+    "compilation_input_digest": {"$ref": "#/$defs/hash"},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["canonical_id", "location", "description", "recommendation"],
+        "properties": {
+          "canonical_id": {"type": "string", "minLength": 1},
+          "location": {"type": "string", "minLength": 1},
+          "description": {"type": "string", "minLength": 1},
+          "recommendation": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

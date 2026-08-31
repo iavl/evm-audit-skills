@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-SEVERITY_ORDER = {"Informational": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+SEVERITY_ORDER = {"Info": 0, "Low": 1, "Medium": 2, "High": 3, "Critical": 4}
 
 
 def issue_candidate(severity: str | None) -> bool:

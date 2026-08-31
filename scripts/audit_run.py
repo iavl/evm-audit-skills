@@ -207,19 +207,31 @@ def next_step(root: Path, run_dir: Path) -> dict[str, Any]:
         records, errors = collect_review_records(_ledger_paths(run_dir), manifest, registry, candidates, resolution)
         if errors:
             raise ValueError("; ".join(errors))
-        if candidates - set(records):
-            return {"stage": "DEEP_REVIEW", "pending": sorted(candidates - set(records))}
+        pending = candidates - set(records)
+        if pending:
+            return {"stage": "DEEP_REVIEW", "pending": sorted(pending)}
+        suspicious = {
+            canonical_id
+            for canonical_id, record in records.items()
+            if record["status"] == "SUSPICIOUS"
+        }
+        if suspicious:
+            return {"stage": "PROOF", "pending": sorted(suspicious)}
 
     state = status_run(root, run_dir)
     return {"stage": "REPORT", "status": state["status"], "audit_state": str(values["audit_state"])}
 
 
-def report_run(root: Path, run_dir: Path, severity_path: Path | None = None) -> dict[str, Any]:
+def report_run(
+    root: Path,
+    run_dir: Path,
+    severity_path: Path | None = None,
+    finding_details_path: Path | None = None,
+) -> dict[str, Any]:
     values, manifest, registry = _load_run(root, run_dir)
-    if not values["audit_state"].exists():
-        status_run(root, run_dir)
-    state = load_json(values["audit_state"])
-    severity = load_json(severity_path) if severity_path else None
+    state = status_run(root, run_dir)
+    severity = load_json(severity_path) if state["complete"] and severity_path else None
+    finding_details = load_json(finding_details_path) if state["complete"] and finding_details_path else None
     resolution = load_json(values["resolution"]) if values["resolution"].exists() else None
     report, issues = synthesize(
         root,
@@ -228,11 +240,19 @@ def report_run(root: Path, run_dir: Path, severity_path: Path | None = None) -> 
         state,
         _ledger_paths(run_dir),
         severity,
+        finding_details=finding_details,
+        allow_incomplete=not state["complete"],
         domain_resolution=resolution,
     )
     values["report"].write_text(report, encoding="utf-8")
     values["issue_candidates"].write_text(json.dumps(issues, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return {"stage": "REPORT", "report": str(values["report"]), "issue_candidates": str(values["issue_candidates"])}
+    return {
+        "stage": "REPORT",
+        "status": state["status"],
+        "complete": state["complete"],
+        "report": str(values["report"]),
+        "issue_candidates": str(values["issue_candidates"]),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -270,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--run-dir", type=Path, required=True)
     report.add_argument("--root", type=Path, default=ROOT)
     report.add_argument("--severity-decisions", type=Path)
+    report.add_argument("--finding-details", type=Path)
 
     args = parser.parse_args(argv)
     try:
@@ -281,9 +302,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "status":
             result = status_run(root, args.run_dir)
         else:
-            result = report_run(root, args.run_dir, args.severity_decisions)
+            result = report_run(root, args.run_dir, args.severity_decisions, args.finding_details)
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0
+        return 1 if args.command == "report" and result.get("complete") is False else 0
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

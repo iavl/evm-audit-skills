@@ -78,7 +78,7 @@ The workflow will:
 3. Resolve Deferred Domains and required Domain Context from snapshot-bound artifacts before rendering Deep.
 4. Render Screen, classify only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`, then render Deep from candidates only.
 5. Append JSONL Deep/proof events per candidate; revisions retain the full review history and filtered IDs remain only in the machine manifest.
-6. Independently derive `audit-state.json`; synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
+6. Independently derive `audit-state.json`; provide snapshot-bound structured severity/details for confirmed records, then synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md`.
 7. File GitHub issues only for confirmed Medium+ findings when explicitly in scope.
 
 ### Runtime-neutral execution

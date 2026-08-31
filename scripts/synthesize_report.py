@@ -12,7 +12,7 @@ from typing import Any
 _SUITE_ROOT = str(Path(__file__).resolve().parents[1])
 if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
-from evm_audit_runtime.reporting import SEVERITY_ORDER, issue_candidate
+from evm_audit_runtime.reporting import issue_candidate
 from evm_audit_runtime.routing import resolved_routes
 
 try:
@@ -43,6 +43,20 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+SEVERITY_DIMENSIONS = (
+    "impact",
+    "exploitability",
+    "privileges",
+    "capital_required",
+    "repeatability",
+    "user_interaction",
+    "loss_bound",
+    "protocol_exposure",
+    "recoverability",
+)
+
+
 def _provenance(check: dict[str, Any]) -> str:
     values: list[str] = []
     for item in check.get("provenance", []):
@@ -57,18 +71,28 @@ def _provenance(check: dict[str, Any]) -> str:
     return "; ".join(values) or "None recorded"
 
 
-def _severity_decisions(value: dict[str, Any] | None) -> dict[str, str]:
+def _severity_decisions(value: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if value is None:
         return {}
-    if not isinstance(value, dict):
-        raise ValueError("severity decisions must be an object")
-    decisions: dict[str, str] = {}
-    for canonical_id, raw in value.items():
-        severity = raw.get("severity") if isinstance(raw, dict) else raw
-        if severity not in SEVERITY_ORDER:
-            raise ValueError(f"invalid severity for {canonical_id}: {severity}")
-        decisions[canonical_id] = severity
+    decisions = value.get("decisions")
+    if not isinstance(decisions, dict):
+        raise ValueError("severity decisions must contain a decisions object")
     return decisions
+
+
+def _finding_details(value: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    if value is None:
+        return {}
+    findings = value.get("findings")
+    if not isinstance(findings, list):
+        raise ValueError("finding details must contain a findings array")
+    details: dict[str, dict[str, Any]] = {}
+    for finding in findings:
+        canonical_id = finding["canonical_id"]
+        if canonical_id in details:
+            raise ValueError(f"duplicate finding details: {canonical_id}")
+        details[canonical_id] = finding
+    return details
 
 
 def _coverage_sets(state: dict[str, Any]) -> tuple[set[str], set[str], set[str]]:
@@ -103,6 +127,7 @@ def synthesize(
     ledger_paths: list[Path],
     severity_decisions: dict[str, Any] | None = None,
     *,
+    finding_details: dict[str, Any] | None = None,
     allow_incomplete: bool = False,
     domain_resolution: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
@@ -125,6 +150,12 @@ def synthesize(
         raise ValueError("; ".join(errors))
     confirmed = {canonical_id for canonical_id, record in latest.items() if record["status"] == "CONFIRMED"}
     suspicious = {canonical_id for canonical_id, record in latest.items() if record["status"] == "SUSPICIOUS"}
+    reviewed = set(latest)
+    declared_reviewed = set(state["coverage"]["deep_reviewed"])
+    if reviewed != declared_reviewed:
+        raise ValueError("audit-state deep_reviewed coverage does not match latest ledger state")
+    if state["complete"] and reviewed != candidates:
+        raise ValueError("complete audit-state requires a current review for every Deep candidate")
     declared_confirmed = set(state["coverage"]["confirmed"])
     if confirmed != declared_confirmed:
         raise ValueError("audit-state confirmed coverage does not match latest ledger state")
@@ -138,15 +169,23 @@ def synthesize(
         raise ValueError("COMPLETE_CLEAN must set clean=true")
     if state["status"] == "COMPLETE_WITH_FINDINGS" and state["clean"]:
         raise ValueError("COMPLETE_WITH_FINDINGS must set clean=false")
-    if not state["complete"] and not allow_incomplete:
-        raise ValueError("refusing to synthesize a final report from an incomplete audit")
 
-    decisions = _severity_decisions(severity_decisions)
+    decisions: dict[str, dict[str, Any]] = {}
+    if severity_decisions is not None:
+        try:
+            validate_schema(root, "severity-decisions.schema.json", severity_decisions)
+            validate_artifact_identity(severity_decisions, manifest)
+            decisions = _severity_decisions(severity_decisions)
+        except (ValueError, KeyError, TypeError) as error:
+            raise ValueError(f"INCOMPLETE_SEVERITY: {error}") from error
     for canonical_id in decisions:
         if canonical_id not in latest:
-            raise ValueError(f"severity decision has no latest review record: {canonical_id}")
+            raise ValueError(f"INCOMPLETE_SEVERITY: decision has no latest review record: {canonical_id}")
         if latest[canonical_id]["status"] != "CONFIRMED":
-            raise ValueError(f"severity is only allowed for CONFIRMED records: {canonical_id}")
+            raise ValueError(f"INCOMPLETE_SEVERITY: severity is only allowed for CONFIRMED records: {canonical_id}")
+
+    if not state["complete"] and not allow_incomplete:
+        raise ValueError("refusing to synthesize a final report from an incomplete audit")
 
     if not state["complete"]:
         report = "\n".join([
@@ -168,6 +207,32 @@ def synthesize(
             "",
         ])
         return report, _issue_artifact(root, manifest, [])
+
+    if confirmed and severity_decisions is None:
+        raise ValueError(f"INCOMPLETE_SEVERITY: missing severity decisions for {sorted(confirmed)}")
+    missing_severity = confirmed - set(decisions)
+    extra_severity = set(decisions) - confirmed
+    if missing_severity:
+        raise ValueError(f"INCOMPLETE_SEVERITY: missing severity decisions for {sorted(missing_severity)}")
+    if extra_severity:
+        raise ValueError(f"INCOMPLETE_SEVERITY: decisions are not for CONFIRMED records: {sorted(extra_severity)}")
+
+    details: dict[str, dict[str, Any]] = {}
+    if finding_details is not None:
+        try:
+            validate_schema(root, "finding-details.schema.json", finding_details)
+            validate_artifact_identity(finding_details, manifest)
+            details = _finding_details(finding_details)
+        except (ValueError, KeyError, TypeError) as error:
+            raise ValueError(f"INCOMPLETE_REPORTING: {error}") from error
+    if confirmed and finding_details is None:
+        raise ValueError(f"INCOMPLETE_REPORTING: missing finding details for {sorted(confirmed)}")
+    missing_details = confirmed - set(details)
+    extra_details = set(details) - confirmed
+    if missing_details:
+        raise ValueError(f"INCOMPLETE_REPORTING: missing finding details for {sorted(missing_details)}")
+    if extra_details:
+        raise ValueError(f"INCOMPLETE_REPORTING: details are not for CONFIRMED records: {sorted(extra_details)}")
 
     if state["status"] == "COMPLETE_CLEAN" and confirmed:
         raise ValueError("COMPLETE_CLEAN cannot contain confirmed findings")
@@ -197,19 +262,30 @@ def synthesize(
         check = checks.get(canonical_id)
         if check is None:
             raise ValueError(f"confirmed record is absent from registry: {canonical_id}")
-        severity = decisions.get(canonical_id)
+        decision = decisions[canonical_id]
+        severity = decision["severity"]
+        detail = details[canonical_id]
         report_lines.extend([
             "",
             f"### [{canonical_id}] {check['title']}",
-            f"- **Severity:** {severity or 'Unassigned'}",
-            f"- **Owner Domain:** {record['owner_domain']}",
+            "- **Status:** `CONFIRMED`",
+            f"- **Checklist reference:** `{canonical_id}`",
+            f"- **Provenance references:** {_provenance(check)}",
+            f"- **Severity:** {severity}",
+            f"- **Severity rationale:** {decision['rationale']}",
+            "- **Severity dimensions:** " + "; ".join(
+                f"{dimension}={decision['dimensions'][dimension]}" for dimension in SEVERITY_DIMENSIONS
+            ),
+            f"- **Category:** {record['owner_domain']}",
+            f"- **Location:** {detail['location']}",
             f"- **Applicability:** {record['applicability']}",
             f"- **Code path:** {record['code_path']}",
             f"- **Preconditions:** {record['preconditions']}",
             f"- **Exploitability:** {record['exploitability']}",
             f"- **Impact:** {record['impact']}",
-            f"- **Proof:** {record['proof']}",
-            f"- **Provenance:** {_provenance(check)}",
+            f"- **Proof of Concept / Invariant Violation:** {record['proof']}",
+            f"- **Description:** {detail['description']}",
+            f"- **Recommendation:** {detail['recommendation']}",
         ])
         if issue_candidate(severity):
             issue_findings.append({"canonical_id": canonical_id, "severity": severity})
@@ -225,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ledger", type=Path, action="append", default=[])
     parser.add_argument("--domain-resolution", type=Path)
     parser.add_argument("--severity-decisions", type=Path)
+    parser.add_argument("--finding-details", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--issue-candidates-out", type=Path)
     parser.add_argument("--allow-incomplete", action="store_true", help="write an explicitly incomplete artifact")
@@ -236,6 +313,7 @@ def main(argv: list[str] | None = None) -> int:
         registry = load_json(args.registry)
         state = load_json(args.audit_state)
         severity = load_json(args.severity_decisions) if args.severity_decisions else None
+        finding_details = load_json(args.finding_details) if args.finding_details else None
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
         report, issues = synthesize(
             ROOT,
@@ -244,6 +322,7 @@ def main(argv: list[str] | None = None) -> int:
             state,
             args.ledger,
             severity,
+            finding_details=finding_details,
             allow_incomplete=args.allow_incomplete,
             domain_resolution=domain_resolution,
         )

@@ -20,6 +20,7 @@ from scripts.select_checks import (
     evaluate_group,
     normalize_feature_map,
     select,
+    validate_recon_context,
     validate_environment_context,
 )
 
@@ -127,13 +128,14 @@ class RoutingTests(unittest.TestCase):
             "uses-erc20": "PRESENT",
         })
         context = feature_map["recon_context"]
+        context["files_analyzed"] = []
         context["compilation_complete"] = False
-        context["uncompiled_paths"] = ["uncompiled.sol"]
+        context["uncompiled_paths"] = ["Empty.sol"]
         context["recon_quality"] = {
             "compilation_complete": False,
             "absence_filtering_complete": False,
             "mode": "CONSERVATIVE_DEGRADED",
-            "uncompiled_paths": ["uncompiled.sol"],
+            "uncompiled_paths": ["Empty.sol"],
         }
         normalized = normalize_feature_map(feature_map, self.feature_names, self.feature_policies, EMPTY_TARGET)
         self.assertEqual(normalized["uses-assembly"]["status"], "UNKNOWN")
@@ -155,6 +157,35 @@ class RoutingTests(unittest.TestCase):
             ["evm-audit-general"],
         )
         self.assertEqual([entry["canonical_id"] for entry in manifest["selected"]], ["TEST-DEGRADED-001"])
+
+    def test_recon_coverage_fields_are_derived_from_scope(self) -> None:
+        feature_map = synthetic_feature_map()
+        with self.assertRaisesRegex(ValueError, "outside the current audit scope"):
+            feature_map["recon_context"]["files_analyzed"] = ["outside.sol"]
+            validate_recon_context(feature_map["recon_context"], EMPTY_TARGET, ())
+
+        feature_map = synthetic_feature_map()
+        with self.assertRaisesRegex(ValueError, "scope_files minus files_analyzed"):
+            feature_map["recon_context"]["compilation_complete"] = False
+            feature_map["recon_context"]["uncompiled_paths"] = ["Empty.sol"]
+            feature_map["recon_context"]["recon_quality"] = {
+                "compilation_complete": False,
+                "absence_filtering_complete": False,
+                "mode": "CONSERVATIVE_DEGRADED",
+                "uncompiled_paths": ["Empty.sol"],
+            }
+            validate_recon_context(feature_map["recon_context"], EMPTY_TARGET, ())
+
+        feature_map = synthetic_feature_map()
+        with self.assertRaisesRegex(ValueError, "compilation_complete"):
+            feature_map["recon_context"]["compilation_complete"] = False
+            feature_map["recon_context"]["recon_quality"] = {
+                "compilation_complete": False,
+                "absence_filtering_complete": False,
+                "mode": "CONSERVATIVE_DEGRADED",
+                "uncompiled_paths": [],
+            }
+            validate_recon_context(feature_map["recon_context"], EMPTY_TARGET, ())
 
     def test_feature_map_v4_rejects_unsupported_cli_and_formats(self) -> None:
         help_result = subprocess.run(

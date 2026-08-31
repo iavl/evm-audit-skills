@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from helpers import EMPTY_TARGET, ROOT
+from scripts.review_ledger import append
 
 
 class AuditRunTests(unittest.TestCase):
@@ -74,11 +75,194 @@ class AuditRunTests(unittest.TestCase):
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("COMPLETE_CLEAN", result.stdout)
-            result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
+            manifest = self.read(run_dir / "routing/manifest.json")
+            identity = {
+                "schema_version": 1,
+                "routing_snapshot_id": manifest["routing_snapshot_id"],
+                **{
+                    key: manifest["audit_context"][key]
+                    for key in ("registry_sha256", "source_digest", "compilation_input_digest")
+                },
+            }
+            severity_path = run_dir / "severity-decisions.json"
+            severity_path.write_text(json.dumps({**identity, "decisions": {}}) + "\n", encoding="utf-8")
+            details_path = run_dir / "finding-details.json"
+            details_path.write_text(json.dumps({**identity, "findings": []}) + "\n", encoding="utf-8")
+            result = self.run_cli(
+                "scripts/audit_run.py",
+                "report",
+                "--run-dir",
+                str(run_dir),
+                "--severity-decisions",
+                str(severity_path),
+                "--finding-details",
+                str(details_path),
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             report = (run_dir / "AUDIT-REPORT.md").read_text(encoding="utf-8")
             self.assertIn("COMPLETE_CLEAN", report)
             self.assertTrue((run_dir / "issue-candidates.json").exists())
+
+    def test_report_rederives_state_after_current_ledger_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            result = self.run_cli(
+                "scripts/audit_run.py",
+                "init",
+                str(EMPTY_TARGET),
+                "--run-dir",
+                str(run_dir),
+                "--audit-root",
+                str(EMPTY_TARGET),
+                "--domain",
+                "evm-audit-general",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            context_path = run_dir / "reviews/domain-context.json"
+            context = self.read(context_path)
+            for requirements in context["domains"].values():
+                for item in requirements.values():
+                    item.update(
+                        status="KNOWN",
+                        value="fixture",
+                        evidence=[{"kind": "scope", "location": "fixture", "reason": "known context"}],
+                    )
+            context_path.write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
+
+            result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            screen_path = run_dir / "reviews/screen-results.json"
+            screen = self.read(screen_path)
+            candidate = screen["results"][0]
+            candidate.update(result="CANDIDATE", scope_complete=False, evidence=[])
+            evidence = [
+                {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                {"kind": "source", "location": "fixture", "reason": "screen disposition"},
+            ]
+            for item in screen["results"][1:]:
+                item.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
+            screen_path.write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
+
+            result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            self.assertIn("DEEP_REVIEW", result.stdout)
+            manifest = self.read(run_dir / "routing/manifest.json")
+            route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate["canonical_id"])
+            record = {
+                "record_type": "review",
+                "schema_version": 5,
+                "canonical_id": candidate["canonical_id"],
+                "owner_domain": route["owner_domain"],
+                "check_body_hash": route["check_body_hash"],
+                "review_stage": "DEEP_REVIEW",
+                "status": "REVIEWED_SAFE",
+                "applicability": "APPLICABLE - fixture",
+                "code_path": "fixture entry",
+                "preconditions": "fixture state",
+                "exploitability": "guard holds",
+                "impact": "none",
+                "proof": "fixture invariant",
+                "preserved_invariant": "fixture invariant",
+                "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}],
+            }
+            ledger = run_dir / "reviews/review-evm-audit-general.jsonl"
+            append(ledger, manifest, record, self.read(ROOT / "data/canonical-checks.json"), {candidate["canonical_id"]})
+
+            result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("COMPLETE_CLEAN", result.stdout)
+            result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            ledger.unlink()
+
+            result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
+            self.assertNotEqual(result.returncode, 0)
+            state = self.read(run_dir / "audit-state.json")
+            self.assertEqual(state["status"], "INCOMPLETE_REVIEW")
+            self.assertFalse(state["complete"])
+            report = (run_dir / "AUDIT-REPORT.md").read_text(encoding="utf-8")
+            self.assertIn("# INCOMPLETE AUDIT", report)
+            self.assertNotIn("COMPLETE_CLEAN", report)
+
+    def test_controller_routes_suspicious_records_to_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            result = self.run_cli(
+                "scripts/audit_run.py",
+                "init",
+                str(EMPTY_TARGET),
+                "--run-dir",
+                str(run_dir),
+                "--audit-root",
+                str(EMPTY_TARGET),
+                "--domain",
+                "evm-audit-general",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            context_path = run_dir / "reviews/domain-context.json"
+            context = self.read(context_path)
+            for requirements in context["domains"].values():
+                for item in requirements.values():
+                    item.update(
+                        status="KNOWN",
+                        value="fixture",
+                        evidence=[{"kind": "scope", "location": "fixture", "reason": "known context"}],
+                    )
+            context_path.write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
+            self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            screen_path = run_dir / "reviews/screen-results.json"
+            screen = self.read(screen_path)
+            candidate = screen["results"][0]
+            candidate.update(result="CANDIDATE", scope_complete=False, evidence=[])
+            evidence = [
+                {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                {"kind": "source", "location": "fixture", "reason": "screen disposition"},
+            ]
+            for item in screen["results"][1:]:
+                item.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
+            screen_path.write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
+            result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            self.assertIn("DEEP_REVIEW", result.stdout)
+
+            manifest = self.read(run_dir / "routing/manifest.json")
+            route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate["canonical_id"])
+            suspicious = {
+                "record_type": "review",
+                "schema_version": 5,
+                "canonical_id": candidate["canonical_id"],
+                "owner_domain": route["owner_domain"],
+                "check_body_hash": route["check_body_hash"],
+                "review_stage": "DEEP_REVIEW",
+                "status": "SUSPICIOUS",
+                "applicability": "APPLICABLE - fixture",
+                "code_path": "fixture entry",
+                "preconditions": "fixture state",
+                "exploitability": "alternate path unresolved",
+                "impact": "potential issue",
+                "proof": "proof pending",
+                "unresolved_reason": "proof pending",
+                "evidence": [{"kind": "manual", "location": "fixture", "reason": "deep review"}],
+            }
+            ledger = run_dir / "reviews/review-evm-audit-general.jsonl"
+            append(ledger, manifest, suspicious, self.read(ROOT / "data/canonical-checks.json"), {candidate["canonical_id"]})
+            result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("PROOF", result.stdout)
+            self.assertIn(candidate["canonical_id"], result.stdout)
+            resolved = {
+                **{key: value for key, value in suspicious.items() if key != "unresolved_reason"},
+                "review_stage": "PROOF",
+                "status": "REVIEWED_SAFE",
+                "exploitability": "guard holds",
+                "impact": "none",
+                "proof": "fixture invariant",
+                "preserved_invariant": "fixture invariant",
+                "evidence": [{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
+            }
+            append(ledger, manifest, resolved, self.read(ROOT / "data/canonical-checks.json"), {candidate["canonical_id"]})
+            result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("REPORT", result.stdout)
+            self.assertIn("COMPLETE_CLEAN", result.stdout)
 
 
 if __name__ == "__main__":

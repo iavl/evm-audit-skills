@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:severity-decisions:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest", "decisions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "routing_snapshot_id": {"$ref": "#/$defs/hash"},
+    "registry_sha256": {"$ref": "#/$defs/hash"},
+    "source_digest": {"$ref": "#/$defs/hash"},
+    "compilation_input_digest": {"$ref": "#/$defs/hash"},
+    "decisions": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/decision"}
+    }
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "rationale", "dimensions"],
+      "properties": {
+        "severity": {"enum": ["Info", "Low", "Medium", "High", "Critical"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["impact", "exploitability", "privileges", "capital_required", "repeatability", "user_interaction", "loss_bound", "protocol_exposure", "recoverability"],
+          "properties": {
+            "impact": {"type": "string", "minLength": 1},
+            "exploitability": {"type": "string", "minLength": 1},
+            "privileges": {"type": "string", "minLength": 1},
+            "capital_required": {"type": "string", "minLength": 1},
+            "repeatability": {"type": "string", "minLength": 1},
+            "user_interaction": {"type": "string", "minLength": 1},
+            "loss_bound": {"type": "string", "minLength": 1},
+            "protocol_exposure": {"type": "string", "minLength": 1},
+            "recoverability": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    }
+  }
+}
