@@ -208,11 +208,10 @@ def compilation_digests(
     compilation_root = (build_root or (audit_root if audit_root.is_dir() else audit_root.parent)).resolve()
     if not compilation_root.is_dir():
         raise ValueError(f"build root must be a directory: {compilation_root}")
-    if audit_root.is_dir():
-        try:
-            audit_root.relative_to(compilation_root)
-        except ValueError as error:
-            raise ValueError("audit root must be inside build root") from error
+    try:
+        audit_root.relative_to(compilation_root)
+    except ValueError as error:
+        raise ValueError("audit root must be inside build root") from error
     audit = source_digest(audit_root, source_files)
     compilation_sources = _compilation_sources(compilation_root)
     audit_paths = {

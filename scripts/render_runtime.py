@@ -231,6 +231,10 @@ def render(
         "source: data/canonical-checks.json; do not edit by hand. -->",
         "# Routed EVM Audit Checks",
         "",
+        f"- **Routing snapshot:** `{manifest['routing_snapshot_id']}`",
+        f"- **Review snapshot:** `{review_snapshot or 'not-yet-defined'}`",
+        f"- **Candidate set:** `{','.join(ids)}`",
+        "",
     ]
     for canonical_id in ids:
         check = checks[canonical_id]

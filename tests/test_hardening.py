@@ -193,6 +193,11 @@ class HardeningTests(unittest.TestCase):
 
             files, _ = scope_inventory(target)
             before = compilation_digests(target, files, "0.8.24", build_root=root)
+            target.write_text('pragma solidity ^0.8.24; import "./Dependency.sol"; contract Target is Dependency { uint256 changed; }', encoding="utf-8")
+            after_target = compilation_digests(target, files, "0.8.24", build_root=root)
+            self.assertNotEqual(before["audit_source_digest"], after_target["audit_source_digest"])
+            self.assertNotEqual(before["compilation_input_digest"], after_target["compilation_input_digest"])
+            target.write_text('pragma solidity ^0.8.24; import "./Dependency.sol"; contract Target is Dependency {}', encoding="utf-8")
             dependency.write_text("pragma solidity ^0.8.24; contract Dependency { uint256 changed; }", encoding="utf-8")
             after_dependency = compilation_digests(target, files, "0.8.24", build_root=root)
             self.assertEqual(before["audit_source_digest"], after_dependency["audit_source_digest"])

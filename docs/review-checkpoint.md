@@ -12,7 +12,9 @@ same manifest, and appending the next validated revision.
 | Registry changed | No |
 | Source changed | No |
 | Build/dependency input changed | No |
+| Domain resolution, Domain Context, or Screen result changed | No |
 | Review schema changed | No |
 
-The ledger belongs to exactly one routing snapshot. Any identity change starts
-a new audit run; old artifacts are rejected and must be regenerated.
+The ledger belongs to exactly one routing snapshot and one post-routing review
+snapshot. Any identity change starts a new audit epoch; old history remains
+authoritative but is rejected for current completion and must not be rewritten.

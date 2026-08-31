@@ -5,7 +5,8 @@ The runtime flow is:
 ```text
 source → Recon/Feature Map v4 → Environment Gate → Domain Gate → Check Gate
        → Deferred Domain Resolution → Required Domain Context → Screen
-       → candidate-only Deep → proof → independently derived state → confirmed-only synthesis
+       → review snapshot → candidate-only Deep → proof → review-state digest
+       → independently derived state → confirmed-only synthesis
 ```
 
 Standalone runs create `audits/<repo>-<UTC timestamp>/` and run Recon/Selector
@@ -21,7 +22,7 @@ stage and its `report` command always re-derives the current state.
 Build and route one immutable snapshot:
 
 ```bash
-python3 scripts/recon.py <target> --audit-root <target-root> \
+python3 scripts/recon.py <target> --audit-root <target-root> --build-root <project-root> \
   --output recon/feature-map.json
 python3 scripts/select_checks.py --feature-map recon/feature-map.json \
   --target-root <target-root> --manifest-out routing/manifest.json \
@@ -55,7 +56,16 @@ snapshot-bound Domain Context and rerun Screen with both artifacts.
 evidence for the relevant exclusion dimension; uncertainty remains `CANDIDATE`.
 `LIKELY_SAFE` is not a valid state.
 
-Each candidate canonical ID receives one owner-Domain JSONL event stream.
+For required Domain Context, `NOT_APPLICABLE` is also trusted absence: it needs
+`scope_complete: true` and evidence allowed by the owning Domain's
+`trusted_absence_policy`. A manual explanation alone is never enough; use
+`UNKNOWN` until non-applicability is proven.
+
+Each candidate canonical ID receives one owner-Domain JSONL event stream. Its
+checkpoint and every event bind the deterministic `review_snapshot_id`, derived
+from the routing snapshot plus current Domain resolution, Domain Context, and
+Screen results. Changing any of those artifacts makes prior events stale; start
+a new review epoch instead of rewriting history.
 Events include snapshot/hash identity, a contiguous revision, applicability,
 code path, preconditions, exploitability, impact, PoC/invariant evidence, and
 one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
@@ -64,7 +74,8 @@ event is the derived state and earlier events remain visible in the Markdown
 view.
 
 `--append-record` accepts a current review payload with `record_type: "review"`
-and `schema_version: 5`; the append command assigns the next revision when it
+and `schema_version: 6`; the append command assigns the next revision and the
+current `review_snapshot_id` when it
 is omitted. `CONFIRMED` requires `PROOF` and strong proof evidence. Missing,
 stale, or older record shapes are rejected.
 
@@ -73,14 +84,16 @@ Append and render a ledger view with:
 ```bash
 python3 scripts/review_ledger.py --manifest routing/manifest.json \
   --screen-results reviews/screen-results.json \
+  --domain-context reviews/domain-context.json \
   --ledger reviews/review-<owner-domain>.jsonl --append-record review.json
 python3 scripts/review_ledger.py --manifest routing/manifest.json \
   --screen-results reviews/screen-results.json \
+  --domain-context reviews/domain-context.json \
   --ledger reviews/review-<owner-domain>.jsonl --render-markdown reviews/review.md
 ```
 
-Runtime Markdown is a generated view with snapshot, registry, source,
-compilation-input, profile, and candidate-set hashes; the renderer validates
+Runtime Markdown is a generated view with routing snapshot, review snapshot,
+registry, source, compilation-input, profile, and candidate-set hashes; the renderer validates
 those identities before reading check bodies. Filtered IDs remain in the
 manifest and do not generate per-check Markdown records. Completion comes from
 `validate_audit_run.py` rather than an upstream completion flag.
@@ -98,8 +111,9 @@ python3 scripts/audit_run.py report --run-dir <run-dir> \
 
 `next` returns `DEEP_REVIEW` for missing candidate records and `PROOF` for
 latest `SUSPICIOUS` records. `report` always runs `status_run()` first. It
-rewrites an explicitly incomplete report when current artifacts are incomplete
-and exits non-zero; it never trusts a previous `audit-state.json`.
+invalidates old final outputs before current synthesis, writes replacements
+atomically, and exits non-zero if current reporting is incomplete. It never
+trusts a previous `audit-state.json`.
 
 Derive completion independently from the manifest, Screen results, Domain
 resolution, and owner-Domain ledgers:
@@ -144,7 +158,8 @@ Confirmed findings use this format:
 ```
 
 For a complete finding report, provide two snapshot-bound artifacts. Severity
-decisions have `schema_version: 1`, the four artifact identity fields, and a
+decisions have `schema_version: 2`, the four artifact identity fields, a current
+`review_state_digest`, and a
 `decisions` object keyed by canonical ID. Each decision requires `severity`,
 `rationale`, and `dimensions` with `impact`, `exploitability`, `privileges`,
 `capital_required`, `repeatability`, `user_interaction`, `loss_bound`,
@@ -152,7 +167,9 @@ decisions have `schema_version: 1`, the four artifact identity fields, and a
 `Info`, `Low`, `Medium`, `High`, and `Critical`; the old flat map and
 `Informational` are invalid.
 
-`finding-details.json` has the same four identity fields and a `findings` array.
+`finding-details.json` has the same identity fields and `review_state_digest`,
+plus a `findings` array. `audit-state.json`, `issue-candidates.json`, and final
+report metadata also carry the current review snapshot/state identity.
 Each confirmed ID must occur exactly once with non-empty `location`,
 `description`, and `recommendation`. Category is derived from `owner_domain`.
 Missing severity or details is a report admission error (`INCOMPLETE_SEVERITY`

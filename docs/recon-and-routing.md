@@ -1,6 +1,6 @@
 # Recon and Routing
 
-Run Recon against the complete audit root. Its Feature Map v4 records the
+Run Recon against the audit scope and its distinct compilation/build root. Its Feature Map v4 records the
 scope digest, compilation-input digest, compilation coverage, analyzed files,
 tool versions, and a scope-bound `recon_context`. The map uses
 `PRESENT`, `ABSENT_CONFIRMED`, or `UNKNOWN`.
@@ -28,7 +28,8 @@ negative keyword or partial structural traversal is not a sound protocol
 absence proof.
 
 ```bash
-python3 scripts/recon.py <target-project-or-solidity-file> --audit-root <target-repo> \
+python3 scripts/recon.py <target-project-or-solidity-file> --audit-root <audit-scope> \
+  --build-root <project-root> \
   --output recon-features.json
 ```
 
@@ -53,6 +54,16 @@ registry, source, dependency, build-config, and compilation fingerprints; and
 evidence-backed environment facts. It also snapshots immutable required-context
 definitions; resolution state lives in `domain-context.json`. `fork_block` is
 reproducibility metadata, not hardfork inference.
+
+For a file audit, `--build-root` defaults to the nearest recognized project
+root (or a conservative parent context). The audit scope can remain one file,
+but the compilation fingerprint includes Solidity sources and build/remapping
+configuration from that build root. Generated directories remain excluded;
+top-level dependency roots default to `lib` and `node_modules`, while
+`src/lib/` remains first-party. Use `--include lib/MyProtocol.sol` to audit an
+explicit first-party path under a default dependency root, and repeat
+`--dependency-root` when a project uses a different dependency layout. Those
+effective policies are recorded in Recon and therefore change routing identity.
 
 Canonical predicates use `all_of` / `any_of` / `none_of`. Only a curated
 predicate can filter on `FALSE`; an inferred `FALSE` becomes `UNKNOWN` and
