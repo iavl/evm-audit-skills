@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -33,6 +32,11 @@ except ImportError:  # pragma: no cover
         validate_target_snapshot,
     )
     from scripts.render_runtime import selected_entries, validate_manifest, validate_screen_results
+
+try:
+    from runtime_log import configure, error, info, stage, success, verbose as verbose_log, warning
+except ImportError:  # pragma: no cover
+    from scripts.runtime_log import configure, error, info, stage, success, verbose as verbose_log, warning
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -316,8 +320,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pending", action="store_true")
     parser.add_argument("--append-record", type=Path)
     parser.add_argument("--render-markdown", type=Path)
+    parser.add_argument("--quiet", action="store_true", help="suppress progress output")
+    parser.add_argument("--verbose", action="store_true", help="include per-check review details")
     args = parser.parse_args(argv)
+    configure(quiet=args.quiet, verbose=args.verbose)
     try:
+        stage("DEEP REVIEW", step=5, total=7, detail="Tracking candidate review progress")
         manifest, registry = read_json(args.manifest), read_json(args.registry)
         validate_manifest(ROOT, manifest, registry)
         validate_target_snapshot(manifest)
@@ -326,13 +334,23 @@ def main(argv: list[str] | None = None) -> int:
         if domain_resolution is not None:
             validate_domain_resolution(ROOT, manifest, domain_resolution)
         if args.pending:
-            print(json.dumps(pending(manifest, screen, args.ledger, registry, domain_resolution), ensure_ascii=False, sort_keys=True))
+            progress = pending(manifest, screen, args.ledger, registry, domain_resolution)
+            print(json.dumps(progress, ensure_ascii=False, sort_keys=True))
+            candidate_count = sum(item.get("result") == "CANDIDATE" for item in screen.get("results", []))
+            info(f"Reviewed: {candidate_count - len(progress['deep_pending'])} / {candidate_count}")
+            info(f"Remaining: {len(progress['deep_pending'])}")
+            if progress["suspicious"]:
+                warning(f"{len(progress['suspicious'])} review item(s) remain SUSPICIOUS")
             return 0
         candidates = validate_screen_results(ROOT, manifest, screen, domain_resolution)
+        appended_record: dict[str, Any] | None = None
         if args.append_record:
             if len(args.ledger) != 1:
                 raise ValueError("--append-record requires exactly one --ledger output")
-            append(args.ledger[0], manifest, read_json(args.append_record), registry, candidates)
+            appended_record = read_json(args.append_record)
+            append(args.ledger[0], manifest, appended_record, registry, candidates)
+            success("Review ledger updated")
+        records: dict[str, dict[str, Any]] = {}
         if args.render_markdown:
             records, errors = collect_review_records(args.ledger, manifest, registry, candidates)
             if errors:
@@ -340,9 +358,24 @@ def main(argv: list[str] | None = None) -> int:
             values = [checkpoint(manifest), *records.values()]
             args.render_markdown.parent.mkdir(parents=True, exist_ok=True)
             args.render_markdown.write_text(render_markdown(values, manifest, registry), encoding="utf-8")
+            success(f"Review view written to {args.render_markdown}")
+        elif args.append_record:
+            records, errors = collect_review_records(args.ledger, manifest, registry, candidates)
+            if errors:
+                raise ValueError("; ".join(errors))
+        if args.append_record or args.render_markdown:
+            reviewed = len(records)
+            info(f"Reviewed: {reviewed} / {len(candidates)}")
+            info(f"Remaining: {len(candidates) - reviewed}")
+            suspicious = sum(record.get("status") == "SUSPICIOUS" for record in records.values())
+            if suspicious:
+                warning(f"{suspicious} review item(s) remain SUSPICIOUS")
+            if args.verbose:
+                for record in sorted(records.values(), key=lambda item: item["canonical_id"]):
+                    verbose_log(f"[REVIEW] {record['canonical_id']} -> {record['status']}")
         return 0
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        error(exc)
         return 1
 
 

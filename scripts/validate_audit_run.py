@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +32,11 @@ except ImportError:  # pragma: no cover
     )
     from scripts.render_runtime import selected_entries, validate_manifest, validate_screen_results
     from scripts.review_ledger import collect_review_records
+
+try:
+    from runtime_log import configure, error, info, stage, success, warning
+except ImportError:  # pragma: no cover
+    from scripts.runtime_log import configure, error, info, stage, success, warning
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -194,8 +198,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--registry", type=Path, default=ROOT / "data/canonical-checks.json")
     parser.add_argument("--ledger", type=Path, action="append", default=[])
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--quiet", action="store_true", help="suppress progress output")
     args = parser.parse_args(argv)
+    configure(quiet=args.quiet)
     try:
+        stage("VALIDATE", step=6, total=7, detail="Deriving audit state independently")
         manifest = load_json(args.manifest)
         registry = load_json(args.registry)
         screen = load_json(args.screen_results) if args.screen_results.exists() else None
@@ -208,9 +215,54 @@ def main(argv: list[str] | None = None) -> int:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(rendered, encoding="utf-8")
         print(rendered, end="")
+        coverage = state["coverage"]
+        snapshot_valid = state["status"] != "INVALID_SNAPSHOT"
+        coverage_valid = state["status"] not in {"INVALID_SNAPSHOT", "INCOMPLETE_COVERAGE"}
+        domain_valid = state["status"] not in {"INVALID_SNAPSHOT", "INCOMPLETE_COVERAGE", "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING"}
+        review_complete = not coverage["unresolved"]
+        if snapshot_valid:
+            success("Routing snapshot valid")
+        else:
+            warning("Routing snapshot invalid")
+        if snapshot_valid and coverage_valid:
+            success("Screen coverage complete")
+        if snapshot_valid and coverage_valid and domain_valid and review_complete:
+            success("Candidate Deep coverage complete")
+        if snapshot_valid and domain_valid:
+            success("Deferred Domains resolved")
+        if snapshot_valid:
+            success("Artifact identities match")
+        info(f"Confirmed: {len(coverage['confirmed'])}")
+        info(f"Suspicious: {len(coverage['suspicious'])}")
+        reviewed_safe = 0
+        try:
+            records, _ = collect_review_records(
+                args.ledger,
+                manifest,
+                registry,
+                set(coverage["deep_candidates"]),
+            )
+            reviewed_safe = sum(record.get("status") == "REVIEWED_SAFE" for record in records.values())
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            pass
+        info(f"Reviewed safe: {reviewed_safe}")
+        if state["status"] == "COMPLETE":
+            stage("COMPLETE")
+            info("Status: COMPLETE")
+        else:
+            stage("INCOMPLETE")
+            info(f"Status: {state['status']}")
+            if coverage["unresolved"]:
+                warning(f"{len(coverage['unresolved'])} candidate(s) require further review")
+            elif state["status"] == "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING":
+                warning("Deferred Domain resolution requires further work")
+            elif state["status"] == "COMPLETE_WITH_UNRESOLVED_CONTEXT":
+                warning("Required Domain context requires further work")
+            else:
+                warning("Further review or resolution is required")
         return 0 if state["status"] == "COMPLETE" else 1
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        error(exc)
         return 1
 
 

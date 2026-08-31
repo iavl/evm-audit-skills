@@ -7,7 +7,6 @@ import argparse
 import json
 import re
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,11 @@ try:
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import bind_routing_snapshot, check_body_hash, registry_sha256, validate_schema
     from scripts.scope_context import compilation_digests, resolve_scope_root, scope_inventory, source_digest
+
+try:
+    from runtime_log import configure, error, info, stage, success, verbose as verbose_log
+except ImportError:  # pragma: no cover
+    from scripts.runtime_log import configure, error, info, stage, success, verbose as verbose_log
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -672,10 +676,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--environment-out", type=Path, help="write the typed environment facts artifact")
     parser.add_argument("--environment-context", type=Path, help="typed environment facts; CLI values remain DECLARED")
     parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--quiet", action="store_true", help="suppress progress output")
+    parser.add_argument("--verbose", action="store_true", help="include per-domain routing details")
     args = parser.parse_args(argv)
     root = args.root.resolve()
+    configure(quiet=args.quiet, verbose=args.verbose)
 
     try:
+        stage("ROUTING", step=2, total=7, detail="Creating immutable routing snapshot")
         registry = load_json(root / "data" / "canonical-checks.json")
         feature_data = load_json(root / "data" / "features.json")
         names, policies = vocabulary(feature_data)
@@ -712,9 +720,19 @@ def main(argv: list[str] | None = None) -> int:
             print(f"stage={manifest['stage']} snapshot={manifest['routing_snapshot_id']} selected_domains={len(manifest['selected_domains'])} deferred_domains={len(manifest['deferred_domains'])} selected={manifest['selected_count']} deferred={manifest['deferred_count']} filtered={manifest['filtered_count']}")
             for entry in manifest["selected"]:
                 print(f"{entry['canonical_id']}\t{','.join(entry['matched_features']) or 'UNKNOWN/always_screen'}\t{entry['title']}")
+        info(f"Selected Domains: {len(manifest['selected_domains'])}")
+        info(f"Deferred Domains: {len(manifest['deferred_domains'])}")
+        info(f"Filtered Domains: {len(manifest['filtered_domains'])}")
+        info(f"Selected checks: {manifest['selected_count']}")
+        info(f"Deferred checks: {manifest['deferred_count']}")
+        info(f"Filtered checks: {manifest['filtered_count']}")
+        for bucket in ("selected_domains", "deferred_domains", "filtered_domains"):
+            for domain in manifest[bucket]:
+                verbose_log(f"[DOMAIN] {domain['domain']} {domain['state']}")
+        success(f"Routing snapshot created: {manifest['routing_snapshot_id'][:12]}")
         return 0
-    except (OSError, KeyError, SelectionInputError, ValueError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
+    except (OSError, KeyError, SelectionInputError, ValueError) as exc:
+        error(exc)
         return 1
 
 

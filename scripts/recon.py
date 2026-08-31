@@ -25,6 +25,11 @@ try:
 except ImportError:  # pragma: no cover - supports importing from another cwd
     from scripts.scope_context import compilation_digests, relative_scope_path, resolve_scope_root, scope_inventory, source_digest
 
+try:
+    from runtime_log import configure, error, info, stage, success
+except ImportError:  # pragma: no cover - supports importing from another cwd
+    from scripts.runtime_log import configure, error, info, stage, success
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -347,9 +352,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--exclude", action="append", default=[], help="additional audit-scope glob to exclude; repeatable")
     parser.add_argument("--present-only", action="store_true", help="leave detector absences UNKNOWN")
     parser.add_argument("--output", type=Path, help="write JSON to this path instead of stdout")
+    parser.add_argument("--quiet", action="store_true", help="suppress progress output")
     args = parser.parse_args(argv)
+    configure(quiet=args.quiet)
 
     try:
+        stage("RECON", step=1, total=7, detail="Building scope-bound Feature Map")
         payload = build_feature_map(
             args.root.resolve(),
             args.target,
@@ -363,12 +371,18 @@ def main(argv: list[str] | None = None) -> int:
             args.output.write_text(rendered, encoding="utf-8")
         else:
             print(rendered, end="")
-        present = sum(entry["status"] == "PRESENT" for entry in payload["features"].values())
-        absent = sum(entry["status"] == "ABSENT_CONFIRMED" for entry in payload["features"].values())
-        print(f"recon_present={present} absent_confirmed={absent}", file=sys.stderr)
+        statuses = [entry["status"] for entry in payload["features"].values()]
+        info(f"Solidity files analyzed: {len(payload['recon_context']['files_analyzed'])}")
+        info(f"Compilation complete: {'yes' if payload['recon_context']['compilation_complete'] else 'no'}")
+        info(f"PRESENT features: {statuses.count('PRESENT')}")
+        info(f"ABSENT_CONFIRMED features: {statuses.count('ABSENT_CONFIRMED')}")
+        info(f"UNKNOWN features: {statuses.count('UNKNOWN')}")
+        if args.output:
+            info(f"Feature Map written to {args.output}")
+        success("Feature Map ready")
         return 0
-    except Exception as error:
-        print(f"ERROR: {error}", file=sys.stderr)
+    except Exception as exc:
+        error(exc)
         return 1
 
 

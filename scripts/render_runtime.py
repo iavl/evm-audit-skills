@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +36,11 @@ except ImportError:  # pragma: no cover
         validate_schema,
         validate_target_snapshot,
     )
+
+try:
+    from runtime_log import configure, error, info, stage, success, verbose as verbose_log, warning
+except ImportError:  # pragma: no cover
+    from scripts.runtime_log import configure, error, info, stage, success, verbose as verbose_log, warning
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -250,48 +254,84 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--domain-context-out", type=Path, help="write an unresolved Domain Context template")
     parser.add_argument("--owner-domain", help="render only checks owned by this Domain")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--quiet", action="store_true", help="suppress progress output")
+    parser.add_argument("--verbose", action="store_true", help="include per-domain render details")
     args = parser.parse_args(argv)
+    configure(quiet=args.quiet, verbose=args.verbose)
     try:
         manifest, registry = load_json(args.manifest), load_json(args.registry)
         validate_manifest(ROOT, manifest, registry)
         validate_target_snapshot(manifest)
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
+        unresolved_domains: set[str] = set()
+        if args.domain_resolution or args.domain_resolution_out:
+            stage("DOMAIN RESOLUTION", step=3, total=7, detail="Resolving deferred audit Domains")
         if domain_resolution is not None:
-            validate_domain_resolution(
-                ROOT, manifest, domain_resolution, require_terminal=args.profile == "deep"
+            unresolved_domains = validate_domain_resolution(
+                ROOT, manifest, domain_resolution
             )
+            for domain, resolution in sorted(domain_resolution.get("domains", {}).items()):
+                info(f"{domain} {resolution['status']}")
+            if unresolved_domains:
+                warning(f"{len(unresolved_domains)} Deferred Domain(s) remain UNKNOWN")
+                if args.profile == "deep":
+                    raise ValueError("Deep Review blocked: unresolved Deferred Domains")
+            else:
+                success("Domain routing resolved")
+        elif args.domain_resolution_out and manifest["deferred_domains"]:
+            warning(f"{len(manifest['deferred_domains'])} Deferred Domain(s) remain UNKNOWN")
         domain_context = load_json(args.domain_context) if args.domain_context else None
         if domain_context is not None:
-            validate_domain_context(
+            unresolved_context = validate_domain_context(
                 ROOT,
                 manifest,
                 domain_context,
                 domain_resolution,
                 require_complete=args.profile == "deep",
             )
+            if unresolved_context:
+                warning(f"{len(unresolved_context)} required Domain context item(s) remain UNKNOWN")
+            else:
+                success("Domain Context validated")
         if args.profile == "deep":
+            stage("DEEP REVIEW", step=5, total=7, detail="Rendering candidate-only Deep Review")
             if not args.screen_results:
                 raise ValueError("--profile deep requires --screen-results")
             if manifest["deferred_domains"] and not domain_resolution:
-                raise ValueError("--profile deep requires --domain-resolution for Deferred Domains")
+                raise ValueError("Deep Review blocked: --domain-resolution is required for Deferred Domains")
             if not args.domain_context:
                 raise ValueError("--profile deep requires --domain-context")
             candidates = validate_screen_results(ROOT, manifest, load_json(args.screen_results), domain_resolution)
         else:
+            stage("SCREEN", step=4, total=7, detail="Screening routed checks")
             candidates = set()
             if args.screen_results:
                 raise ValueError("--screen-results is only used by --profile deep")
             if args.screen_results_out:
                 write_json(args.screen_results_out, screen_results_template(manifest, domain_resolution))
+                info(f"Screen result template written to {args.screen_results_out}")
             if args.domain_resolution_out:
                 write_json(args.domain_resolution_out, domain_resolution_template(manifest))
+                info(f"Domain Resolution template written to {args.domain_resolution_out}")
             if args.domain_context_out:
                 write_json(args.domain_context_out, domain_context_template(manifest, domain_resolution))
+                info(f"Domain Context template written to {args.domain_context_out}")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(render(manifest, registry, args.profile, candidates, args.owner_domain, domain_resolution), encoding="utf-8")
+        entries = selected_entries(manifest, args.owner_domain, domain_resolution)
+        if args.profile == "screen":
+            info(f"Rendered checks: {len(entries)}")
+            success("Screen runtime generated")
+        else:
+            entries = [entry for entry in entries if entry["canonical_id"] in candidates]
+            info(f"Candidates admitted: {len(entries)}")
+            info(f"Owner Domains: {len({entry['owner_domain'] for entry in entries})}")
+            for domain in sorted({entry["owner_domain"] for entry in entries}):
+                verbose_log(f"[DOMAIN] {domain} checks={sum(entry['owner_domain'] == domain for entry in entries)} rendered")
+            success("Deep runtime generated")
         return 0
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        error(exc)
         return 1
 
 
