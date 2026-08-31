@@ -247,7 +247,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -265,7 +265,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -283,7 +283,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -301,7 +301,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -319,7 +319,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -337,7 +337,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -355,7 +355,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -373,7 +373,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -391,7 +391,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -409,7 +409,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -427,7 +427,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -445,7 +445,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -463,7 +463,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -481,7 +481,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -499,7 +499,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -517,7 +517,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -535,7 +535,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -553,7 +553,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -571,7 +571,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -591,7 +591,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -611,7 +611,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -655,7 +655,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -675,7 +675,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -699,7 +699,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -717,7 +717,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -735,7 +735,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -753,7 +753,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -773,7 +773,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -793,7 +793,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -811,7 +811,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -831,7 +831,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -851,7 +851,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -871,7 +871,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -889,7 +889,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -909,7 +909,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -927,7 +927,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -945,7 +945,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -963,7 +963,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "official",
@@ -983,7 +983,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -1007,7 +1007,7 @@
         },
         {
           "kind": "executable",
-          "test": "tests/test_checklists.py::ChecklistTests.test_fee_forward_inverse_algebra_and_rounding"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_fee_forward_inverse_algebra_and_rounding"
         }
       ],
       "required_terms": [
@@ -1026,7 +1026,7 @@
       "evidence": [
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         },
         {
           "kind": "executable",
@@ -1059,7 +1059,7 @@
         },
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         }
       ]
     },
@@ -1084,7 +1084,7 @@
         },
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         }
       ]
     },
@@ -1108,7 +1108,7 @@
         },
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         }
       ]
     },
@@ -1133,7 +1133,7 @@
         },
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         }
       ]
     },
@@ -1158,7 +1158,7 @@
         },
         {
           "kind": "text-regression",
-          "test": "tests/test_checklists.py::ChecklistTests.test_knowledge_claims_and_forbidden_regressions"
+          "test": "tests/test_knowledge.py::KnowledgeTests.test_knowledge_claims_and_forbidden_regressions"
         }
       ]
     }

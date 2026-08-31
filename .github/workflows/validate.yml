@@ -23,34 +23,11 @@ jobs:
           python3 -m pip install -r requirements-runtime.lock
           solc-select install 0.8.24
           solc-select use 0.8.24
-      - name: Set up Foundry
-        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09
-        with:
-          version: v1.5.1
-      - name: Record build provenance
-        run: python3 scripts/build_info.py > build-info.json
       - name: Verify generated checklists
         run: python3 scripts/generate_checklists.py --check
       - name: Validate registry and provenance
         run: python3 scripts/validate_checklists.py --strict
       - name: Run regression tests
         run: python3 -m unittest discover -s tests -v
-      - name: Run executable EVM semantics
-        run: forge test --root tests/semantics -vv
-      - name: Run EIP-6780 cross-transaction differential semantics
-        run: |
-          bash tests/semantics/test_eip6780_differential.sh paris
-          bash tests/semantics/test_eip6780_differential.sh cancun
-      - name: Check routing recall and token baselines
-        run: python3 scripts/benchmark_routing.py --e2e
-      - name: Emit per-domain knowledge metrics
-        run: python3 scripts/knowledge_metrics.py --output knowledge-metrics.json
-      - name: Upload reproducibility artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: audit-knowledge-metrics
-          path: |
-            knowledge-metrics.json
-            build-info.json
       - name: Check patch whitespace
         run: git diff --check

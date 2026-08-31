@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+"""Focused routing safety and benchmark-runner behavior tests."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.benchmark_routing import run_profile
+from scripts.generate_checklists import load_domains
+from scripts.select_checks import (
+    audit_context,
+    evaluate_check,
+    evaluate_environment,
+    evaluate_group,
+    normalize_feature_map,
+    select,
+    validate_environment_context,
+)
+
+from helpers import EMPTY_TARGET, ROOT, load_json, suite_inputs, synthetic_feature_map
+
+
+class RoutingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.registry, cls.feature_names, cls.feature_policies = suite_inputs()
+
+    def test_predicates_are_explicit_and_domain_independent(self) -> None:
+        for check in self.registry["checks"]:
+            with self.subTest(canonical_id=check["canonical_id"]):
+                self.assertEqual(set(check["predicate"]), {"all_of", "any_of", "none_of"})
+                routed = {feature for group in check["predicate"].values() for feature in group}
+                self.assertEqual(check["features"], sorted(routed))
+                self.assertFalse(any(feature.startswith("evm-audit-") for feature in routed))
+                if not routed:
+                    self.assertTrue(check.get("always_screen"))
+
+    def test_feature_filter_selects_relevant_checks(self) -> None:
+        feature_map = synthetic_feature_map({"uses-erc4626": "PRESENT", "uses-oracle": "ABSENT_CONFIRMED"})
+        with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as feature_file:
+            json.dump(feature_map, feature_file)
+            feature_file.flush()
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/select_checks.py",
+                    "--feature-map",
+                    feature_file.name,
+                    "--target-root",
+                    "tests/fixtures/recon/Empty.sol",
+                    "--domain",
+                    "evm-audit-erc4626",
+                    "--format",
+                    "json",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        selected = {entry["canonical_id"] for entry in json.loads(result.stdout)["selected"]}
+        self.assertIn("ERC4626-ROUND-001", selected)
+        self.assertIn("EVM-ERC4626-003", selected)
+        self.assertNotIn("EVM-TIME-001", selected)
+
+    def test_only_curated_false_predicates_can_filter(self) -> None:
+        feature_map = {"a": {"status": "ABSENT_CONFIRMED", "evidence": ["fixture: absent"]}}
+        registry = {
+            "checks": [
+                {
+                    "canonical_id": "TEST-INFERRED-001",
+                    "title": "inferred",
+                    "domains": ["evm-audit-general"],
+                    "primary_domain": "evm-audit-general",
+                    "predicate": {"all_of": ["a"], "any_of": [], "none_of": []},
+                    "predicate_source": "inferred",
+                },
+                {
+                    "canonical_id": "TEST-CURATED-001",
+                    "title": "curated",
+                    "domains": ["evm-audit-general"],
+                    "primary_domain": "evm-audit-general",
+                    "predicate": {"all_of": ["a"], "any_of": [], "none_of": []},
+                    "predicate_source": "curated",
+                },
+            ]
+        }
+        manifest, _ = select(registry, feature_map, {"a"}, ["evm-audit-general"])
+        self.assertEqual([entry["canonical_id"] for entry in manifest["selected"]], ["TEST-INFERRED-001"])
+        self.assertEqual([entry["canonical_id"] for entry in manifest["filtered"]], ["TEST-CURATED-001"])
+
+    def test_predicate_truth_table_is_conservative_for_unknown(self) -> None:
+        feature_map = {
+            "a": {"status": "PRESENT", "evidence": []},
+            "b": {"status": "ABSENT_CONFIRMED", "evidence": []},
+            "c": {"status": "UNKNOWN", "evidence": []},
+        }
+        self.assertEqual(evaluate_group(["a"], "all_of", feature_map), "TRUE")
+        self.assertEqual(evaluate_group(["a", "b"], "all_of", feature_map), "FALSE")
+        self.assertEqual(evaluate_group(["b", "c"], "any_of", feature_map), "UNKNOWN")
+        self.assertEqual(evaluate_group(["b"], "none_of", feature_map), "TRUE")
+        self.assertEqual(evaluate_group(["a", "c"], "none_of", feature_map), "FALSE")
+        unknown_check = {
+            "canonical_id": "TEST-UNKNOWN-001",
+            "predicate": {"all_of": ["c"], "any_of": [], "none_of": []},
+            "predicate_source": "curated",
+        }
+        self.assertEqual(evaluate_check(unknown_check, feature_map, {"a", "b", "c"})["result"], "UNKNOWN")
+
+    def test_feature_map_requires_evidence_for_confirmed_states(self) -> None:
+        feature_map = synthetic_feature_map({"uses-erc20": "PRESENT"})
+        feature_map["features"]["uses-erc20"]["evidence"] = []
+        with self.assertRaises(ValueError):
+            normalize_feature_map(feature_map, self.feature_names, self.feature_policies, EMPTY_TARGET)
+        with self.assertRaises(ValueError):
+            normalize_feature_map({"schema_version": 2, "features": {}}, self.feature_names, self.feature_policies, EMPTY_TARGET)
+
+    def test_feature_map_v4_rejects_legacy_cli_and_formats(self) -> None:
+        help_result = subprocess.run(
+            [sys.executable, "scripts/select_checks.py", "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotIn("--features", help_result.stdout)
+        for version in (1, 2):
+            with self.assertRaises(ValueError):
+                normalize_feature_map(
+                    {"schema_version": version, "features": {}},
+                    self.feature_names,
+                    self.feature_policies,
+                    EMPTY_TARGET,
+                )
+
+    def test_absence_policy_downgrades_dynamic_loop(self) -> None:
+        normalized = normalize_feature_map(
+            synthetic_feature_map({"uses-dynamic-loop": "ABSENT_CONFIRMED"}),
+            self.feature_names,
+            self.feature_policies,
+            EMPTY_TARGET,
+        )
+        self.assertEqual(normalized["uses-dynamic-loop"]["status"], "UNKNOWN")
+        self.assertIn("never-confirm-absence", normalized["uses-dynamic-loop"]["reason"])
+
+    def test_scope_digest_mismatch_rejects_selector(self) -> None:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as feature_file:
+            json.dump(synthetic_feature_map(), feature_file)
+            feature_file.flush()
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/select_checks.py",
+                    "--feature-map",
+                    feature_file.name,
+                    "--target-root",
+                    str(ROOT),
+                    "--domain",
+                    "evm-audit-general",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("source_digest", result.stderr)
+
+    def test_domain_gate_does_not_expand_related_domains(self) -> None:
+        all_absent = synthetic_feature_map({name: "ABSENT_CONFIRMED" for name in self.feature_names})
+        selected, _ = select(
+            self.registry,
+            all_absent["features"],
+            self.feature_names,
+            None,
+            {"source_digest": "benchmark"},
+            load_domains(ROOT),
+            {},
+            None,
+        )
+        self.assertEqual([entry["domain"] for entry in selected["selected_domains"]], ["evm-audit-general"])
+        self.assertIn("evm-audit-erc20", {entry["domain"] for entry in selected["filtered_domains"]})
+
+    def test_environment_gate_filters_only_confirmed_mismatch(self) -> None:
+        check = {
+            "canonical_id": "TEST-ENV-001",
+            "title": "environment",
+            "domains": ["evm-audit-general"],
+            "primary_domain": "evm-audit-general",
+            "predicate": {"all_of": [], "any_of": [], "none_of": []},
+            "predicate_source": "curated",
+            "always_screen": True,
+            "applicability": {
+                "chain_ids": [],
+                "chain_families": ["op-stack"],
+                "execution_environments": ["ethereum-evm"],
+                "compiler": ">=0.8.20",
+                "evm_fork_from": "cancun",
+                "evm_fork_until": None,
+                "protocol_versions": [],
+            },
+        }
+        values = {
+            "chain_family": "arbitrum",
+            "execution_environment": "ethereum-evm",
+            "compiler_version": "0.8.24",
+            "evm_fork": "cancun",
+        }
+        confirmed = {
+            **values,
+            "chain_id": None,
+            "protocol_version": None,
+            "environment_facts": {
+                key: {"trust": "CONFIRMED", "value": value, "source": "fixture", "evidence": ["fixture"]}
+                for key, value in values.items()
+            },
+        }
+        self.assertEqual(evaluate_environment(check, confirmed)[0], "FALSE")
+        declared = {
+            **confirmed,
+            "environment_facts": {
+                key: {**fact, "trust": "DECLARED"}
+                for key, fact in confirmed["environment_facts"].items()
+            },
+        }
+        self.assertEqual(evaluate_environment(check, declared)[0], "UNKNOWN")
+        self.assertEqual(evaluate_environment(check, {"environment_facts": {}})[0], "UNKNOWN")
+
+    def test_zksync_environment_gate_keeps_native_and_interpreter_distinct(self) -> None:
+        check = next(item for item in self.registry["checks"] if item["canonical_id"] == "EVM-CHAIN-013")
+        native = {
+            "chain_family": "zksync-era",
+            "execution_environment": "eravm-native",
+            "compiler_version": None,
+            "evm_fork": None,
+            "chain_id": None,
+            "protocol_version": None,
+            "environment_facts": {
+                "chain_family": {"trust": "CONFIRMED", "value": "zksync-era", "source": "fixture", "evidence": ["fixture"]},
+                "execution_environment": {"trust": "CONFIRMED", "value": "eravm-native", "source": "fixture", "evidence": ["fixture"]},
+            },
+        }
+        interpreter = {
+            **native,
+            "execution_environment": "zksync-evm-interpreter",
+            "environment_facts": {
+                **native["environment_facts"],
+                "execution_environment": {"trust": "CONFIRMED", "value": "zksync-evm-interpreter", "source": "fixture", "evidence": ["fixture"]},
+            },
+        }
+        other = {
+            **native,
+            "execution_environment": "ethereum-evm",
+            "environment_facts": {
+                **native["environment_facts"],
+                "execution_environment": {"trust": "CONFIRMED", "value": "ethereum-evm", "source": "fixture", "evidence": ["fixture"]},
+            },
+        }
+        self.assertEqual(evaluate_environment(check, native)[0], "TRUE")
+        self.assertEqual(evaluate_environment(check, interpreter)[0], "TRUE")
+        self.assertEqual(evaluate_environment(check, other)[0], "FALSE")
+
+    def test_chain_id_populates_known_chain_family(self) -> None:
+        context = audit_context(
+            ROOT,
+            self.registry,
+            synthetic_feature_map()["recon_context"],
+            target_root=EMPTY_TARGET,
+            chain_id=8453,
+        )
+        self.assertEqual(context["chain_family"], "op-stack")
+
+    def test_environment_context_rejects_conflicts(self) -> None:
+        recon = synthetic_feature_map()["recon_context"]
+        with self.assertRaises(ValueError):
+            validate_environment_context(recon, chain_id=8453, chain_family="arbitrum")
+        with self.assertRaises(ValueError):
+            validate_environment_context(recon, chain_id=324, execution_environment="ethereum-evm")
+        with self.assertRaises(ValueError):
+            validate_environment_context(recon, compiler_version="0.8.20")
+
+    def test_unknown_domain_is_deferred_and_blocks_clean_completion(self) -> None:
+        raw = synthetic_feature_map()
+        manifest, _ = select(
+            self.registry,
+            raw["features"],
+            self.feature_names,
+            None,
+            {"source_digest": raw["recon_context"]["source_digest"]},
+            load_domains(ROOT),
+            {},
+            raw["recon_context"],
+        )
+        self.assertTrue(manifest["deferred_domains"])
+        self.assertNotIn("completion_gate", manifest)
+
+    def test_curated_predicates_have_select_and_filter_fixtures(self) -> None:
+        fixtures = {
+            item["canonical_id"]: item
+            for item in load_json(ROOT / "tests/routing/curated-predicates.json")["fixtures"]
+        }
+        for canonical_id, check in (
+            (key, value) for key, value in {item["canonical_id"]: item for item in self.registry["checks"]}.items()
+            if value.get("predicate_source") == "curated"
+        ):
+            fixture = fixtures[canonical_id]
+            with self.subTest(canonical_id=canonical_id):
+                selected_map = {
+                    feature: {"status": "PRESENT", "evidence": []}
+                    for feature in fixture["select_present"]
+                }
+                filtered_map = dict(selected_map)
+                for feature in fixture["filter_absent"]:
+                    filtered_map[feature] = {"status": "ABSENT_CONFIRMED", "evidence": []}
+                self.assertNotEqual(evaluate_check(check, selected_map, self.feature_names)["result"], "FALSE")
+                self.assertEqual(evaluate_check(check, filtered_map, self.feature_names)["result"], "FALSE")
+
+    def test_benchmark_runner_rejects_malformed_fixture(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid features"):
+            run_profile(ROOT, {"name": "malformed", "detected_features": "uses-erc20", "absent_features": []})
+
+    def test_benchmark_runner_rejects_must_not_filter_violation(self) -> None:
+        fixture = {
+            "name": "must-not-filter",
+            "detected_features": [],
+            "absent_features": ["uses-erc4626"],
+            "domain_scope": ["evm-audit-erc4626"],
+            "must_not_filter_checks": ["EVM-ERC4626-043"],
+        }
+        with self.assertRaisesRegex(ValueError, "must-not-filter"):
+            run_profile(ROOT, fixture)
+
+    def test_benchmark_runner_rejects_runtime_budget_violation(self) -> None:
+        with self.assertRaisesRegex(ValueError, "exceeds hard budget"):
+            run_profile(
+                ROOT,
+                {
+                    "name": "budget",
+                    "detected_features": [],
+                    "absent_features": [],
+                    "max_runtime_bytes": 0,
+                },
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
