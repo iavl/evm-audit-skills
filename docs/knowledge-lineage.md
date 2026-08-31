@@ -41,7 +41,7 @@ distinct.
 
 ## Source acquisition log
 
-Date fetched: 2026-02-27
+Initial acquisition: 2026-02-27; rechecked: 2026-08-31
 
 ### Successfully fetched sources
 
@@ -57,6 +57,10 @@ Date fetched: 2026-02-27
 | DAO Governance DeFi Attacks | https://dacian.me/dao-governance-defi-attacks | ✅ via archive.org (50KB, truncated) |
 | Inline Assembly Vulnerabilities | https://dacian.me/solidity-inline-assembly-vulnerabilities | ✅ via archive.org (35KB, complete) |
 | Lending/Borrowing DeFi Attacks | https://dacian.me/lending-borrowing-defi-attacks | ✅ via archive.org (29KB, complete) |
+
+Direct retry on 2026-08-31 returned HTTP 200 with article HTML for all eight
+pages. Their current headings and security topics match the existing Dacian
+Phase 3 checks, so no duplicate canonical checks were added.
 
 #### Devdacian GitHub
 
@@ -139,7 +143,7 @@ and deterministic maintenance checks are implemented in
 | OWASP Smart Contract Top 10 | https://scs.owasp.org/sctop10/ | ✅ used for the off-chain signer/frontend operational-boundary check |
 | OpenZeppelin Contracts ERC4626 guide | https://docs.openzeppelin.com/contracts/5.x/erc4626 | ✅ used for fee-aware asset/share conversion context |
 
-### Failed sources
+### Initial acquisition failures
 
 | Source | URL | Reason |
 |---|---|---|
@@ -148,16 +152,31 @@ and deterministic maintenance checks are implemented in
 | MixBytes — Liquid Staking | https://mixbytes.io/blog/liquid | Fetch failed (connection error) |
 | MixBytes — Account Abstraction | https://mixbytes.io/blog/account-abstraction | Not attempted (similar expected failure) |
 | Solodit Checklist | https://solodit.cyfrin.io/checklist | JS-rendered, requires browser. Archive.org not attempted. |
-| Blast Integration Bugs | https://nirlin-blast-bugs.notion.site/... | Notion pages require JS rendering |
+| Blast Integration Bugs | https://nirlin-blast-bugs.notion.site/Blast-Integration-Bugs-Guide-131344ccd05642bdbb49d2026c3227cf | Notion page required JS rendering; the original record had an incomplete URL |
 | DeFi Llama Hacks | https://defillama.com/hacks | JS-rendered dashboard |
 | Rekt News | https://rekt.news | Referenced in articles but not independently fetched |
 | OpenZeppelin CHANGELOG | https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/CHANGELOG.md | Not fetched (very large, low signal-to-noise ratio) |
+
+### Recheck results (2026-08-31)
+
+| Source | Retry result | Content handling |
+|---|---|---|
+| Dacian Articles (8) | ✅ Direct pages returned HTTP 200 | Current pages were reviewed against the existing Dacian Phase 3 checks; no duplicate checks added. |
+| ConsenSys Best Practices | ⚠️ Original URL still returns 404; the project moved to [`ConsenSysDiligence/smart-contract-best-practices`](https://github.com/ConsenSysDiligence/smart-contract-best-practices), whose `docs/attacks/` content was fetched with `gh` | Historical guide reviewed; existing general checks cover its attack categories, so no duplicate checks added. |
+| MixBytes — Liquid Staking | ✅ HTTP 200; article HTML retrieved | Reviewed LSD integration concerns against the existing staking and ERC-20 checks; no duplicate checks added. |
+| MixBytes — Account Abstraction | ✅ HTTP 200; article HTML retrieved | Reviewed paymaster, validation, bundler, and replay concerns against the existing ERC-4337 checks; no duplicate checks added. |
+| Solodit Checklist | ⚠️ Page returned an app shell, but `https://solodit.cyfrin.io/api/trpc/checkListRouter.getCheckTree` returned HTTP 200 with 370 leaf checks | Used for coverage comparison only; no third-party checklist text was copied. |
+| Blast Integration Bugs | ⚠️ The recovered exact URL and its archive snapshot returned only a generic Notion shell with no page payload | No reliable page content was available to integrate. |
+| DeFi Llama Hacks | ⚠️ Dashboard returned 403, but `https://api.llama.fi/hacks` returned HTTP 200 with 1,245 incident records through 2026-08-30 | Used as an incident index only; no new checklist item was inferred from incident labels alone. |
+| Rekt News | ⚠️ Homepage returned HTTP 200 | Homepage was reachable, but no independent article corpus was imported. |
+| OpenZeppelin CHANGELOG | ✅ Retrieved from the `OpenZeppelin/openzeppelin-contracts` `master` branch with `gh`; 153KB, latest entry 5.7.0 (2026-07-29) | Release notes were reviewed; no standalone generic check was added because the relevant concerns already have checklist coverage. |
 
 ## Notes
 
 - **SWC Registry** has not been updated since 2020 and has been superseded by the [EEA EthTrust Security Levels Specification](https://entethalliance.org/specs/ethtrust-sl/). All SWC weaknesses were incorporated into that spec. Existing checklist items already cover the most critical SWC entries.
 - **Devdacian's base.primer.md** (33KB) is an extremely high-quality comprehensive primer covering lending, liquidation, signatures, precision, slippage, oracle, CLM, staking, auction, and reentrancy vulnerability patterns with detailed invariants and checklists. Content from this primer has been cross-referenced and integrated.
-- All Dacian articles were successfully fetched via Wayback Machine (archive.org) after direct access was blocked by Vercel bot protection.
+- All Dacian articles were initially fetched via Wayback Machine (archive.org) after direct access was blocked by Vercel bot protection; a 2026-08-31 retry also fetched all eight directly.
+- The successful MixBytes, moved ConsenSys, Solodit API, DeFiLlama API, and OpenZeppelin rechecks updated this acquisition log. Their reviewed material was already covered or was retained as comparison/index data, so the canonical registry did not change.
 - Total extracted content: ~450KB of high-quality audit security content processed into checklist items across 8+ skill files.
 
 ## Licensing
