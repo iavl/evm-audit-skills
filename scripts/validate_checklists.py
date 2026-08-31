@@ -280,7 +280,7 @@ def validate_registry(root: Path) -> list[str]:
             errors.append(f"{prefix}: trusted_absence_policy must require complete scope")
         elif not isinstance(policy.get("allowed_evidence"), list) or not policy["allowed_evidence"] or any(kind not in {"scope", "inheritance", "interface", "dependency", "deployment"} for kind in policy["allowed_evidence"]):
             errors.append(f"{prefix}: trusted_absence_policy.allowed_evidence is invalid")
-        if not (root / domain / "SKILL.md").exists():
+        if not (root / "skills" / domain / "SKILL.md").exists():
             errors.append(f"{prefix}: missing skill directory")
 
     try:
@@ -558,7 +558,7 @@ def validate_generated_registry(root: Path, registry: dict[str, object]) -> list
     for check in registry.get("checks", []):  # type: ignore[union-attr]
         expected[check["canonical_id"]] = len(check.get("domains", []))
     actual: dict[str, int] = {}
-    for path in sorted(root.glob("evm-audit-*/references/checklist.md")):
+    for path in sorted(root.glob("skills/evm-audit-*/references/checklist.md")):
         items, parse_errors, _ = parse_checklist(path)
         errors.extend(parse_errors)
         for item in items:
@@ -769,22 +769,22 @@ def validate_counts(root: Path, counts: dict[str, int]) -> list[str]:
             f"README.md: runtime count {readme_runtime_match.group(1)} does not match generated total {runtime_total}"
         )
 
-    master = root / "evm-audit-master" / "SKILL.md"
+    master = root / "skills" / "evm-audit-master" / "SKILL.md"
     master_text = master.read_text(encoding="utf-8")
     master_canonical_match = MASTER_CANONICAL_RE.search(master_text)
     if not master_canonical_match:
-        errors.append("evm-audit-master/SKILL.md: missing canonical total")
+        errors.append("skills/evm-audit-master/SKILL.md: missing canonical total")
     elif int(master_canonical_match.group(1).replace(",", "")) != canonical_total:
         errors.append(
-            "evm-audit-master/SKILL.md: canonical total "
+            "skills/evm-audit-master/SKILL.md: canonical total "
             f"{master_canonical_match.group(1)} does not match registry total {canonical_total}"
         )
     master_runtime_match = MASTER_RUNTIME_RE.search(master_text)
     if not master_runtime_match:
-        errors.append("evm-audit-master/SKILL.md: missing generated-runtime total")
+        errors.append("skills/evm-audit-master/SKILL.md: missing generated-runtime total")
     elif int(master_runtime_match.group(1).replace(",", "")) != runtime_total:
         errors.append(
-            "evm-audit-master/SKILL.md: runtime total "
+            "skills/evm-audit-master/SKILL.md: runtime total "
             f"{master_runtime_match.group(1)} does not match generated total {runtime_total}"
         )
 
@@ -794,7 +794,7 @@ def validate_counts(root: Path, counts: dict[str, int]) -> list[str]:
 def validate_review_record(root: Path, strict: bool) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
-    path = root / "evm-audit-master" / "references" / "checklist-semantic-dedup-review.md"
+    path = root / "skills" / "evm-audit-master" / "references" / "checklist-semantic-dedup-review.md"
     if not path.exists():
         return [f"missing review record: {path}"], warnings
 
@@ -872,7 +872,7 @@ def main(argv: list[str]) -> int:
     counts: dict[str, int] = {}
     source_occurrences: dict[str, list[str]] = {}
 
-    checklist_paths = sorted(root.glob("evm-audit-*/references/checklist.md"))
+    checklist_paths = sorted(root.glob("skills/evm-audit-*/references/checklist.md"))
     expected_checklists = len(load_domains(root))
     if len(checklist_paths) != expected_checklists:
         errors.append(f"expected {expected_checklists} domain checklists, found {len(checklist_paths)}")
@@ -889,7 +889,7 @@ def main(argv: list[str]) -> int:
             errors.append(f"{registry_path}: cannot load generated coverage: {error}")
 
     model_files = sorted(
-        path for domain in root.glob("evm-audit-*")
+        path for domain in (root / "skills").glob("evm-audit-*")
         for path in (domain / "references").glob("*.md")
         if path.name in {"known.md", "partial.md", "novel.md"}
     )

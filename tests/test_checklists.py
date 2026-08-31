@@ -18,6 +18,7 @@ from urllib.error import HTTPError
 from scripts.check_knowledge_health import knowledge_health, source_status
 from scripts.generate_checklists import load_domains, write_outputs
 from scripts.render_runtime import render, screen_results_template, validate_manifest
+from scripts.scope_context import find_suite_root
 from scripts.select_checks import audit_context, evaluate_check, evaluate_environment, evaluate_group, knowledge_state, normalize_feature_map, select, validate_environment_context, vocabulary
 from scripts.review_ledger import append, check_body_hash, merge, resumable, validate_record
 from scripts.validate_audit_run import validate_run
@@ -90,12 +91,12 @@ class ChecklistTests(unittest.TestCase):
 
     def test_domain_configuration_drives_generated_skills(self) -> None:
         domains = load_domains(ROOT)
-        self.assertEqual(set(domains), {path.parent.name for path in ROOT.glob("evm-audit-*/SKILL.md") if path.parent.name != "evm-audit-master"})
+        self.assertEqual(set(domains), {path.parent.name for path in (ROOT / "skills").glob("evm-audit-*/SKILL.md") if path.parent.name != "evm-audit-master"})
         source = (ROOT / "scripts/generate_checklists.py").read_text(encoding="utf-8")
         self.assertNotIn("DOMAIN_CODES", source)
         self.assertNotIn("DOMAIN_TITLES", source)
         for domain in domains:
-            skill = (ROOT / domain / "SKILL.md").read_text(encoding="utf-8")
+            skill = (ROOT / "skills" / domain / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn(f"--domain {domain}", skill)
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -115,8 +116,58 @@ class ChecklistTests(unittest.TestCase):
                 "trusted_absence_policy": {"requires_complete_scope": True, "allowed_evidence": ["scope"]},
             }), encoding="utf-8")
             write_outputs({"checks": []}, root)
-            self.assertTrue((root / "evm-audit-example/SKILL.md").exists())
-            self.assertTrue((root / "evm-audit-example/references/checklist.md").exists())
+            self.assertTrue((root / "skills/evm-audit-example/SKILL.md").exists())
+            self.assertTrue((root / "skills/evm-audit-example/references/checklist.md").exists())
+
+    def test_all_skills_live_under_skills_directory(self) -> None:
+        skill_paths = sorted((ROOT / "skills").glob("evm-audit-*/SKILL.md"))
+        self.assertEqual(len(skill_paths), 20)
+        self.assertFalse(list(ROOT.glob("evm-audit-*")))
+        for path in skill_paths:
+            name = next(line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("name: "))
+            self.assertEqual(path.parent.name, name.removeprefix("name: "))
+
+    def test_no_evm_audit_skill_directories_remain_at_repository_root(self) -> None:
+        self.assertEqual([], [path.name for path in ROOT.glob("evm-audit-*") if path.is_dir()])
+
+    def test_generated_skill_paths_use_skills_directory(self) -> None:
+        self.assertTrue((ROOT / "skills/evm-audit-master/SKILL.md").exists())
+        self.assertEqual(19, len(list((ROOT / "skills").glob("evm-audit-*/references/checklist.md"))))
+        self.assertFalse((ROOT / "evm-audit-master").exists())
+
+    def test_suite_root_resolution_from_nested_skill(self) -> None:
+        self.assertEqual(ROOT, find_suite_root(ROOT / "skills/evm-audit-master/SKILL.md"))
+
+    def test_master_skill_can_resolve_data_domains_scripts(self) -> None:
+        root = find_suite_root(ROOT / "skills/evm-audit-master/SKILL.md")
+        for name in ("data", "domains", "scripts"):
+            with self.subTest(name=name):
+                self.assertTrue((root / name).is_dir())
+        text = (ROOT / "skills/evm-audit-master/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("<suite-root>/scripts/", text)
+        self.assertNotIn("../scripts/", text)
+
+    def test_domain_skill_can_resolve_shared_runtime(self) -> None:
+        skill = ROOT / "skills/evm-audit-erc20/SKILL.md"
+        root = find_suite_root(skill)
+        self.assertTrue((root / "data/canonical-checks.json").exists())
+        self.assertTrue((root / "domains/erc20.json").exists())
+        self.assertTrue((root / "scripts/select_checks.py").exists())
+        text = skill.read_text(encoding="utf-8")
+        self.assertIn("<suite-root>/skills/evm-audit-master/references/check-review-contract.runtime.md", text)
+
+    def test_benchmark_path_is_development_benchmarks(self) -> None:
+        source = (ROOT / "scripts/benchmark_routing.py").read_text(encoding="utf-8")
+        self.assertIn('"development/benchmarks/routing"', source)
+        self.assertTrue((ROOT / "development/benchmarks/routing").is_dir())
+        self.assertFalse((ROOT / "benchmarks").exists())
+
+    def test_readme_links_do_not_reference_old_skill_paths(self) -> None:
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("skills/evm-audit-master", text)
+        self.assertNotRegex(text, r"\]\(evm-audit-[^)]+\)")
+        self.assertNotIn("](benchmarks/", text)
+        self.assertNotIn("](scripts/migrations/", text)
 
     def test_knowledge_claims_and_forbidden_regressions(self) -> None:
         claims = load_json(ROOT / "tests/knowledge/claims.json")["claims"]
@@ -131,7 +182,7 @@ class ChecklistTests(unittest.TestCase):
                 ).lower()
                 runtime_text = "\n".join(
                     path.read_text(encoding="utf-8")
-                    for path in ROOT.glob("evm-audit-*/references/checklist.md")
+                    for path in (ROOT / "skills").glob("evm-audit-*/references/checklist.md")
                 ).lower()
                 for term in claim["required_terms"]:
                     self.assertIn(term.lower(), text)
@@ -171,8 +222,8 @@ class ChecklistTests(unittest.TestCase):
         self.assertEqual(len(source_ids), 218)
         self.assertEqual(sum(len(check["aliases"]) for check in self.registry["checks"]), 877)
         for path in (
-            ROOT / "evm-audit-master/references/auditmos-provenance.md",
-            ROOT / "evm-audit-master/references/drozer-lite-provenance.md",
+            ROOT / "skills/evm-audit-master/references/auditmos-provenance.md",
+            ROOT / "skills/evm-audit-master/references/drozer-lite-provenance.md",
         ):
             with self.subTest(path=path):
                 self.assertTrue(path.exists())
@@ -608,7 +659,7 @@ class ChecklistTests(unittest.TestCase):
                 validate_manifest(ROOT, load_json(Path(manifest_file.name)), self.registry)
 
     def test_domain_skills_embed_the_evidence_gate(self) -> None:
-        for skill_path in sorted(ROOT.glob("evm-audit-*/SKILL.md")):
+        for skill_path in sorted((ROOT / "skills").glob("evm-audit-*/SKILL.md")):
             if skill_path.parent.name == "evm-audit-master":
                 continue
             text = skill_path.read_text(encoding="utf-8")
@@ -623,7 +674,7 @@ class ChecklistTests(unittest.TestCase):
                 self.assertIn("Do not load `<suite-root>/data/canonical-checks.json`", text)
 
     def test_review_contract_keeps_suspicious_out_of_severity(self) -> None:
-        text = (ROOT / "evm-audit-master/references/check-review-contract.md").read_text(encoding="utf-8")
+        text = (ROOT / "skills/evm-audit-master/references/check-review-contract.md").read_text(encoding="utf-8")
         self.assertIn("`SUSPICIOUS`", text)
         self.assertIn("Do not assign severity", text)
         self.assertIn("`CONFIRMED`", text)

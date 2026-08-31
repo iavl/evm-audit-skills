@@ -1,6 +1,27 @@
-# evm-audit-skills
+# EVM Audit Skills
 
----
+AI-assisted EVM smart-contract audit Skill suite.
+
+## Start Here
+
+### I want to audit a smart-contract project
+
+Read the [Quick Start](QUICKSTART.md), then invoke `evm-audit-master`.
+It is the recommended default entry point and handles Recon, routing, Domain
+selection, Screen, Deep review, proof, and confirmed-only synthesis.
+
+### I want to use one specific audit Skill
+
+Browse the [Skill Catalog](skills/README.md). Targeted Domain Skills are
+advanced entry points for audits with a clearly known scope.
+
+### I want to understand how the audit engine works
+
+Read the [Architecture](docs/architecture.md) and [Audit Runtime](docs/audit-runtime.md).
+
+### I want to develop or improve the Skill suite
+
+Start with the [Development Guide](development/README.md).
 
 ## What This Is
 
@@ -8,13 +29,21 @@ Each skill is a structured, sourced checklist of **non-obvious** security vulner
 
 **869 canonical checks and 872 generated runtime entries across the 19 domain skills plus the master index.**
 
----
+## Repository Layout
 
-## Skills
+- `skills/` — all directly usable Skill packages; `evm-audit-master` is the default entry point.
+- `data/` — canonical security knowledge and runtime feature vocabulary.
+- `domains/` — runtime Domain configuration.
+- `scripts/` — audit engine and maintenance commands.
+- `schemas/` — runtime artifact schemas.
+- `docs/` — architecture and maintenance documentation.
+- `development/` — benchmarks and historical migrations; not required for normal audits.
+- `tests/` — repository development infrastructure intentionally kept at the root for Python, Foundry, and CI path stability.
+- `.github/` — GitHub Actions, which must remain at the repository root.
 
-Start with `evm-audit-master`. Domain definitions and relationships live in
-`domains/*.json`; the generated [domain catalog](evm-audit-master/references/domains.md)
-lists every independently invokable domain skill and its current runtime count.
+Domain definitions and relationships live in `domains/*.json`; the generated
+[domain catalog](skills/evm-audit-master/references/domains.md) lists every
+independently invokable Domain Skill and its current runtime count.
 
 ## Repository Sources and Lineage
 
@@ -77,7 +106,7 @@ If sub-agents are unavailable:
 The editable source is [`data/canonical-checks.json`](data/canonical-checks.json).
 The generator is a pure renderer and never repairs or overrides registry
 knowledge; one-time schema/knowledge transformations live in
-[`scripts/migrations/`](scripts/migrations/). The checked-in migrations have
+[`development/migrations/`](development/migrations/). The checked-in migrations have
 already been applied; ordinary maintenance edits the registry or domain config
 and renders without a migration step.
 The pinned Python runtime roots are listed in
@@ -166,14 +195,14 @@ licensed by [`LICENSE`](LICENSE).
 ### Installation layout
 
 This repository is a suite, not a collection of independently installable
-domain folders. Keep the shared `data/`, `scripts/`, and
-`evm-audit-master/` siblings together under one installed suite directory; any
-top-level discovery symlinks must resolve back into that directory. The
-packaging smoke test exercises this layout without modifying the user's
-installed skills.
+domain folders. Keep the shared `data/`, `domains/`, `schemas/`, `scripts/`,
+and `skills/` together under one installed suite directory. For Codex discovery,
+top-level `evm-audit-*` links may point to the matching directory under
+`<suite>/skills/`; the packaging smoke test exercises this layout without
+modifying the user's installed skills.
 
 Model-specific `known/partial/novel` snapshots are retained only under
-`benchmarks/model-knowledge/`; they are not runtime inputs.
+`development/benchmarks/model-knowledge/`; they are not runtime inputs.
 
 ### The audit pipeline
 
@@ -210,7 +239,7 @@ the routing manifest and do not generate per-check Markdown records. Deep/proof
 candidates include snapshot/hash identity, applicability, code path, preconditions, exploitability,
 impact, PoC/invariant evidence, and exactly one of `NOT_APPLICABLE`,
 `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`. Use the compact runtime contract
-at [`evm-audit-master/references/check-review-contract.runtime.md`](evm-audit-master/references/check-review-contract.runtime.md);
+at [`skills/evm-audit-master/references/check-review-contract.runtime.md`](skills/evm-audit-master/references/check-review-contract.runtime.md);
 the full contract remains available for maintenance.
 
 Only `CONFIRMED` records may become findings. Confirmed findings use this format:
@@ -233,7 +262,7 @@ Only `CONFIRMED` records may become findings. Confirmed findings use this format
 **Recommendation**: Concrete fix with code snippet.
 ```
 
-Severity is assigned only after confirmation using the dimensions and mapping in [`evm-audit-master/references/severity-scoring.md`](evm-audit-master/references/severity-scoring.md). Checklist type and confidence never determine severity.
+Severity is assigned only after confirmation using the dimensions and mapping in [`skills/evm-audit-master/references/severity-scoring.md`](skills/evm-audit-master/references/severity-scoring.md). Checklist type and confidence never determine severity.
 
 `NOT_APPLICABLE`, `REVIEWED_SAFE`, and `SUSPICIOUS` records never appear as findings in `AUDIT-REPORT.md`. If all records have terminal statuses but suspicious items remain, the report must disclose unresolved review status and must not claim the audit is clean.
 

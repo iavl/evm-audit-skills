@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parents[1]
 SYNTHETIC_TARGET = ROOT / "tests/fixtures/recon/Empty.sol"
-CONTRACT_PATH = ROOT / "evm-audit-master/references/check-review-contract.runtime.md"
+CONTRACT_PATH = ROOT / "skills/evm-audit-master/references/check-review-contract.runtime.md"
 
 
 def recon_context(target: Path) -> dict[str, object]:
@@ -212,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         root = args.root.resolve()
-        paths = sorted((root / "benchmarks/routing").glob("*/*.json")) or sorted((root / "benchmarks/routing").glob("*.json"))
+        paths = sorted((root / "development/benchmarks/routing").glob("*/*.json")) or sorted((root / "development/benchmarks/routing").glob("*.json"))
         results = [run_profile(root, load_json(path)) for path in paths]
         if args.e2e:
             results.extend(run_e2e(root))

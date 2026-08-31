@@ -10,6 +10,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.scope_context import find_suite_root
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,18 +23,19 @@ class PackagingTests(unittest.TestCase):
             suite = skills_root / "evm-audit-skills"
             shutil.copytree(ROOT, suite, ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache"))
             skills_root.mkdir(exist_ok=True)
-            for domain in sorted(suite.glob("evm-audit-*")):
+            for domain in sorted((suite / "skills").glob("evm-audit-*")):
                 (skills_root / domain.name).symlink_to(domain, target_is_directory=True)
 
             for link in sorted(skills_root.glob("evm-audit-*/SKILL.md")):
                 resolved = link.resolve()
                 self.assertTrue(resolved.exists(), link)
+                self.assertEqual(suite.resolve(), find_suite_root(resolved))
                 text = resolved.read_text(encoding="utf-8")
                 if resolved.parent.name == "evm-audit-master":
-                    self.assertTrue((resolved.parent.parent / "data" / "features.json").exists())
-                    self.assertTrue((resolved.parent.parent / "scripts" / "select_checks.py").exists())
+                    self.assertTrue((suite / "data" / "features.json").exists())
+                    self.assertTrue((suite / "scripts" / "select_checks.py").exists())
                 else:
-                    self.assertTrue((resolved.parent.parent.parent / "evm-audit-master" / "references" / "check-review-contract.runtime.md").exists())
+                    self.assertTrue((suite / "skills" / "evm-audit-master" / "references" / "check-review-contract.runtime.md").exists())
                     self.assertNotIn("use the canonical IDs from `../data/canonical-checks.json`", text)
 
             feature_map = suite / "feature-map.json"

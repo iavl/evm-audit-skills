@@ -12,6 +12,10 @@ RUNTIME    manifest → Screen results → candidate-only Deep JSONL → proof
 REPORTING  confirmed-only synthesis → AUDIT-REPORT.md
 ```
 
+User-facing Skill packages live under `skills/`; runtime assets remain in
+`data/`, `domains/`, and `scripts/`. Benchmarks and historical migrations live
+under `development/` and are not part of a normal audit run.
+
 The registry is the only checklist knowledge source. The generator renders
 compatibility Markdown; Skills execute the selected runtime artifacts.
 

@@ -24,6 +24,16 @@ DEFAULT_EXCLUDED_PARTS = {
 BUILD_CONFIG_NAMES = {"foundry.toml", "remappings.txt", "forge.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 
 
+def find_suite_root(start_path: Path) -> Path:
+    """Find the suite root from a script or nested Skill path."""
+    start = start_path.resolve()
+    candidate = start if start.is_dir() else start.parent
+    for root in (candidate, *candidate.parents):
+        if all((root / name).is_dir() for name in ("data", "domains", "scripts")):
+            return root
+    raise ValueError(f"cannot find EVM audit suite root from {start_path}")
+
+
 def resolve_scope_root(target: Path, audit_root: Path | None = None) -> Path:
     root = (audit_root or target).resolve()
     if not root.exists():

@@ -3,7 +3,7 @@
 
 The generator is deliberately knowledge-free: it never repairs, infers, or
 rewrites canonical records. Historical transformations live under
-``scripts/migrations`` and normal maintenance edits ``data/canonical-checks.json``.
+``development/migrations`` and normal maintenance edits ``data/canonical-checks.json``.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ def render_domain(registry: dict[str, Any], config: dict[str, Any]) -> str:
     items = [item for item in registry["checks"] if domain in item.get("domains", [])]
     sections = list(dict.fromkeys(item.get("section", "Uncategorized") for item in items))
     output = [
-        "<!-- GENERATED FILE: source is ../../data/canonical-checks.json; do not edit by hand. -->",
+        "<!-- GENERATED FILE: source is ../../../data/canonical-checks.json; do not edit by hand. -->",
         f"# {config['checklist_title']}",
         "",
         "Each entry has a stable canonical ID, a type/confidence label, and an explicit evidence path. Shared entries are deduplicated by canonical ID.",
@@ -128,7 +128,7 @@ description: {config['description']} Consume routed selected-check bodies at run
 
 ## Runtime Modes
 
-Resolve `<suite-root>` as the parent directory containing this Skill, `data/`, and `scripts/`.
+Resolve `<suite-root>` as the nearest ancestor containing `data/`, `domains/`, and `scripts/`. It is the repository root, not the `skills/` directory.
 
 ### Standalone
 
@@ -158,7 +158,7 @@ scope evidence accepted by this Domain's trusted-absence policy.
 {review_requirements}
 
 Do not load `<suite-root>/data/canonical-checks.json` or the full generated checklist into model context. Apply the tri-state predicate router before deep review. Pattern matches are candidates, not findings. Do not report a finding without a reachable path, exploitable preconditions, concrete impact, and runnable PoC or deterministic invariant evidence.
-Apply `<suite-root>/evm-audit-master/references/check-review-contract.runtime.md` to every Deep review record.
+Apply `<suite-root>/skills/evm-audit-master/references/check-review-contract.runtime.md` to every Deep review record.
 
 Related domains (advisory only; never auto-expand direct scope): {related}.
 
@@ -187,9 +187,9 @@ def generated_outputs(registry: dict[str, Any], root: Path) -> dict[Path, str]:
     domains = load_domains(root)
     outputs: dict[Path, str] = {}
     for domain, config in domains.items():
-        outputs[root / domain / "references" / "checklist.md"] = render_domain(registry, config)
-        outputs[root / domain / "SKILL.md"] = render_skill(config)
-    outputs[root / "evm-audit-master" / "references" / "domains.md"] = render_domain_catalog(registry, domains)
+        outputs[root / "skills" / domain / "references" / "checklist.md"] = render_domain(registry, config)
+        outputs[root / "skills" / domain / "SKILL.md"] = render_skill(config)
+    outputs[root / "skills" / "evm-audit-master" / "references" / "domains.md"] = render_domain_catalog(registry, domains)
     return outputs
 
 
