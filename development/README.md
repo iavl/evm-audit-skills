@@ -10,6 +10,21 @@ Runtime inputs remain outside this directory: [`../skills/`](../skills/),
 [`../data/`](../data/), [`../domains/`](../domains/), and
 [`../scripts/`](../scripts/).
 
+## Reproducibility and pinned tools
+
+The pinned Python runtime roots are listed in
+[`../requirements-runtime.txt`](../requirements-runtime.txt), with the
+resolved snapshot in [`../requirements-runtime.lock`](../requirements-runtime.lock).
+CI uses Python 3.12 and the pinned compiler in
+[`../solc-version.txt`](../solc-version.txt). Model-specific
+`known/partial/novel` snapshots are retained only under
+`benchmarks/model-knowledge/`; they are not runtime inputs.
+
+Knowledge source history and external integration policy are documented in
+[`../docs/knowledge-lineage.md`](../docs/knowledge-lineage.md). Canonical
+registry editing rules are in
+[`../docs/knowledge-maintenance.md`](../docs/knowledge-maintenance.md).
+
 ## Core PR validation
 
 The normal PR workflow runs the fast repository and runtime contracts. It

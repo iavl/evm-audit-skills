@@ -22,9 +22,9 @@ Resolve `<suite-root>` as the nearest ancestor of this Skill containing
 `<suite-root>/domains/*.json` contains Domain taxonomy and methodology. The generated
 `references/checklist.md` files are compatibility/maintenance views. Run
 `python3 <suite-root>/scripts/generate_checklists.py` after editing JSON; the generator
-never repairs or infers knowledge. Provenance and source lineage are documented
-in `references/sources.md`, `references/auditmos-provenance.md`, and
-`references/drozer-lite-provenance.md`.
+never repairs or infers knowledge. Repository-level source lineage is documented
+in `<suite-root>/docs/knowledge-lineage.md`; per-source provenance maps remain in
+`references/auditmos-provenance.md` and `references/drozer-lite-provenance.md`.
 
 ## Scope-bound Recon and routing
 
