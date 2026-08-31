@@ -12,20 +12,18 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "privileged_roles_and_administrators",
+      "key": "privileged_roles",
       "required": true,
-      "description": "privileged roles and administrators"
+      "description": "privileged roles and their permissions"
+    },
+    {
+      "key": "admin_actors",
+      "required": true,
+      "description": "accounts, contracts, or governance actors that administer those roles"
     }
   ],
   "review_requirements": [
     "trace every privilege grant, revoke, and transfer path"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "owner",
-    "role",
-    "admin",
-    "authorization",
-    "governance"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

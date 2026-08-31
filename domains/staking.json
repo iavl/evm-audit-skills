@@ -13,21 +13,28 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "reward_accounting_withdrawal_queue_validator_and_slashing_assump",
+      "key": "reward_accounting",
       "required": true,
-      "description": "reward accounting, withdrawal queue, validator and slashing assumptions"
+      "description": "reward accrual, distribution, and claim accounting"
+    },
+    {
+      "key": "withdrawal_queue",
+      "required": true,
+      "description": "withdrawal, cooldown, and exit queue behavior"
+    },
+    {
+      "key": "validator_model",
+      "required": true,
+      "description": "validator, delegation, and restaking model"
+    },
+    {
+      "key": "slashing_assumptions",
+      "required": true,
+      "description": "slashing, loss, and operator assumptions"
     }
   ],
   "review_requirements": [
     "model share/reward accounting and delayed exits"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "stake",
-    "unstake",
-    "reward",
-    "validator",
-    "slashing",
-    "restaking"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

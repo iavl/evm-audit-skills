@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:review-record:v4",
+  "$id": "urn:evm-audit-skills:review-record:v5",
   "oneOf": [
     {
       "type": "object",
@@ -8,7 +8,7 @@
       "required": ["record_type", "schema_version", "routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest"],
       "properties": {
         "record_type": {"const": "checkpoint"},
-        "schema_version": {"const": 4},
+        "schema_version": {"const": 5},
         "routing_snapshot_id": {"$ref": "#/$defs/hash"},
         "registry_sha256": {"$ref": "#/$defs/hash"},
         "source_digest": {"$ref": "#/$defs/hash"},
@@ -19,14 +19,15 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "record_type", "schema_version", "canonical_id", "owner_domain", "routing_snapshot_id",
+        "record_type", "schema_version", "canonical_id", "revision", "owner_domain", "routing_snapshot_id",
         "registry_sha256", "source_digest", "compilation_input_digest", "check_body_hash", "review_stage", "status", "applicability", "code_path",
         "preconditions", "exploitability", "impact", "proof", "evidence"
       ],
       "properties": {
         "record_type": {"const": "review"},
-        "schema_version": {"const": 4},
+        "schema_version": {"const": 5},
         "canonical_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1},
         "owner_domain": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
         "routing_snapshot_id": {"$ref": "#/$defs/hash"},
         "registry_sha256": {"$ref": "#/$defs/hash"},

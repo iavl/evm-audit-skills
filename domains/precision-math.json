@@ -12,20 +12,28 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "units_decimals_rounding_directions_and_numeric_bounds",
+      "key": "units",
       "required": true,
-      "description": "units, decimals, rounding directions, and numeric bounds"
+      "description": "units and dimensional meaning of values"
+    },
+    {
+      "key": "decimals",
+      "required": true,
+      "description": "decimal scales and normalization"
+    },
+    {
+      "key": "rounding_directions",
+      "required": true,
+      "description": "rounding direction at each user/protocol boundary"
+    },
+    {
+      "key": "numeric_bounds",
+      "required": true,
+      "description": "numeric ranges, casts, and overflow assumptions"
     }
   ],
   "review_requirements": [
     "prove conversion and accounting invariants at boundary values"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "division",
-    "rounding",
-    "decimal",
-    "scaling",
-    "conversion"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

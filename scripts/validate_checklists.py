@@ -22,29 +22,35 @@ from urllib.request import Request, urlopen
 
 try:
     from audit_artifacts import validate_schema
-    from generate_checklists import check_outputs, load_domains, load_registry
+    from generate_checklists import load_domains, load_registry
     from select_checks import (
         PREDICATE_KEYS,
         check_predicate,
         vocabulary as feature_vocabulary,
     )
+    from validation.artifacts import validate_artifact_schemas
+    from validation.benchmarks import validate_benchmark_fixtures
+    from validation.domains import validate_domain_configs
+    from validation.features import validate_detector_registry
+    from validation.generated import validate_generated_registry
 except ImportError:  # pragma: no cover - supports importing this file from another cwd
     from scripts.audit_artifacts import validate_schema
-    from scripts.generate_checklists import check_outputs, load_domains, load_registry
+    from scripts.generate_checklists import load_domains, load_registry
     from scripts.select_checks import (
         PREDICATE_KEYS,
         check_predicate,
         vocabulary as feature_vocabulary,
     )
+    from scripts.validation.artifacts import validate_artifact_schemas
+    from scripts.validation.benchmarks import validate_benchmark_fixtures
+    from scripts.validation.domains import validate_domain_configs
+    from scripts.validation.features import validate_detector_registry
+    from scripts.validation.generated import validate_generated_registry
 
 
 ITEM_RE = re.compile(r"^- \[ \] \*\*(.*?)\*\*")
 SOURCE_ID_RE = re.compile(r"\b(?:SAS-AV-\d{3}|DROZER-[A-Z0-9-]+|AUDITMOS-[A-Z0-9-]+)\b")
 LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-README_CANONICAL_RE = re.compile(r"(\d[\d,]*)\s+canonical checks")
-README_RUNTIME_RE = re.compile(r"(\d[\d,]*)\s+generated runtime entries")
-MASTER_CANONICAL_RE = re.compile(r"Total:\s+(\d[\d,]*)\s+canonical checks")
-MASTER_RUNTIME_RE = re.compile(r"and\s+(\d[\d,]*)\s+generated runtime entries")
 REVIEW_ROW_RE = re.compile(
     r"^\|\s*([A-Z]+-\d+)\s*\|.*\|\s*(MERGED|KEEP_DISTINCT|PENDING_USER_CONFIRMATION)\s*\|\s*$"
 )
@@ -239,46 +245,9 @@ def validate_registry(root: Path) -> list[str]:
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as error:
         errors.append(f"{root / 'domains'}: invalid domain configuration: {error}")
         domain_configs = {}
+    errors.extend(validate_detector_registry(root, feature_names))
+    errors.extend(validate_domain_configs(root, domain_configs, feature_names))
     valid_domains = set(domain_configs)
-    required_domain_fields = {
-        "id", "name", "checklist_title", "description", "surface_features", "related_domains",
-        "always_screen", "screening_terms", "required_context", "review_requirements", "trusted_absence_policy",
-    }
-    for domain, config in domain_configs.items():
-        prefix = f"{root / 'domains'}:{domain}"
-        if set(config) != required_domain_fields:
-            errors.append(f"{prefix}: fields must be {sorted(required_domain_fields)}")
-        if not all(isinstance(config.get(field), str) and config[field].strip() for field in ("id", "name", "checklist_title", "description")):
-            errors.append(f"{prefix}: id/name/checklist_title/description must be non-empty strings")
-        if not isinstance(config.get("surface_features"), list) or not config["surface_features"]:
-            errors.append(f"{prefix}: surface_features must be a non-empty list")
-        if not isinstance(config.get("related_domains"), list):
-            errors.append(f"{prefix}: related_domains must be a list")
-        if not isinstance(config.get("always_screen"), bool):
-            errors.append(f"{prefix}: always_screen must be boolean")
-        if not isinstance(config.get("screening_terms"), list) or not config["screening_terms"] or any(not isinstance(value, str) or not value.strip() for value in config["screening_terms"]):
-            errors.append(f"{prefix}: screening_terms must be a non-empty string list")
-        required_context = config.get("required_context")
-        if not isinstance(required_context, list) or not required_context:
-            errors.append(f"{prefix}: required_context must be a non-empty list")
-        else:
-            keys: set[str] = set()
-            for value in required_context:
-                if not isinstance(value, dict) or set(value) != {"key", "required", "description"} or not isinstance(value.get("key"), str) or not value["key"] or not isinstance(value.get("required"), bool) or not isinstance(value.get("description"), str) or not value["description"]:
-                    errors.append(f"{prefix}: malformed required_context entry {value!r}")
-                    continue
-                if value["key"] in keys:
-                    errors.append(f"{prefix}: duplicate required_context key {value['key']}")
-                keys.add(value["key"])
-        if not isinstance(config.get("review_requirements"), list) or not config["review_requirements"] or any(not isinstance(value, str) or not value.strip() for value in config["review_requirements"]):
-            errors.append(f"{prefix}: review_requirements must be a non-empty string list")
-        policy = config.get("trusted_absence_policy")
-        if not isinstance(policy, dict) or set(policy) != {"requires_complete_scope", "allowed_evidence"} or policy.get("requires_complete_scope") is not True:
-            errors.append(f"{prefix}: trusted_absence_policy must require complete scope")
-        elif not isinstance(policy.get("allowed_evidence"), list) or not policy["allowed_evidence"] or any(kind not in {"scope", "inheritance", "interface", "dependency", "deployment"} for kind in policy["allowed_evidence"]):
-            errors.append(f"{prefix}: trusted_absence_policy.allowed_evidence is invalid")
-        if not (root / "skills" / domain / "SKILL.md").exists():
-            errors.append(f"{prefix}: missing skill directory")
 
     try:
         registry = load_registry(path)
@@ -530,67 +499,6 @@ def validate_registry(root: Path) -> list[str]:
     missing_domains = sorted(valid_domains - {domain for check in checks for domain in check.get("domains", [])})
     if missing_domains:
         errors.append(f"{path}: no checks routed to domains {missing_domains}")
-    for domain, config in domain_configs.items():
-        unknown_features = sorted(set(config.get("surface_features", [])) - feature_names)
-        unknown_related = sorted(set(config.get("related_domains", [])) - valid_domains)
-        if unknown_features:
-            errors.append(f"{root / 'domains'}:{domain}: unknown surface features {unknown_features}")
-        if unknown_related:
-            errors.append(f"{root / 'domains'}:{domain}: unknown related domains {unknown_related}")
-        if domain in config.get("related_domains", []):
-            errors.append(f"{root / 'domains'}:{domain}: domain cannot relate to itself")
-    return errors
-
-
-def validate_artifact_schemas(root: Path) -> list[str]:
-    errors: list[str] = []
-    try:
-        from jsonschema import Draft202012Validator
-    except ImportError:
-        return ["schemas: jsonschema is required; install requirements-runtime.txt"]
-    for path in sorted((root / "schemas").glob("*.schema.json")):
-        try:
-            Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError, ValueError) as error:
-            errors.append(f"{path}: invalid Draft 2020-12 schema: {error}")
-    return errors
-
-
-def validate_benchmark_fixtures(root: Path) -> list[str]:
-    errors: list[str] = []
-    benchmark_root = root / "development" / "benchmarks" / "routing"
-    flat = sorted(benchmark_root.glob("*.json"))
-    if flat:
-        errors.append("routing benchmark fixtures must be under automatic/ or explicit/")
-    for mode in ("automatic", "explicit"):
-        for path in sorted((benchmark_root / mode).glob("*.json")):
-            try:
-                validate_schema(root, "benchmark-routing-fixture.schema.json", load_registry(path))
-            except (OSError, json.JSONDecodeError, ValueError) as error:
-                errors.append(f"{path}: invalid benchmark fixture: {error}")
-    return errors
-
-
-def validate_generated_registry(root: Path, registry: dict[str, object]) -> list[str]:
-    errors: list[str] = []
-    generated_errors = check_outputs(registry, root)
-    errors.extend(generated_errors)
-    expected: dict[str, int] = {}
-    for check in registry.get("checks", []):  # type: ignore[union-attr]
-        expected[check["canonical_id"]] = len(check.get("domains", []))
-    actual: dict[str, int] = {}
-    for path in sorted(root.glob("skills/evm-audit-*/references/checklist.md")):
-        items, parse_errors, _ = parse_checklist(path)
-        errors.extend(parse_errors)
-        for item in items:
-            match = CANONICAL_ID_RE.search(item.title)
-            if not match:
-                errors.append(f"{item.ref}: missing canonical ID")
-                continue
-            canonical_id = match.group(1)
-            actual[canonical_id] = actual.get(canonical_id, 0) + 1
-    if actual != expected:
-        errors.append(f"generated checklist coverage differs from registry (expected={expected}, actual={actual})")
     return errors
 
 
@@ -767,51 +675,6 @@ def external_link_errors(root: Path) -> list[str]:
     return errors
 
 
-def validate_counts(root: Path, counts: dict[str, int]) -> list[str]:
-    errors: list[str] = []
-    runtime_total = sum(counts.values())
-    registry_path = root / "data" / "canonical-checks.json"
-    canonical_total = len(load_registry(registry_path).get("checks", [])) if registry_path.exists() else 0
-
-    readme = root / "README.md"
-    readme_text = readme.read_text(encoding="utf-8")
-    readme_canonical_match = README_CANONICAL_RE.search(readme_text)
-    if not readme_canonical_match:
-        errors.append("README.md: missing canonical-check count")
-    elif int(readme_canonical_match.group(1).replace(",", "")) != canonical_total:
-        errors.append(
-            f"README.md: canonical count {readme_canonical_match.group(1)} does not match registry total {canonical_total}"
-        )
-    readme_runtime_match = README_RUNTIME_RE.search(readme_text)
-    if not readme_runtime_match:
-        errors.append("README.md: missing generated-runtime count")
-    elif int(readme_runtime_match.group(1).replace(",", "")) != runtime_total:
-        errors.append(
-            f"README.md: runtime count {readme_runtime_match.group(1)} does not match generated total {runtime_total}"
-        )
-
-    master = root / "skills" / "evm-audit-master" / "SKILL.md"
-    master_text = master.read_text(encoding="utf-8")
-    master_canonical_match = MASTER_CANONICAL_RE.search(master_text)
-    if not master_canonical_match:
-        errors.append("skills/evm-audit-master/SKILL.md: missing canonical total")
-    elif int(master_canonical_match.group(1).replace(",", "")) != canonical_total:
-        errors.append(
-            "skills/evm-audit-master/SKILL.md: canonical total "
-            f"{master_canonical_match.group(1)} does not match registry total {canonical_total}"
-        )
-    master_runtime_match = MASTER_RUNTIME_RE.search(master_text)
-    if not master_runtime_match:
-        errors.append("skills/evm-audit-master/SKILL.md: missing generated-runtime total")
-    elif int(master_runtime_match.group(1).replace(",", "")) != runtime_total:
-        errors.append(
-            "skills/evm-audit-master/SKILL.md: runtime total "
-            f"{master_runtime_match.group(1)} does not match generated total {runtime_total}"
-        )
-
-    return errors
-
-
 def validate_review_record(root: Path, strict: bool) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -947,7 +810,6 @@ def main(argv: list[str]) -> int:
     errors.extend(relative_link_errors(root))
     if args.check_external_links:
         errors.extend(external_link_errors(root))
-    errors.extend(validate_counts(root, counts))
     review_errors, review_warnings = validate_review_record(root, args.strict)
     errors.extend(review_errors)
     warnings.extend(review_warnings)

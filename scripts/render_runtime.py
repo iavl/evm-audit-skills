@@ -15,6 +15,7 @@ try:
         check_body_hash,
         load_json,
         registry_sha256,
+        resolved_routes,
         validate_domain_context,
         validate_domain_resolution,
         validate_artifact_identity,
@@ -29,6 +30,7 @@ except ImportError:  # pragma: no cover
         check_body_hash,
         load_json,
         registry_sha256,
+        resolved_routes,
         validate_domain_context,
         validate_domain_resolution,
         validate_artifact_identity,
@@ -52,11 +54,7 @@ def one_line(value: Any) -> str:
 
 
 def selected_entries(manifest: dict[str, Any], owner_domain: str | None = None, domain_resolution: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    entries = list(manifest["selected"])
-    if domain_resolution is not None:
-        resolutions = domain_resolution.get("domains", {})
-        present = {domain for domain, value in resolutions.items() if isinstance(value, dict) and value.get("status") == "PRESENT"} if isinstance(resolutions, dict) else set()
-        entries.extend(entry for entry in manifest["deferred"] if set(entry.get("domains", [])) & present)
+    entries = resolved_routes(manifest, domain_resolution)
     return [entry for entry in entries if owner_domain is None or entry["owner_domain"] == owner_domain]
 
 
@@ -76,6 +74,8 @@ def validate_manifest(root: Path, manifest: dict[str, Any], registry: dict[str, 
         ids_by_bucket[bucket] = []
         for entry in manifest[bucket]:
             ids_by_bucket[bucket].append(entry["canonical_id"])
+            if entry["owner_domain"] not in entry["domains"]:
+                raise ValueError(f"routing manifest owner is outside route domains: {entry['canonical_id']}")
             check = checks.get(entry["canonical_id"])
             if check is None:
                 raise ValueError(f"routing manifest references unknown check: {entry['canonical_id']}")

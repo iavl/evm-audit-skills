@@ -27,7 +27,9 @@ Start with the [Development Guide](development/README.md).
 
 Each skill is a structured, sourced checklist of **non-obvious** security vulnerabilities for a specific domain. The canonical JSON registry keeps one stable attack hypothesis per root cause while generated Markdown views remain easy for audit runtimes to consume.
 
-**869 canonical checks and 872 generated runtime entries across the 19 domain skills plus the master index.**
+The canonical registry and generated runtime views are validated together; the
+registry is authoritative and generated counts are available from the metrics
+command.
 
 ## Repository Layout
 
@@ -35,6 +37,7 @@ Each skill is a structured, sourced checklist of **non-obvious** security vulner
 - `data/` — canonical security knowledge and runtime feature vocabulary.
 - `domains/` — runtime Domain configuration.
 - `scripts/` — audit engine and maintenance commands.
+- `evm_audit_runtime/` — small pure routing, state, and report decisions shared by the CLIs.
 - `schemas/` — runtime artifact schemas.
 - `docs/` — architecture and maintenance documentation.
 - `development/` — benchmark fixtures; not required for normal audits.
@@ -71,10 +74,10 @@ audit this contract and file issues: https://github.com/owner/repo/blob/main/con
 
 The workflow will:
 1. Load `evm-audit-master` and build a source, dependency, chain, and evidence-backed feature map.
-2. Use Slither-backed reconnaissance and `data/features.json` to emit one immutable routing-v7 manifest; only curated predicates proven false are filtered.
+2. Use Slither-backed reconnaissance and the feature-detector registry to emit one immutable routing-v7 manifest; only curated predicates proven false are filtered.
 3. Resolve Deferred Domains and required Domain Context from snapshot-bound artifacts before rendering Deep.
 4. Render Screen, classify only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`, then render Deep from candidates only.
-5. Write exactly one JSONL Deep/proof record per candidate; filtered IDs remain only in the machine manifest.
+5. Append JSONL Deep/proof events per candidate; revisions retain the full review history and filtered IDs remain only in the machine manifest.
 6. Independently derive `audit-state.json`; synthesize only `CONFIRMED` records into a final `AUDIT-REPORT.md` and assign severity there.
 7. File GitHub issues only for confirmed Medium+ findings when explicitly in scope.
 

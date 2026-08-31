@@ -13,20 +13,28 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "accepted_nft_standards_receivers_approvals_and_custody_model",
+      "key": "accepted_nft_standards",
       "required": true,
-      "description": "accepted NFT standards, receivers, approvals, and custody model"
+      "description": "accepted ERC721/ERC1155 standards and token assumptions"
+    },
+    {
+      "key": "receiver_hooks",
+      "required": true,
+      "description": "receiver callbacks and hook behavior"
+    },
+    {
+      "key": "approval_model",
+      "required": true,
+      "description": "approval, operator, and transfer authorization model"
+    },
+    {
+      "key": "custody_model",
+      "required": true,
+      "description": "custody, ownership, and escrow model"
     }
   ],
   "review_requirements": [
     "trace ownership, callback, and transfer compatibility"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "ERC721",
-    "ERC1155",
-    "NFT",
-    "safeTransfer",
-    "tokenURI"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

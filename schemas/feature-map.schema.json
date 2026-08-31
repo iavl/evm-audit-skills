@@ -9,7 +9,7 @@
     "recon_context": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["target_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "uncompiled_paths", "source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest", "compilation_complete", "slither_version", "solc_version"],
+      "required": ["target_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "uncompiled_paths", "source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest", "compilation_complete", "recon_quality", "slither_version", "solc_version"],
       "properties": {
         "target_root": {"type": "string", "minLength": 1},
         "files_analyzed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
@@ -22,6 +22,17 @@
         "build_config_digest": {"$ref": "#/$defs/hash"},
         "compilation_input_digest": {"$ref": "#/$defs/hash"},
         "compilation_complete": {"type": "boolean"},
+        "recon_quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["compilation_complete", "absence_filtering_complete", "mode", "uncompiled_paths"],
+          "properties": {
+            "compilation_complete": {"type": "boolean"},
+            "absence_filtering_complete": {"type": "boolean"},
+            "mode": {"enum": ["COMPLETE", "CONSERVATIVE_DEGRADED"]},
+            "uncompiled_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+          }
+        },
         "slither_version": {"type": "string", "minLength": 1},
         "solc_version": {"type": ["string", "null"]}
       }

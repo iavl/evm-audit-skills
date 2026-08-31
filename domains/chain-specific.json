@@ -13,20 +13,28 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "chain_family_execution_environment_fork_and_deployed_bytecode",
+      "key": "chain_family",
       "required": true,
-      "description": "chain family, execution environment, fork, and deployed bytecode"
+      "description": "target chain family and network"
+    },
+    {
+      "key": "execution_environment",
+      "required": true,
+      "description": "EVM, EraVM, interpreter, or other execution environment"
+    },
+    {
+      "key": "evm_fork",
+      "required": true,
+      "description": "active EVM fork and opcode semantics"
+    },
+    {
+      "key": "deployed_bytecode",
+      "required": true,
+      "description": "deployed bytecode and system-contract assumptions"
     }
   ],
   "review_requirements": [
     "verify every relied-upon opcode and system-contract behavior"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "chain id",
-    "L2",
-    "system contract",
-    "fork",
-    "opcode"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

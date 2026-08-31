@@ -178,7 +178,7 @@ class LifecycleTests(unittest.TestCase):
         route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate)
         record = {
             "record_type": "review",
-            "schema_version": 4,
+            "schema_version": 5,
             "canonical_id": candidate,
             "owner_domain": route["owner_domain"],
             "check_body_hash": route["check_body_hash"],
@@ -234,7 +234,7 @@ class LifecycleTests(unittest.TestCase):
             self.render_screen_results(paths)
             self.mark_all_not_applicable(paths["screen_results"])
             state = self.finalize(paths)
-        self.assertEqual(state["status"], "COMPLETE")
+        self.assertEqual(state["status"], "COMPLETE_CLEAN")
         self.assertTrue(state["clean"])
         self.assertEqual(state["coverage"]["confirmed"], [])
 
@@ -243,7 +243,7 @@ class LifecycleTests(unittest.TestCase):
             paths = self.run_explicit(Path(directory))
             self.fill_domain_context(paths["domain_context"])
             state, _ = self.review_one_candidate(paths, "REVIEWED_SAFE")
-        self.assertEqual(state["status"], "COMPLETE")
+        self.assertEqual(state["status"], "COMPLETE_CLEAN")
         self.assertTrue(state["clean"])
 
     def test_full_confirmed_audit_lifecycle(self) -> None:
@@ -251,7 +251,7 @@ class LifecycleTests(unittest.TestCase):
             paths = self.run_explicit(Path(directory))
             self.fill_domain_context(paths["domain_context"])
             state, _ = self.review_one_candidate(paths, "CONFIRMED")
-        self.assertEqual(state["status"], "COMPLETE")
+        self.assertEqual(state["status"], "COMPLETE_WITH_FINDINGS")
         self.assertFalse(state["clean"])
         self.assertEqual(len(state["coverage"]["confirmed"]), 1)
 
@@ -276,7 +276,7 @@ class LifecycleTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             state = self.finalize(paths)
-        self.assertEqual(state["status"], "COMPLETE_WITH_UNRESOLVED_CONTEXT")
+        self.assertEqual(state["status"], "INCOMPLETE_CONTEXT")
 
     def automatic_run(self, directory: Path) -> dict[str, Path]:
         feature_map = directory / "feature-map.json"
@@ -373,7 +373,7 @@ class LifecycleTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             state = self.finalize(paths)
-        self.assertNotEqual(state["status"], "COMPLETE")
+        self.assertFalse(state["complete"])
 
     def test_full_deferred_present_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -409,7 +409,7 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.mark_all_not_applicable(paths["screen_results"])
             state = self.finalize(paths)
-        self.assertEqual(state["status"], "COMPLETE")
+        self.assertEqual(state["status"], "COMPLETE_CLEAN")
 
     def test_full_snapshot_drift_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -27,6 +27,14 @@ SYNTHETIC_TARGET = ROOT / "tests/fixtures/recon/Empty.sol"
 CONTRACT_PATH = ROOT / "skills/evm-audit-master/references/check-review-contract.runtime.md"
 
 
+def aggregate_domain_skill_bytes(root: Path) -> int:
+    return sum(
+        path.stat().st_size
+        for path in root.glob("skills/evm-audit-*/SKILL.md")
+        if path.parent.name != "evm-audit-master"
+    )
+
+
 def recon_context(target: Path) -> dict[str, object]:
     files, excluded = scope_inventory(target)
     digests = compilation_digests(target, files, "0.8.24")
@@ -34,6 +42,12 @@ def recon_context(target: Path) -> dict[str, object]:
         "target_root": str(target.resolve()), "files_analyzed": files,
         "excluded_paths": excluded, "exclusion_patterns": [], "uncompiled_paths": [],
         "source_digest": digests["audit_source_digest"], **digests, "compilation_complete": True,
+        "recon_quality": {
+            "compilation_complete": True,
+            "absence_filtering_complete": True,
+            "mode": "COMPLETE",
+            "uncompiled_paths": [],
+        },
         "slither_version": "benchmark", "solc_version": "0.8.24",
     }
 
@@ -117,6 +131,15 @@ def _assert_fixture(fixture: dict[str, object], normalized: dict[str, dict[str, 
         raise ValueError(f"{name}: forbidden Domains were selected: {sorted(forbidden & selected_domains)}")
 
 
+def _routing_recall(fixture: dict[str, object], selected_ids: set[str]) -> tuple[float, int]:
+    expected = set(fixture.get("must_select_checks", []))
+    missing = expected - selected_ids
+    return (
+        1.0 if not expected else round((len(expected) - len(missing)) / len(expected), 4),
+        len(missing),
+    )
+
+
 def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
     validate_fixture(root, fixture)
     registry = load_json(root / "data/canonical-checks.json")
@@ -164,6 +187,7 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
     candidates = {entry["canonical_id"] for entry in selected_entries(manifest, domain_resolution=domain_resolution)}
     deep = render(manifest, registry, "deep", candidates)
     cost = _total_cost(manifest, screen, deep)
+    recall, false_negative_cases = _routing_recall(fixture, candidates)
     if len(screen) >= len(deep):
         raise ValueError(f"{fixture['name']}: screen runtime must be smaller than candidate Deep runtime")
     for key, actual in (("max_selected_checks", len(candidates)), ("max_runtime_bytes", len(screen.encode())), ("max_total_context_bytes", cost["total_context_bytes"])):
@@ -175,7 +199,8 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
         "deferred_domains": sorted(_domains(manifest, "deferred_domains")), "filtered_domains": sorted(_domains(manifest, "filtered_domains")),
         "selected_checks": len(candidates), "deferred_checks": manifest["deferred_count"],
         "filtered_checks": manifest["filtered_count"], "screen_runtime_bytes": len(screen.encode()),
-        "deep_runtime_bytes": len(deep.encode()), "cost": cost,
+        "deep_runtime_bytes": len(deep.encode()), "aggregate_domain_skill_bytes": aggregate_domain_skill_bytes(root),
+        "routing_recall": recall, "false_negative_cases": false_negative_cases, "cost": cost,
     }
 
 
@@ -224,7 +249,9 @@ def run_e2e(root: Path) -> list[dict[str, object]]:
             "deferred_domains": sorted(_domains(manifest, "deferred_domains")), "filtered_domains": sorted(_domains(manifest, "filtered_domains")),
             "selected_checks": manifest["selected_count"], "deferred_checks": manifest["deferred_count"],
             "filtered_checks": manifest["filtered_count"], "screen_runtime_bytes": len(screen.encode()),
-            "deep_runtime_bytes": None, "e2e_recall": {"must_detect_features": len(must_detect), "must_select_checks": len(expected_checks), "candidates": len(candidates)}, "e2e_artifacts": ["multi-file feature-map.json", "manifest.json", "screen-results.json"],
+            "deep_runtime_bytes": None, "aggregate_domain_skill_bytes": aggregate_domain_skill_bytes(root),
+            "routing_recall": 1.0, "false_negative_cases": 0,
+            "e2e_recall": {"must_detect_features": len(must_detect), "must_select_checks": len(expected_checks), "candidates": len(candidates)}, "e2e_artifacts": ["multi-file feature-map.json", "manifest.json", "screen-results.json"],
         })
     return results
 

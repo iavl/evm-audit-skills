@@ -13,21 +13,33 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "feed_contracts_decimals_heartbeat_bounds_and_fallback_behavior",
+      "key": "feed_contracts",
       "required": true,
-      "description": "feed contracts, decimals, heartbeat, bounds, and fallback behavior"
+      "description": "feed contracts and data sources"
+    },
+    {
+      "key": "feed_decimals",
+      "required": true,
+      "description": "feed and protocol decimal scaling"
+    },
+    {
+      "key": "heartbeat",
+      "required": true,
+      "description": "heartbeat and staleness handling"
+    },
+    {
+      "key": "bounds",
+      "required": true,
+      "description": "answer bounds, deviation, and circuit breakers"
+    },
+    {
+      "key": "fallback_behavior",
+      "required": true,
+      "description": "fallback, sequencer, and failure behavior"
     }
   ],
   "review_requirements": [
     "verify freshness, scaling, sequencer, and manipulation resistance"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "oracle",
-    "price",
-    "feed",
-    "TWAP",
-    "staleness",
-    "sequencer"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

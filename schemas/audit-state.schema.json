@@ -3,13 +3,28 @@
   "$id": "urn:evm-audit-skills:audit-state:v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "routing_snapshot_id", "status", "clean", "reasons", "coverage"],
+    "required": ["schema_version", "routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest", "status", "complete", "clean", "reasons", "recon_quality", "coverage"],
   "properties": {
     "schema_version": {"const": 1},
     "routing_snapshot_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "status": {"enum": ["COMPLETE", "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING", "COMPLETE_WITH_UNRESOLVED_CONTEXT", "COMPLETE_WITH_UNRESOLVED_REVIEW", "INCOMPLETE_COVERAGE", "INVALID_SNAPSHOT"]},
+    "registry_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "compilation_input_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"enum": ["INVALID_SNAPSHOT", "INCOMPLETE_COVERAGE", "INCOMPLETE_DOMAIN_ROUTING", "INCOMPLETE_CONTEXT", "INCOMPLETE_REVIEW", "COMPLETE_CLEAN", "COMPLETE_WITH_FINDINGS"]},
+    "complete": {"type": "boolean"},
     "clean": {"type": "boolean"},
     "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "recon_quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compilation_complete", "absence_filtering_complete", "mode", "uncompiled_paths"],
+      "properties": {
+        "compilation_complete": {"type": "boolean"},
+        "absence_filtering_complete": {"type": "boolean"},
+        "mode": {"enum": ["COMPLETE", "CONSERVATIVE_DEGRADED"]},
+        "uncompiled_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
     "coverage": {
       "type": "object",
       "additionalProperties": false,
@@ -24,5 +39,19 @@
         "unresolved": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["INVALID_SNAPSHOT", "INCOMPLETE_COVERAGE", "INCOMPLETE_DOMAIN_ROUTING", "INCOMPLETE_CONTEXT", "INCOMPLETE_REVIEW"]}}, "required": ["status"]},
+      "then": {"properties": {"complete": {"const": false}, "clean": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "COMPLETE_CLEAN"}}, "required": ["status"]},
+      "then": {"properties": {"complete": {"const": true}, "clean": {"const": true}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "COMPLETE_WITH_FINDINGS"}}, "required": ["status"]},
+      "then": {"properties": {"complete": {"const": true}, "clean": {"const": false}}}
+    }
+  ]
 }

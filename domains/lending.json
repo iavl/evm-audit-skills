@@ -14,22 +14,33 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "oracle_configuration_collateral_parameters_caps_liquidations_and",
+      "key": "oracle_configuration",
       "required": true,
-      "description": "oracle configuration, collateral parameters, caps, liquidations, and interest model"
+      "description": "price sources, freshness, and oracle configuration"
+    },
+    {
+      "key": "collateral_parameters",
+      "required": true,
+      "description": "collateral factors, LTV, and liquidation thresholds"
+    },
+    {
+      "key": "market_caps",
+      "required": true,
+      "description": "supply, borrow, and liquidity caps"
+    },
+    {
+      "key": "liquidation_model",
+      "required": true,
+      "description": "liquidation, auction, and bad-debt handling"
+    },
+    {
+      "key": "interest_model",
+      "required": true,
+      "description": "interest accrual and reserve accounting"
     }
   ],
   "review_requirements": [
     "model solvency, bad debt, and liquidation economics"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "borrow",
-    "repay",
-    "collateral",
-    "debt",
-    "liquidation",
-    "interest",
-    "bad debt"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

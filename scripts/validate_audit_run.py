@@ -5,8 +5,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+_SUITE_ROOT = str(Path(__file__).resolve().parents[1])
+if _SUITE_ROOT not in sys.path:
+    sys.path.insert(0, _SUITE_ROOT)
+from evm_audit_runtime.state import COMPLETE_STATES, derive_status
 
 try:
     from audit_artifacts import (
@@ -133,7 +139,9 @@ def validate_run(
                 for item in sorted(unresolved_context)
             )
 
-    records, ledger_errors = collect_review_records(ledger_paths, manifest, registry, candidates)
+    records, ledger_errors = collect_review_records(
+        ledger_paths, manifest, registry, candidates, domain_resolution
+    )
     review_errors.extend(ledger_errors)
     reviewed = set(records)
     if candidates - reviewed:
@@ -146,18 +154,16 @@ def validate_run(
     if suspicious:
         review_errors.append(f"SUSPICIOUS records block clean completion: {sorted(suspicious)}")
 
-    if invalid:
-        status = "INVALID_SNAPSHOT"
-    elif coverage_errors:
-        status = "INCOMPLETE_COVERAGE"
-    elif domain_errors:
-        status = "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING"
-    elif context_errors:
-        status = "COMPLETE_WITH_UNRESOLVED_CONTEXT"
-    elif review_errors:
-        status = "COMPLETE_WITH_UNRESOLVED_REVIEW"
-    else:
-        status = "COMPLETE"
+    status = derive_status(
+        invalid=bool(invalid),
+        coverage=bool(coverage_errors),
+        domain=bool(domain_errors),
+        context=bool(context_errors),
+        review=bool(review_errors),
+        confirmed=bool(confirmed),
+    )
+    complete = status in COMPLETE_STATES
+    recon_quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality")
 
     reasons: list[str] = []
     for reason in [*invalid, *coverage_errors, *domain_errors, *context_errors, *review_errors]:
@@ -166,9 +172,14 @@ def validate_run(
     state = {
         "schema_version": 1,
         "routing_snapshot_id": manifest.get("routing_snapshot_id"),
+        "registry_sha256": manifest.get("audit_context", {}).get("registry_sha256"),
+        "source_digest": manifest.get("audit_context", {}).get("source_digest"),
+        "compilation_input_digest": manifest.get("audit_context", {}).get("compilation_input_digest"),
         "status": status,
-        "clean": status == "COMPLETE" and not confirmed,
+        "complete": complete,
+        "clean": status == "COMPLETE_CLEAN",
         "reasons": reasons,
+        "recon_quality": recon_quality,
         "coverage": {
             "selected": sorted(selected),
             "screen_not_applicable": sorted(screen_not_applicable),
@@ -218,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
         coverage = state["coverage"]
         snapshot_valid = state["status"] != "INVALID_SNAPSHOT"
         coverage_valid = state["status"] not in {"INVALID_SNAPSHOT", "INCOMPLETE_COVERAGE"}
-        domain_valid = state["status"] not in {"INVALID_SNAPSHOT", "INCOMPLETE_COVERAGE", "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING"}
+        domain_valid = state["status"] not in {"INVALID_SNAPSHOT", "INCOMPLETE_COVERAGE", "INCOMPLETE_DOMAIN_ROUTING"}
         review_complete = not coverage["unresolved"]
         if snapshot_valid:
             success("Routing snapshot valid")
@@ -241,26 +252,27 @@ def main(argv: list[str] | None = None) -> int:
                 manifest,
                 registry,
                 set(coverage["deep_candidates"]),
+                domain,
             )
             reviewed_safe = sum(record.get("status") == "REVIEWED_SAFE" for record in records.values())
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
             pass
         info(f"Reviewed safe: {reviewed_safe}")
-        if state["status"] == "COMPLETE":
+        if state["status"] in {"COMPLETE_CLEAN", "COMPLETE_WITH_FINDINGS"}:
             stage("COMPLETE")
-            info("Status: COMPLETE")
+            info(f"Status: {state['status']}")
         else:
             stage("INCOMPLETE")
             info(f"Status: {state['status']}")
             if coverage["unresolved"]:
                 warning(f"{len(coverage['unresolved'])} candidate(s) require further review")
-            elif state["status"] == "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING":
+            elif state["status"] == "INCOMPLETE_DOMAIN_ROUTING":
                 warning("Deferred Domain resolution requires further work")
-            elif state["status"] == "COMPLETE_WITH_UNRESOLVED_CONTEXT":
+            elif state["status"] == "INCOMPLETE_CONTEXT":
                 warning("Required Domain context requires further work")
             else:
                 warning("Further review or resolution is required")
-        return 0 if state["status"] == "COMPLETE" else 1
+        return 0 if state["complete"] else 1
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
         error(exc)
         return 1

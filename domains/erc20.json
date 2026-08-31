@@ -13,20 +13,28 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "accepted_tokens_balance_accounting_allowances_and_transfer_wrapp",
+      "key": "accepted_tokens",
       "required": true,
-      "description": "accepted tokens, balance accounting, allowances, and transfer wrappers"
+      "description": "accepted token contracts and non-standard token assumptions"
+    },
+    {
+      "key": "balance_accounting",
+      "required": true,
+      "description": "balance, supply, and fee accounting"
+    },
+    {
+      "key": "allowances",
+      "required": true,
+      "description": "allowance and approval behavior"
+    },
+    {
+      "key": "transfer_wrappers",
+      "required": true,
+      "description": "transfer and safe-wrapper behavior"
     }
   ],
   "review_requirements": [
     "test non-standard token behaviors against accounting invariants"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "ERC20",
-    "transfer",
-    "allowance",
-    "balance",
-    "token"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

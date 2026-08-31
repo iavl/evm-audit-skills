@@ -67,7 +67,6 @@ class GenerationTests(unittest.TestCase):
                         "surface_features": ["uses-example"],
                         "related_domains": [],
                         "always_screen": False,
-                        "screening_terms": ["example"],
                         "required_context": [
                             {"key": "example_context", "required": True, "description": "example context"}
                         ],

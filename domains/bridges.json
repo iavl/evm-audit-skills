@@ -13,20 +13,33 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "source_destination_chains_finality_authentication_and_relayers",
+      "key": "source_chain",
       "required": true,
-      "description": "source/destination chains, finality, authentication, and relayers"
+      "description": "source chain and message origin"
+    },
+    {
+      "key": "destination_chain",
+      "required": true,
+      "description": "destination chain and message execution target"
+    },
+    {
+      "key": "finality_model",
+      "required": true,
+      "description": "finality, confirmations, and reorg assumptions"
+    },
+    {
+      "key": "message_authentication",
+      "required": true,
+      "description": "message validation and authentication path"
+    },
+    {
+      "key": "relayer_model",
+      "required": true,
+      "description": "relayer, quorum, and delivery assumptions"
     }
   ],
   "review_requirements": [
     "model message lifecycle, replay, ordering, and failure recovery"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "bridge",
-    "cross-chain",
-    "message",
-    "relayer",
-    "finality"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

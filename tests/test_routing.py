@@ -121,6 +121,41 @@ class RoutingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_feature_map({"schema_version": 2, "features": {}}, self.feature_names, self.feature_policies, EMPTY_TARGET)
 
+    def test_incomplete_recon_downgrades_absence_but_keeps_presence(self) -> None:
+        feature_map = synthetic_feature_map({
+            "uses-assembly": "ABSENT_CONFIRMED",
+            "uses-erc20": "PRESENT",
+        })
+        context = feature_map["recon_context"]
+        context["compilation_complete"] = False
+        context["uncompiled_paths"] = ["uncompiled.sol"]
+        context["recon_quality"] = {
+            "compilation_complete": False,
+            "absence_filtering_complete": False,
+            "mode": "CONSERVATIVE_DEGRADED",
+            "uncompiled_paths": ["uncompiled.sol"],
+        }
+        normalized = normalize_feature_map(feature_map, self.feature_names, self.feature_policies, EMPTY_TARGET)
+        self.assertEqual(normalized["uses-assembly"]["status"], "UNKNOWN")
+        self.assertEqual(normalized["uses-erc20"]["status"], "PRESENT")
+        self.assertIn("incomplete", normalized["uses-assembly"]["reason"])
+        manifest, _ = select(
+            {
+                "checks": [{
+                    "canonical_id": "TEST-DEGRADED-001",
+                    "title": "degraded",
+                    "domains": ["evm-audit-general"],
+                    "primary_domain": "evm-audit-general",
+                    "predicate": {"all_of": ["uses-assembly"], "any_of": [], "none_of": []},
+                    "predicate_source": "curated",
+                }]
+            },
+            normalized,
+            self.feature_names,
+            ["evm-audit-general"],
+        )
+        self.assertEqual([entry["canonical_id"] for entry in manifest["selected"]], ["TEST-DEGRADED-001"])
+
     def test_feature_map_v4_rejects_unsupported_cli_and_formats(self) -> None:
         help_result = subprocess.run(
             [sys.executable, "scripts/select_checks.py", "--help"],
@@ -427,6 +462,9 @@ class RoutingTests(unittest.TestCase):
             },
         )
         self.assertGreater(result["screen_runtime_bytes"], 0)
+        self.assertEqual(result["routing_recall"], 1.0)
+        self.assertEqual(result["false_negative_cases"], 0)
+        self.assertGreater(result["aggregate_domain_skill_bytes"], 0)
 
 
 if __name__ == "__main__":

@@ -12,19 +12,28 @@
   "always_screen": true,
   "required_context": [
     {
-      "key": "scope_inventory_entry_points_trust_boundaries_and_external_depen",
+      "key": "scope_inventory",
       "required": true,
-      "description": "scope inventory, entry points, trust boundaries, and external dependencies"
+      "description": "complete source, dependency, and deployment scope inventory"
+    },
+    {
+      "key": "entry_points",
+      "required": true,
+      "description": "state-changing entry points and call paths"
+    },
+    {
+      "key": "trust_boundaries",
+      "required": true,
+      "description": "privilege, user, oracle, and external trust boundaries"
+    },
+    {
+      "key": "external_dependencies",
+      "required": true,
+      "description": "external contracts, libraries, and integration assumptions"
     }
   ],
   "review_requirements": [
     "trace reachable state changes and cross-domain interactions"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "state change",
-    "external call",
-    "trust boundary",
-    "asset flow"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

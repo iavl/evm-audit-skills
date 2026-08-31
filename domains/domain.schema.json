@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:evm-audit-skills:domain:v4",
   "type": "object",
-  "required": ["id", "name", "checklist_title", "description", "surface_features", "related_domains", "always_screen", "screening_terms", "required_context", "review_requirements", "trusted_absence_policy"],
+  "required": ["id", "name", "checklist_title", "description", "surface_features", "related_domains", "always_screen", "required_context", "review_requirements", "trusted_absence_policy"],
   "properties": {
     "id": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
     "name": {"type": "string", "minLength": 1},
@@ -11,7 +11,6 @@
     "surface_features": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
     "related_domains": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"}},
     "always_screen": {"type": "boolean"},
-    "screening_terms": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "required_context": {
       "type": "array",
       "minItems": 1,

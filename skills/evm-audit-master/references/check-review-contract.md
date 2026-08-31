@@ -33,7 +33,7 @@ One terminal status
 
 ## Review stages
 
-Use a three-stage funnel for every routed canonical check:
+Use a four-stage funnel for every routed canonical check:
 
 1. **`FAST_FILTER`** — verify the scope-bound Feature Map v4, evaluate
    environment applicability, gate Domains by their surface predicate, then
@@ -56,7 +56,7 @@ must separately account for Selected, Deferred, and filtered Domains. Deferred
 Domains must resolve before clean completion. It
 must include the feature evidence used for the decision. Filtered IDs are
 machine coverage entries only; they do not receive per-check review ledger
-records. Selected IDs receive exactly one deep/proof record, including shared
+records. Selected IDs receive one owner-Domain event stream, including shared
 IDs that are listed in more than one Domain. The manifest also records the
 registry/source digests, selector version, knowledge/target commits,
 chain/runtime/fork/compiler context, and audit timestamp so a later review can
@@ -75,7 +75,7 @@ Domain resolution, and JSONL ledgers.
 | `SUSPICIOUS` | A plausible concern remains, but at least one path, precondition, exploitability, impact, or proof step is unresolved. | Exact concern, explored path, and the missing proof step. No severity. | Internal ledger only. |
 | `CONFIRMED` | The security-relevant defect is reachable and proven. | Complete path, preconditions, exploitability, concrete impact, and a runnable PoC or deterministic invariant violation. | Eligible for synthesis and reporting. |
 
-Every record must end with exactly one of these four statuses. There is no emitted `UNREVIEWED` or `IN_PROGRESS` status. A `SUSPICIOUS` record may be resolved to `REVIEWED_SAFE` or `CONFIRMED` only after the missing evidence is supplied.
+Every record must end with exactly one of these four statuses. There is no emitted `UNREVIEWED` or `IN_PROGRESS` status. A later revision may resolve a `SUSPICIOUS` record to `REVIEWED_SAFE` or `CONFIRMED` only after the missing evidence is supplied and the follow-up uses `PROOF`.
 
 ## Record Identity and Format
 
@@ -85,17 +85,17 @@ input. Preserve existing source identifiers, including `SAS-AV-*`,
 `DROZER-*`, and `AUDITMOS-*`, only as provenance; they are not separate review
 items.
 
-Each selected skill writes one `review-<skill>.jsonl` ledger for its Screen
+Each selected skill appends events to one `review-<skill>.jsonl` ledger for its Screen
 candidate IDs. The filename must
 match the selected record's `owner_domain` (for example,
-`review-evm-audit-erc20.jsonl`). Preserve routed order
-and write exactly one record per candidate checklist item:
+`review-evm-audit-erc20.jsonl`). Preserve routed order and assign contiguous
+`revision` values per candidate checklist item:
 
 The JSONL checkpoint carries `routing_snapshot_id`, `registry_sha256`,
 `source_digest`, and `compilation_input_digest`; every review record also
 carries the routed `check_body_hash`. Typed evidence entries use `kind`,
 `location`, and `reason`.
-The current review-record schema is v4. A ledger belongs to exactly one routing
+The current review-record schema is v5. A ledger belongs to exactly one routing
 snapshot; if any identity or schema value changes, start a new audit run.
 Markdown ledgers are not runtime input; `review_ledger.py` renders them from
 JSONL when a human view is needed.
@@ -243,7 +243,7 @@ Reachable defect with proof:
 3. Consider only records whose exact status is `CONFIRMED` for finding deduplication and report generation.
 4. Preserve all relevant checklist references and evidence when merging duplicate confirmed records.
 5. Map cross-domain candidates to existing records, or create `review-integration.md` and apply this contract to the new record.
-6. If suspicious records remain after complete coverage, the report may be emitted with report-level status `COMPLETE_WITH_UNRESOLVED_REVIEW`, but it must not claim the audit is clean or vulnerability-free and must not include suspicious details as findings.
+6. If suspicious records remain after complete coverage, the report state is `INCOMPLETE_REVIEW`; it must not claim the audit is clean or vulnerability-free and must not include suspicious details as findings.
 7. Assign severity only with the dimensions and mapping in
    [`severity-scoring.md`](severity-scoring.md), after confirmation.
 8. If no confirmed records remain, report only that no confirmed findings were established within the reviewed scope.

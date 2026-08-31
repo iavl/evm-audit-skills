@@ -15,20 +15,18 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "compiler_target_and_assembly_call_sites",
+      "key": "compiler_target",
       "required": true,
-      "description": "compiler target and assembly call sites"
+      "description": "compiler version, target, and EVM fork"
+    },
+    {
+      "key": "assembly_call_sites",
+      "required": true,
+      "description": "assembly blocks, opcodes, and reachable call sites"
     }
   ],
   "review_requirements": [
     "compare Yul/EVM behavior with the selected runtime"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "assembly",
-    "opcode",
-    "create2",
-    "delegatecall",
-    "extcodesize"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

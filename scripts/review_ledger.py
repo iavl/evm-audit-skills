@@ -14,6 +14,7 @@ try:
         check_body_hash,
         has_placeholder,
         load_json,
+        resolved_routes,
         validate_domain_resolution,
         validate_artifact_identity,
         validate_schema,
@@ -26,6 +27,7 @@ except ImportError:  # pragma: no cover
         check_body_hash,
         has_placeholder,
         load_json,
+        resolved_routes,
         validate_domain_resolution,
         validate_artifact_identity,
         validate_schema,
@@ -40,7 +42,7 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 TERMINAL = {"NOT_APPLICABLE", "REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}
 REVIEW_STAGES = {"DEEP_REVIEW", "PROOF"}
 IDENTITY_KEYS = ("routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest")
@@ -74,19 +76,50 @@ def load(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _manifest_routes(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _manifest_routes(
+    manifest: dict[str, Any],
+    domain_resolution: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
     return {
         entry["canonical_id"]: entry
-        for bucket in ("selected", "deferred", "filtered")
-        for entry in manifest.get(bucket, [])
+        for entry in [
+            *resolved_routes(manifest, domain_resolution),
+            *manifest.get("filtered", []),
+        ]
     }
+
+
+def _transition_errors(previous: dict[str, Any], current: dict[str, Any]) -> list[str]:
+    if previous.get("status") != "SUSPICIOUS":
+        return [
+            f"{current.get('canonical_id')}: revision {current.get('revision')} cannot follow "
+            f"{previous.get('status')}"
+        ]
+    errors: list[str] = []
+    if current.get("review_stage") != "PROOF":
+        errors.append(f"{current.get('canonical_id')}: follow-up review must use review_stage=PROOF")
+    if current.get("status") not in {"REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}:
+        errors.append(
+            f"{current.get('canonical_id')}: follow-up status {current.get('status')} is not a valid proof resolution"
+        )
+    return errors
 
 
 def _nonempty(record: dict[str, Any], fields: Iterable[str]) -> list[str]:
     return [field for field in fields if not isinstance(record.get(field), str) or not record[field].strip()]
 
 
-def validate_record(record: dict[str, Any], manifest: dict[str, Any], registry: dict[str, Any], expected_ids: set[str] | None = None) -> list[str]:
+def _record_key(canonical_id: Any) -> str:
+    return canonical_id if isinstance(canonical_id, str) else repr(canonical_id)
+
+
+def validate_record(
+    record: dict[str, Any],
+    manifest: dict[str, Any],
+    registry: dict[str, Any],
+    expected_ids: set[str] | None = None,
+    domain_resolution: dict[str, Any] | None = None,
+) -> list[str]:
     errors: list[str] = []
     try:
         validate_schema(ROOT, "review-record.schema.json", record)
@@ -95,7 +128,7 @@ def validate_record(record: dict[str, Any], manifest: dict[str, Any], registry: 
     if record.get("record_type") != "review":
         return errors or ["review record must have record_type=review"]
     canonical_id = record.get("canonical_id")
-    routes = _manifest_routes(manifest)
+    routes = _manifest_routes(manifest, domain_resolution)
     route = routes.get(canonical_id)
     if route is None:
         errors.append(f"unknown routed canonical ID: {canonical_id}")
@@ -150,7 +183,13 @@ def validate_record(record: dict[str, Any], manifest: dict[str, Any], registry: 
     return errors
 
 
-def validate_records(records: list[dict[str, Any]], manifest: dict[str, Any], registry: dict[str, Any], expected_ids: set[str] | None = None) -> list[str]:
+def validate_records(
+    records: list[dict[str, Any]],
+    manifest: dict[str, Any],
+    registry: dict[str, Any],
+    expected_ids: set[str] | None = None,
+    domain_resolution: dict[str, Any] | None = None,
+) -> list[str]:
     errors: list[str] = []
     if not records:
         return ["ledger is empty"]
@@ -165,16 +204,27 @@ def validate_records(records: list[dict[str, Any]], manifest: dict[str, Any], re
         for key in IDENTITY_KEYS:
             if records[0].get(key) != expected.get(key):
                 errors.append(f"checkpoint {key} does not match manifest")
-    seen: set[str] = set()
+    latest: dict[str, dict[str, Any]] = {}
     for record in records[1:]:
         canonical_id = record.get("canonical_id")
+        record_key = _record_key(canonical_id)
         if record.get("record_type") == "checkpoint":
             errors.append("checkpoint is only allowed as the first JSONL record")
             continue
-        if canonical_id in seen:
-            errors.append(f"duplicate review record: {canonical_id}")
-        seen.add(canonical_id)
-        errors.extend(validate_record(record, manifest, registry, expected_ids))
+        record_errors = validate_record(record, manifest, registry, expected_ids, domain_resolution)
+        errors.extend(record_errors)
+        previous = latest.get(record_key)
+        revision = record.get("revision")
+        if previous is None:
+            if revision != 1:
+                errors.append(f"{canonical_id}: first review revision must be 1")
+        elif revision != previous.get("revision", 0) + 1:
+            errors.append(
+                f"{canonical_id}: revision must be {previous.get('revision', 0) + 1}, got {revision}"
+            )
+        elif not record_errors:
+            errors.extend(_transition_errors(previous, record))
+        latest[record_key] = record
     return errors
 
 
@@ -183,11 +233,31 @@ def collect_review_records(
     manifest: dict[str, Any],
     registry: dict[str, Any],
     expected_ids: set[str],
+    domain_resolution: dict[str, Any] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], list[str]]:
     """Validate and combine ledgers without allowing cross-ledger overwrites."""
-    validate_target_snapshot(manifest)
+    values_by_path, errors = _validated_ledgers(paths, manifest, registry, expected_ids, domain_resolution)
     records: dict[str, dict[str, Any]] = {}
+    for values in values_by_path:
+        for record in values[1:]:
+            if record.get("record_type") != "review":
+                continue
+            canonical_id = record.get("canonical_id")
+            records[_record_key(canonical_id)] = record
+    return records, errors
+
+
+def _validated_ledgers(
+    paths: list[Path],
+    manifest: dict[str, Any],
+    registry: dict[str, Any],
+    expected_ids: set[str],
+    domain_resolution: dict[str, Any] | None = None,
+) -> tuple[list[list[dict[str, Any]]], list[str]]:
+    validate_target_snapshot(manifest)
+    values_by_path: list[list[dict[str, Any]]] = []
     errors: list[str] = []
+    record_sources: dict[str, Path] = {}
     for path in paths:
         if not path.exists():
             continue
@@ -196,19 +266,49 @@ def collect_review_records(
         except (OSError, ValueError, json.JSONDecodeError) as error:
             errors.append(f"{path}: {error}")
             continue
-        errors.extend(f"{path}: {error}" for error in validate_records(values, manifest, registry, expected_ids))
+        errors.extend(
+            f"{path}: {error}"
+            for error in validate_records(values, manifest, registry, expected_ids, domain_resolution)
+        )
         for record in values[1:]:
             if record.get("record_type") != "review":
                 continue
             canonical_id = record.get("canonical_id")
-            if canonical_id in records:
+            record_key = _record_key(canonical_id)
+            if record_key in record_sources and record_sources[record_key] != path:
                 errors.append(f"duplicate Deep record across ledgers: {canonical_id}")
             else:
-                records[canonical_id] = record
-    return records, errors
+                record_sources[record_key] = path
+        values_by_path.append(values)
+    return values_by_path, errors
 
 
-def append(path: Path, manifest: dict[str, Any], record: dict[str, Any], registry: dict[str, Any] | None = None, expected_ids: set[str] | None = None) -> None:
+def collect_review_history(
+    paths: list[Path],
+    manifest: dict[str, Any],
+    registry: dict[str, Any],
+    expected_ids: set[str],
+    domain_resolution: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Return the validated event history for a Markdown audit view."""
+    values_by_path, errors = _validated_ledgers(paths, manifest, registry, expected_ids, domain_resolution)
+    history = [
+        record
+        for values in values_by_path
+        for record in values[1:]
+        if record.get("record_type") == "review"
+    ]
+    return [checkpoint(manifest), *history], errors
+
+
+def append(
+    path: Path,
+    manifest: dict[str, Any],
+    record: dict[str, Any],
+    registry: dict[str, Any] | None = None,
+    expected_ids: set[str] | None = None,
+    domain_resolution: dict[str, Any] | None = None,
+) -> None:
     validate_target_snapshot(manifest)
     if record.get("record_type") != "review":
         raise ValueError("append requires record_type=review")
@@ -220,16 +320,27 @@ def append(path: Path, manifest: dict[str, Any], record: dict[str, Any], registr
             raise ValueError(f"append record {key} does not match manifest")
     record = {**record, **{key: identity[key] for key in IDENTITY_KEYS}}
     registry_value = registry or read_json(ROOT / "data/canonical-checks.json")
-    errors = validate_record(record, manifest, registry_value, expected_ids)
-    if errors:
-        raise ValueError("; ".join(errors))
     records = load(path)
     if records:
-        existing_errors = validate_records(records, manifest, registry_value, expected_ids)
+        existing_errors = validate_records(records, manifest, registry_value, expected_ids, domain_resolution)
         if existing_errors:
             raise ValueError(f"invalid existing ledger: {'; '.join(existing_errors)}")
-        if any(item.get("canonical_id") == record.get("canonical_id") for item in records[1:]):
-            raise ValueError(f"duplicate review record: {record['canonical_id']}")
+    record = dict(record)
+    history = [item for item in records[1:] if item.get("canonical_id") == record.get("canonical_id")]
+    expected_revision = history[-1].get("revision", 0) + 1 if history else 1
+    if "revision" not in record:
+        record["revision"] = expected_revision
+    elif record["revision"] != expected_revision:
+        raise ValueError(
+            f"append revision for {record.get('canonical_id')} must be {expected_revision}"
+        )
+    errors = validate_record(record, manifest, registry_value, expected_ids, domain_resolution)
+    if errors:
+        raise ValueError("; ".join(errors))
+    if records:
+        transition_errors = _transition_errors(history[-1], record) if history else []
+        if transition_errors:
+            raise ValueError("; ".join(transition_errors))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as output:
         if not records:
@@ -254,7 +365,7 @@ def pending(manifest: dict[str, Any], screen: dict[str, Any], ledgers: list[Path
             if errors:
                 raise ValueError("; ".join(errors))
     candidates = {entry["canonical_id"] for entry in screen_records if entry["result"] == "CANDIDATE"}
-    records, errors = collect_review_records(ledgers, manifest, registry, candidates)
+    records, errors = collect_review_records(ledgers, manifest, registry, candidates, domain_resolution)
     if errors:
         raise ValueError("; ".join(errors))
     safe_done = {canonical_id for canonical_id, record in records.items() if record["status"] in {"NOT_APPLICABLE", "REVIEWED_SAFE", "CONFIRMED"}}
@@ -284,7 +395,7 @@ def render_markdown(records: list[dict[str, Any]], manifest: dict[str, Any], reg
         title = checks.get(canonical_id, {}).get("title", "")
         lines.extend([f"### {canonical_id} — {title}"])
         for key, label in (
-            ("review_stage", "Review stage"), ("owner_domain", "Owner Domain"), ("check_body_hash", "Check body hash"),
+            ("revision", "Revision"), ("review_stage", "Review stage"), ("owner_domain", "Owner Domain"), ("check_body_hash", "Check body hash"),
             ("status", "Status"), ("applicability", "Applicability"), ("code_path", "Code path"),
             ("preconditions", "Preconditions"), ("exploitability", "Exploitability"), ("impact", "Impact"),
             ("proof", "PoC / Invariant violation"), ("preserved_invariant", "Preserved invariant"),
@@ -298,12 +409,36 @@ def render_markdown(records: list[dict[str, Any]], manifest: dict[str, Any], reg
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_ledger(path: Path, manifest: dict[str, Any], records: Iterable[dict[str, Any]], registry: dict[str, Any] | None = None, expected_ids: set[str] | None = None) -> None:
+def write_ledger(
+    path: Path,
+    manifest: dict[str, Any],
+    records: Iterable[dict[str, Any]],
+    registry: dict[str, Any] | None = None,
+    expected_ids: set[str] | None = None,
+    domain_resolution: dict[str, Any] | None = None,
+) -> None:
     validate_target_snapshot(manifest)
     if path.exists():
         raise ValueError(f"refusing to overwrite existing ledger: {path}")
-    values = [checkpoint(manifest), *records]
-    errors = validate_records(values, manifest, registry or read_json(ROOT / "data/canonical-checks.json"), expected_ids)
+    prepared: list[dict[str, Any]] = []
+    next_revision: dict[str, int] = {}
+    for raw_record in records:
+        record = dict(raw_record)
+        canonical_id = record.get("canonical_id")
+        record_key = _record_key(canonical_id)
+        if "revision" not in record:
+            record["revision"] = next_revision.get(record_key, 0) + 1
+        if isinstance(record.get("revision"), int):
+            next_revision[record_key] = record["revision"]
+        prepared.append(record)
+    values = [checkpoint(manifest), *prepared]
+    errors = validate_records(
+        values,
+        manifest,
+        registry or read_json(ROOT / "data/canonical-checks.json"),
+        expected_ids,
+        domain_resolution,
+    )
     if errors:
         raise ValueError("; ".join(errors))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -348,19 +483,19 @@ def main(argv: list[str] | None = None) -> int:
             if len(args.ledger) != 1:
                 raise ValueError("--append-record requires exactly one --ledger output")
             appended_record = read_json(args.append_record)
-            append(args.ledger[0], manifest, appended_record, registry, candidates)
+            append(args.ledger[0], manifest, appended_record, registry, candidates, domain_resolution)
             success("Review ledger updated")
         records: dict[str, dict[str, Any]] = {}
         if args.render_markdown:
-            records, errors = collect_review_records(args.ledger, manifest, registry, candidates)
+            values, errors = collect_review_history(args.ledger, manifest, registry, candidates, domain_resolution)
             if errors:
                 raise ValueError("; ".join(errors))
-            values = [checkpoint(manifest), *records.values()]
             args.render_markdown.parent.mkdir(parents=True, exist_ok=True)
             args.render_markdown.write_text(render_markdown(values, manifest, registry), encoding="utf-8")
             success(f"Review view written to {args.render_markdown}")
+            records, errors = collect_review_records(args.ledger, manifest, registry, candidates, domain_resolution)
         elif args.append_record:
-            records, errors = collect_review_records(args.ledger, manifest, registry, candidates)
+            records, errors = collect_review_records(args.ledger, manifest, registry, candidates, domain_resolution)
             if errors:
                 raise ValueError("; ".join(errors))
         if args.append_record or args.render_markdown:

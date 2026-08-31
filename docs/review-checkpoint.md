@@ -3,7 +3,7 @@
 Use `scripts/review_ledger.py` with the immutable manifest, `screen-results.json`,
 and canonical registry. JSONL records are append-only. An interrupted audit
 continues by loading the existing ledger, validating its checkpoint against the
-same manifest, and appending only missing records.
+same manifest, and appending the next validated revision.
 
 | Change | Continue the same ledger? |
 |---|---:|

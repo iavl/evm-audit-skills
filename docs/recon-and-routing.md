@@ -5,16 +5,27 @@ scope digest, compilation-input digest, compilation coverage, analyzed files,
 tool versions, and a scope-bound `recon_context`. The map uses
 `PRESENT`, `ABSENT_CONFIRMED`, or `UNKNOWN`.
 
-Selector rejects a missing, incomplete, or mismatched scope before filtering.
-`UNKNOWN` remains selected. `ABSENT_CONFIRMED` is valid only after complete
-Slither coverage and acceptable typed evidence. Evidence for confirmed states
-uses `kind`, `location`, and `reason`; absence is accepted only when the
-feature's `absence_policy` allows that evidence kind.
+Selector rejects a missing or mismatched scope before filtering. Incomplete
+compilation is accepted in conservative degraded mode: presence evidence is
+usable, every claimed absence is downgraded to `UNKNOWN`, and
+`recon_quality.mode` records the reduced coverage. Add
+`--require-complete-compilation` for strict fail-fast behavior. `UNKNOWN`
+remains selected. `ABSENT_CONFIRMED` is valid only after complete Slither
+coverage and acceptable typed evidence. Evidence for confirmed states uses
+`kind`, `location`, and `reason`; absence is accepted only when the feature's
+`absence_policy` allows that evidence kind.
 
 ## Recon
 
 Build the initial Feature Map from Slither's AST/IR, then supplement remaining
-`UNKNOWN` features from deployment evidence:
+`UNKNOWN` features from deployment evidence. Feature-to-detector mapping lives
+in `data/feature-detectors.json`; Python only implements the named structural
+detectors:
+Only `uses-assembly`, `uses-msg-value`, and `uses-payable` are currently
+absence-capable. Their node/function traversal is explicit and complete for
+the scoped compilation; all other detectors remain presence-only because a
+negative keyword or partial structural traversal is not a sound protocol
+absence proof.
 
 ```bash
 python3 scripts/recon.py <target-project-or-solidity-file> --audit-root <target-repo> \

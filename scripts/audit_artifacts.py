@@ -6,8 +6,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
+
+_SUITE_ROOT = str(Path(__file__).resolve().parents[1])
+if _SUITE_ROOT not in sys.path:
+    sys.path.insert(0, _SUITE_ROOT)
+from evm_audit_runtime.routing import effective_owner_domain, resolved_routes
 
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -117,6 +123,8 @@ def validate_artifact_identity(value: dict[str, Any], manifest: dict[str, Any]) 
     for key, wanted in expected.items():
         if value.get(key) != wanted:
             raise ValueError(f"artifact has mismatched {key}")
+
+
 
 
 def validate_context(root: Path, manifest: dict[str, Any], value: dict[str, Any]) -> list[str]:

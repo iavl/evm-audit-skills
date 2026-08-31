@@ -22,11 +22,12 @@ safe path cannot establish `REVIEWED_SAFE` or `CONFIRMED`.
 
 The authoritative JSON object includes `routing_snapshot_id`,
 `registry_sha256`, `source_digest`, `compilation_input_digest`, `owner_domain`,
-`check_body_hash`, `review_stage`, `status`, all review fields, and typed
+`check_body_hash`, `revision`, `review_stage`, `status`, all review fields, and typed
 `evidence` entries (`kind`, `location`, `reason`). It uses review-record schema
-v4 and must match the one routing snapshot that owns the ledger. `CONFIRMED`
-records require `PROOF` stage and strong test, trace, invariant, or calculation
-evidence.
+v5 and must match the one routing snapshot that owns the ledger. A follow-up
+revision may resolve only a prior `SUSPICIOUS` event and must use `PROOF`.
+`CONFIRMED` records require `PROOF` stage and strong test, trace, invariant, or
+calculation evidence.
 
 ```markdown
 ### <canonical-id> — <title>
@@ -48,9 +49,8 @@ For `REVIEWED_SAFE`, cover alternate, inherited, proxy, callback, and
 delegatecall paths where relevant. For `SUSPICIOUS`, identify the missing proof
 step. Only `CONFIRMED` records enter synthesis or receive severity.
 
-Reject synthesis when any selected Deep ID is missing, duplicated, malformed,
-or non-terminal. Deferred Domains require
-`COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING`; unknown required context requires
-`COMPLETE_WITH_UNRESOLVED_CONTEXT`; suspicious records require
-`COMPLETE_WITH_UNRESOLVED_REVIEW`. None is clean. Final findings contain only
-`CONFIRMED` records.
+Reject synthesis when any selected Deep ID is missing, malformed, non-terminal,
+or has an invalid revision history. Deferred Domains require
+`INCOMPLETE_DOMAIN_ROUTING`; unknown required context requires
+`INCOMPLETE_CONTEXT`; suspicious records require `INCOMPLETE_REVIEW`. Only
+`COMPLETE_CLEAN` is clean, and final findings contain only `CONFIRMED` records.

@@ -13,20 +13,33 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "voting_power_quorum_timelock_proposal_and_execution_model",
+      "key": "voting_power",
       "required": true,
-      "description": "voting power, quorum, timelock, proposal, and execution model"
+      "description": "voting power, delegation, and snapshot model"
+    },
+    {
+      "key": "quorum_model",
+      "required": true,
+      "description": "quorum and participation calculation"
+    },
+    {
+      "key": "timelock",
+      "required": true,
+      "description": "timelock delay, cancellation, and execution authority"
+    },
+    {
+      "key": "proposal_model",
+      "required": true,
+      "description": "proposal lifecycle and validation"
+    },
+    {
+      "key": "execution_model",
+      "required": true,
+      "description": "proposal execution order and target-call surface"
     }
   ],
   "review_requirements": [
     "trace proposal creation through execution and cancellation"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "proposal",
-    "vote",
-    "quorum",
-    "timelock",
-    "delegate"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

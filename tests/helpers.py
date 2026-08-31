@@ -54,6 +54,12 @@ def synthetic_feature_map(
             "source_digest": digests["audit_source_digest"],
             **digests,
             "compilation_complete": True,
+            "recon_quality": {
+                "compilation_complete": True,
+                "absence_filtering_complete": True,
+                "mode": "COMPLETE",
+                "uncompiled_paths": [],
+            },
             "slither_version": "synthetic",
             "solc_version": "0.8.24",
         },

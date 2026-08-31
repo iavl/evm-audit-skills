@@ -9,15 +9,17 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from scripts.audit_artifacts import (
     bind_routing_snapshot,
+    resolved_routes,
     validate_context,
     validate_domain_context,
     validate_domain_resolution,
 )
 from scripts.render_runtime import domain_context_template, domain_resolution_template, render, screen_results_template, validate_manifest, validate_screen_results
-from scripts.review_ledger import append, check_body_hash, collect_review_records, load, validate_record, validate_records, write_ledger
+from scripts.review_ledger import append, check_body_hash, checkpoint, collect_review_history, collect_review_records, load, render_markdown, validate_record, validate_records, write_ledger
 from scripts.scope_context import find_suite_root
 from scripts.select_checks import audit_context, load_domains, normalize_feature_map, select
 from scripts.validate_audit_run import validate_run
@@ -115,6 +117,120 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertEqual(shared["owner_domain"], "evm-audit-precision-math")
         validate_manifest(ROOT, manifest, registry)
+
+    def deferred_shared_manifest(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+        raw = synthetic_feature_map()
+        features = normalize_feature_map(raw, self.feature_names, self.feature_policies, EMPTY_TARGET)
+        context = audit_context(
+            ROOT,
+            self.registry,
+            raw["recon_context"],
+            target_root=EMPTY_TARGET,
+            audit_timestamp="test",
+        )
+        environment = {
+            **{key: context[key] for key in (
+                "chain_id", "chain_family", "execution_environment", "compiler_version",
+                "evm_fork", "protocol_version",
+            )},
+            "environment_facts": context["environment_facts"],
+        }
+        configs = load_domains(ROOT)
+        configs["evm-audit-general"] = {
+            **configs["evm-audit-general"],
+            "always_screen": False,
+        }
+        manifest, _ = select(
+            self.registry,
+            features,
+            self.feature_names,
+            None,
+            context,
+            configs,
+            environment,
+            raw["recon_context"],
+        )
+        return self.registry, raw, manifest, domain_resolution_template(manifest)
+
+    def test_deferred_shared_owner_moves_to_present_domain(self) -> None:
+        registry, _, manifest, resolution = (*self.deferred_shared_manifest(),)
+        primary = "evm-audit-precision-math"
+        fallback = "evm-audit-general"
+        resolution["domains"][primary] = {
+            "status": "ABSENT_CONFIRMED",
+            "scope_complete": True,
+            "evidence": [{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+        }
+        resolution["domains"][fallback] = {
+            "status": "PRESENT",
+            "scope_complete": False,
+            "evidence": [{"kind": "source", "location": "fixture", "reason": "surface exists"}],
+        }
+        shared_id = "EVM-TIME-001"
+        manifest_route = next(entry for entry in manifest["deferred"] if entry["canonical_id"] == shared_id)
+        self.assertEqual(manifest_route["owner_domain"], primary)
+        active = [entry for entry in resolved_routes(manifest, resolution) if entry["canonical_id"] == shared_id]
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["owner_domain"], fallback)
+        self.assertIn(f"[{shared_id}]", render(manifest, registry, "screen", set(), fallback, resolution))
+        self.assertNotIn(f"[{shared_id}]", render(manifest, registry, "screen", set(), primary, resolution))
+
+        check = next(item for item in registry["checks"] if item["canonical_id"] == shared_id)
+        record = {
+            "record_type": "review",
+            "schema_version": 5,
+            "canonical_id": shared_id,
+            "revision": 1,
+            "owner_domain": fallback,
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "check_body_hash": check_body_hash(check),
+            "review_stage": "DEEP_REVIEW",
+            "status": "REVIEWED_SAFE",
+            "applicability": "APPLICABLE - fixture",
+            "code_path": "fixture entry",
+            "preconditions": "fixture state",
+            "exploitability": "guard holds",
+            "impact": "none",
+            "proof": "fixture invariant",
+            "preserved_invariant": "fixture invariant",
+            "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}],
+        }
+        record.update({key: manifest["audit_context"][key] for key in (
+            "registry_sha256", "source_digest", "compilation_input_digest",
+        )})
+        self.assertEqual(validate_record(record, manifest, registry, {shared_id}, resolution), [])
+
+    def test_deferred_shared_owner_prefers_active_manifest_owner(self) -> None:
+        registry, _, manifest, resolution = (*self.deferred_shared_manifest(),)
+        for domain in ("evm-audit-precision-math", "evm-audit-general"):
+            resolution["domains"][domain] = {
+                "status": "PRESENT",
+                "scope_complete": False,
+                "evidence": [{"kind": "source", "location": "fixture", "reason": "surface exists"}],
+            }
+        shared = [entry for entry in resolved_routes(manifest, resolution) if entry["canonical_id"] == "EVM-TIME-001"]
+        self.assertEqual(len(shared), 1)
+        self.assertEqual(shared[0]["owner_domain"], "evm-audit-precision-math")
+
+    def test_deferred_shared_owner_disappears_when_all_domains_absent(self) -> None:
+        _, _, manifest, resolution = (*self.deferred_shared_manifest(),)
+        for domain, item in resolution["domains"].items():
+            item.update(
+                status="ABSENT_CONFIRMED",
+                scope_complete=True,
+                evidence=[{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+            )
+        self.assertFalse(any(entry["canonical_id"] == "EVM-TIME-001" for entry in resolved_routes(manifest, resolution)))
+        self.assertEqual(screen_results_template(manifest, resolution)["results"], [])
+
+    def test_selected_primary_owner_does_not_change_after_resolution(self) -> None:
+        _, _, _, manifest = build_manifest(
+            ("evm-audit-general", "evm-audit-precision-math"),
+            all_features=True,
+        )
+        shared = [entry for entry in resolved_routes(manifest) if entry["canonical_id"] == "EVM-TIME-001"]
+        self.assertEqual(len(shared), 1)
+        self.assertEqual(shared[0]["owner_domain"], "evm-audit-precision-math")
 
     def test_routing_manifest_rejects_invalid_shape(self) -> None:
         with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as manifest_file:
@@ -234,7 +350,8 @@ class RuntimeTests(unittest.TestCase):
 
     def test_optional_unknown_context_does_not_block_completion(self) -> None:
         _, _, _, manifest = build_manifest()
-        manifest["required_context_requirements"]["evm-audit-general"][next(iter(manifest["required_context_requirements"]["evm-audit-general"]))]["required"] = False
+        for requirement in manifest["required_context_requirements"]["evm-audit-general"].values():
+            requirement["required"] = False
         manifest = bind_routing_snapshot(manifest)
         context = domain_context_template(manifest)
         self.assertEqual(validate_domain_context(ROOT, manifest, context), set())
@@ -353,13 +470,15 @@ class RuntimeTests(unittest.TestCase):
                     evidence=[{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
                 )
         state = validate_run(ROOT, manifest, self.registry, screen, None, domain_context, context, [])
-        self.assertEqual(state["status"], "COMPLETE")
+        self.assertEqual(state["status"], "COMPLETE_CLEAN")
+        self.assertTrue(state["complete"])
         self.assertTrue(state["clean"])
         screen["results"][0]["result"] = "CANDIDATE"
         screen["results"][0]["scope_complete"] = False
         screen["results"][0]["evidence"] = []
         state = validate_run(ROOT, manifest, self.registry, screen, None, domain_context, context, [])
-        self.assertEqual(state["status"], "COMPLETE_WITH_UNRESOLVED_REVIEW")
+        self.assertEqual(state["status"], "INCOMPLETE_REVIEW")
+        self.assertFalse(state["complete"])
 
     def test_unknown_deferred_domain_is_not_complete(self) -> None:
         raw = synthetic_feature_map()
@@ -425,7 +544,8 @@ class RuntimeTests(unittest.TestCase):
                     evidence=[{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
                 )
         state = validate_run(ROOT, manifest, self.registry, screen, resolution, domain_context, context_artifact, [])
-        self.assertEqual(state["status"], "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING")
+        self.assertEqual(state["status"], "INCOMPLETE_DOMAIN_ROUTING")
+        self.assertFalse(state["complete"])
 
     def test_jsonl_checkpoint_requires_same_snapshot_and_appends(self) -> None:
         registry, _, _, manifest = build_manifest()
@@ -435,7 +555,7 @@ class RuntimeTests(unittest.TestCase):
             path = Path(directory) / "review.jsonl"
             record = {
                 "record_type": "review",
-                "schema_version": 4,
+                "schema_version": 5,
                 "canonical_id": check["canonical_id"],
                 "owner_domain": entry["owner_domain"],
                 "routing_snapshot_id": manifest["routing_snapshot_id"],
@@ -472,14 +592,156 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "record_type=review"):
                 append(path, manifest, {key: value for key, value in record.items() if key != "record_type"})
 
+    def test_review_revisions_preserve_history_and_derive_latest_state(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        entry = manifest["selected"][0]
+        check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        first = {
+            "record_type": "review",
+            "schema_version": 5,
+            "canonical_id": entry["canonical_id"],
+            "owner_domain": entry["owner_domain"],
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "check_body_hash": check_body_hash(check),
+            "review_stage": "DEEP_REVIEW",
+            "status": "SUSPICIOUS",
+            "applicability": "APPLICABLE - fixture",
+            "code_path": "fixture entry",
+            "preconditions": "fixture state",
+            "exploitability": "alternate path unresolved",
+            "impact": "potential accounting issue",
+            "proof": "proof pending",
+            "unresolved_reason": "alternate path pending",
+            "evidence": [{"kind": "manual", "location": "fixture", "reason": "deep review candidate"}],
+        }
+        first.update({key: manifest["audit_context"][key] for key in (
+            "registry_sha256", "source_digest", "compilation_input_digest",
+        )})
+        second = {
+            **{key: value for key, value in first.items() if key != "unresolved_reason"},
+            "review_stage": "PROOF",
+            "status": "CONFIRMED",
+            "exploitability": "attacker reaches the fixture path",
+            "impact": "accounting is corrupted",
+            "proof": "deterministic proof completed",
+            "evidence": [{"kind": "trace", "location": "fixture", "reason": "deterministic proof trace"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.jsonl"
+            append(path, manifest, first, registry, {entry["canonical_id"]})
+            append(path, manifest, second, registry, {entry["canonical_id"]})
+            values = load(path)
+            self.assertEqual([record["revision"] for record in values[1:]], [1, 2])
+            self.assertEqual(validate_records(values, manifest, registry, {entry["canonical_id"]}), [])
+            latest, errors = collect_review_records([path], manifest, registry, {entry["canonical_id"]})
+            self.assertEqual(errors, [])
+            self.assertEqual(latest[entry["canonical_id"]]["status"], "CONFIRMED")
+            history, errors = collect_review_history([path], manifest, registry, {entry["canonical_id"]})
+            self.assertEqual(errors, [])
+            markdown = render_markdown(history, manifest, registry)
+            self.assertIn("- **Revision:** 1", markdown)
+            self.assertIn("- **Revision:** 2", markdown)
+            self.assertEqual(markdown.count(f"### {entry['canonical_id']}"), 2)
+
+    def test_review_revision_order_and_transition_rules(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        entry = manifest["selected"][0]
+        check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        base = {
+            "record_type": "review",
+            "schema_version": 5,
+            "canonical_id": entry["canonical_id"],
+            "revision": 1,
+            "owner_domain": entry["owner_domain"],
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "check_body_hash": check_body_hash(check),
+            "review_stage": "DEEP_REVIEW",
+            "status": "SUSPICIOUS",
+            "applicability": "APPLICABLE - fixture",
+            "code_path": "fixture entry",
+            "preconditions": "fixture state",
+            "exploitability": "alternate path unresolved",
+            "impact": "potential issue",
+            "proof": "proof pending",
+            "unresolved_reason": "proof pending",
+            "evidence": [{"kind": "manual", "location": "fixture", "reason": "deep review"}],
+        }
+        base.update({key: manifest["audit_context"][key] for key in (
+            "registry_sha256", "source_digest", "compilation_input_digest",
+        )})
+        without_first = {**base, "revision": 2}
+        self.assertTrue(any("first review revision must be 1" in error for error in validate_records(
+            [checkpoint(manifest), without_first], manifest, registry, {entry["canonical_id"]}
+        )))
+        safe_first = {
+            **base,
+            "status": "REVIEWED_SAFE",
+            "exploitability": "guard holds",
+            "preserved_invariant": "fixture invariant",
+        }
+        safe_then_proof = {
+            **safe_first,
+            "revision": 2,
+            "review_stage": "PROOF",
+            "status": "CONFIRMED",
+            "evidence": [{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
+        }
+        errors = validate_records(
+            [checkpoint(manifest), safe_first, safe_then_proof],
+            manifest,
+            registry,
+            {entry["canonical_id"]},
+        )
+        self.assertTrue(any("cannot follow REVIEWED_SAFE" in error for error in errors))
+        proper_second = {
+            **base,
+            "revision": 2,
+            "review_stage": "PROOF",
+            "status": "SUSPICIOUS",
+            "evidence": [{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
+        }
+        duplicate = {**proper_second}
+        errors = validate_records(
+            [checkpoint(manifest), base, proper_second, duplicate],
+            manifest,
+            registry,
+            {entry["canonical_id"]},
+        )
+        self.assertTrue(any("revision must be 3" in error for error in errors))
+        not_applicable = {
+            **base,
+            "revision": 2,
+            "review_stage": "PROOF",
+            "status": "NOT_APPLICABLE",
+            "scope_complete": True,
+            "applicability": "NOT_APPLICABLE - trigger absent",
+            "code_path": "no trigger",
+            "preconditions": "trigger absent",
+            "exploitability": "not exploitable",
+            "impact": "none",
+            "proof": "scope proof",
+            "evidence": [
+                {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                {"kind": "source", "location": "fixture", "reason": "trigger absent"},
+            ],
+        }
+        errors = validate_records(
+            [checkpoint(manifest), base, not_applicable],
+            manifest,
+            registry,
+            {entry["canonical_id"]},
+        )
+        self.assertTrue(any("valid proof resolution" in error for error in errors))
+
     def test_deep_not_applicable_does_not_require_irrelevant_evidence(self) -> None:
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
         record = {
             "record_type": "review",
-            "schema_version": 4,
+            "schema_version": 5,
             "canonical_id": entry["canonical_id"],
+            "revision": 1,
             "owner_domain": entry["owner_domain"],
             "routing_snapshot_id": manifest["routing_snapshot_id"],
             "check_body_hash": check_body_hash(check),
@@ -506,8 +768,9 @@ class RuntimeTests(unittest.TestCase):
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
         record = {
             "record_type": "review",
-            "schema_version": 4,
+            "schema_version": 5,
             "canonical_id": entry["canonical_id"],
+            "revision": 1,
             "owner_domain": entry["owner_domain"],
             "routing_snapshot_id": manifest["routing_snapshot_id"],
             "check_body_hash": check_body_hash(check),
@@ -536,8 +799,9 @@ class RuntimeTests(unittest.TestCase):
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
         record = {
             "record_type": "review",
-            "schema_version": 4,
+            "schema_version": 5,
             "canonical_id": entry["canonical_id"],
+            "revision": 1,
             "owner_domain": entry["owner_domain"],
             "routing_snapshot_id": manifest["routing_snapshot_id"],
             "check_body_hash": check_body_hash(check),
@@ -607,9 +871,10 @@ class RuntimeTests(unittest.TestCase):
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
         base = {
-                "schema_version": 4,
+                "schema_version": 5,
             "record_type": "review",
             "canonical_id": entry["canonical_id"],
+            "revision": 1,
             "owner_domain": entry["owner_domain"],
             "routing_snapshot_id": manifest["routing_snapshot_id"],
             "check_body_hash": check_body_hash(check),

@@ -13,20 +13,33 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "proxy_kind_implementation_admin_initializer_and_upgrade_path",
+      "key": "proxy_kind",
       "required": true,
-      "description": "proxy kind, implementation, admin, initializer, and upgrade path"
+      "description": "proxy pattern and deployment topology"
+    },
+    {
+      "key": "implementation",
+      "required": true,
+      "description": "implementation address and code identity"
+    },
+    {
+      "key": "admin",
+      "required": true,
+      "description": "upgrade administrator or governance authority"
+    },
+    {
+      "key": "initializer",
+      "required": true,
+      "description": "initializer and initialization state"
+    },
+    {
+      "key": "upgrade_path",
+      "required": true,
+      "description": "upgrade authorization, storage, and migration path"
     }
   ],
   "review_requirements": [
     "trace initialization, authorization, and storage compatibility"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "proxy",
-    "upgrade",
-    "implementation",
-    "initializer",
-    "storage slot"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

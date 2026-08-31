@@ -13,20 +13,28 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "entrypoint_version_account_modules_paymasters_and_bundler_assump",
+      "key": "entrypoint_version",
       "required": true,
-      "description": "EntryPoint version, account modules, paymasters, and bundler assumptions"
+      "description": "EntryPoint implementation and version"
+    },
+    {
+      "key": "account_modules",
+      "required": true,
+      "description": "account, validation, and module execution surface"
+    },
+    {
+      "key": "paymaster_model",
+      "required": true,
+      "description": "paymaster validation, sponsorship, and settlement"
+    },
+    {
+      "key": "bundler_assumptions",
+      "required": true,
+      "description": "bundler, simulation, and mempool assumptions"
     }
   ],
   "review_requirements": [
     "trace validation, replay, prefund, and execution boundaries"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "UserOperation",
-    "EntryPoint",
-    "paymaster",
-    "bundler",
-    "account abstraction"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

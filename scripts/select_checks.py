@@ -230,13 +230,19 @@ def _string_list(value: Any, label: str) -> list[str]:
     return value
 
 
-def validate_recon_context(raw: Any, target_root: Path | None, exclusions: tuple[str, ...]) -> dict[str, Any]:
+def validate_recon_context(
+    raw: Any,
+    target_root: Path | None,
+    exclusions: tuple[str, ...],
+    *,
+    require_complete: bool = False,
+) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise SelectionInputError("Feature Map v4 requires recon_context")
     required = {
         "target_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "uncompiled_paths", "source_digest",
         "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest",
-        "compilation_complete", "slither_version", "solc_version",
+        "compilation_complete", "recon_quality", "slither_version", "solc_version",
     }
     if set(raw) != required:
         raise SelectionInputError(f"recon_context fields must be {sorted(required)}")
@@ -253,8 +259,25 @@ def validate_recon_context(raw: Any, target_root: Path | None, exclusions: tuple
             raise SelectionInputError(f"recon_context.{key} must be a SHA-256 digest")
     if raw["source_digest"] != raw["audit_source_digest"]:
         raise SelectionInputError("recon_context.source_digest must equal audit_source_digest")
-    if raw["compilation_complete"] is not True or uncompiled:
-        raise SelectionInputError("FAST_FILTER requires compilation_complete=true and no uncompiled paths")
+    if not isinstance(raw["compilation_complete"], bool):
+        raise SelectionInputError("recon_context.compilation_complete must be boolean")
+    quality = raw["recon_quality"]
+    if not isinstance(quality, dict) or set(quality) != {
+        "compilation_complete", "absence_filtering_complete", "mode", "uncompiled_paths"
+    }:
+        raise SelectionInputError("recon_context.recon_quality has an invalid shape")
+    expected_mode = "COMPLETE" if raw["compilation_complete"] else "CONSERVATIVE_DEGRADED"
+    if (
+        quality["compilation_complete"] is not raw["compilation_complete"]
+        or quality["absence_filtering_complete"] is not raw["compilation_complete"]
+        or quality["mode"] != expected_mode
+        or quality["uncompiled_paths"] != uncompiled
+    ):
+        raise SelectionInputError("recon_context.recon_quality does not match compilation coverage")
+    if raw["compilation_complete"] and uncompiled:
+        raise SelectionInputError("recon_context compilation coverage is inconsistent")
+    if require_complete and (not raw["compilation_complete"] or uncompiled):
+        raise SelectionInputError("complete compilation is required for strict FAST_FILTER")
     if not isinstance(raw["slither_version"], str) or not raw["slither_version"]:
         raise SelectionInputError("recon_context.slither_version is required")
     if raw["solc_version"] is not None and not isinstance(raw["solc_version"], str):
@@ -300,10 +323,14 @@ def normalize_feature_map(
     policies: dict[str, dict[str, Any]],
     target_root: Path | None,
     exclusions: tuple[str, ...] = (),
+    *,
+    require_complete: bool = False,
 ) -> dict[str, dict[str, Any]]:
     if raw.get("schema_version") != FEATURE_MAP_VERSION:
         raise SelectionInputError(f"feature map schema_version must be {FEATURE_MAP_VERSION}")
-    validate_recon_context(raw.get("recon_context"), target_root, exclusions)
+    recon_context = validate_recon_context(
+        raw.get("recon_context"), target_root, exclusions, require_complete=require_complete
+    )
     entries = raw.get("features")
     if not isinstance(entries, dict):
         raise SelectionInputError("feature map must contain an object named 'features'")
@@ -330,6 +357,9 @@ def normalize_feature_map(
             if policies[feature]["absence_policy"] == "never-confirm-absence" or not kinds or not kinds <= allowed:
                 status = "UNKNOWN"
                 reason = f"absence rejected by policy {policies[feature]['absence_policy']}"
+        if status == "ABSENT_CONFIRMED" and not recon_context["recon_quality"]["absence_filtering_complete"]:
+            status = "UNKNOWN"
+            reason = "absence downgraded because Recon compilation coverage is incomplete"
         normalized[feature] = {"status": status, "evidence": evidence}
         if reason.strip():
             normalized[feature]["reason"] = reason.strip()
@@ -678,6 +708,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--quiet", action="store_true", help="suppress progress output")
     parser.add_argument("--verbose", action="store_true", help="include per-domain routing details")
+    parser.add_argument("--require-complete-compilation", action="store_true", help="reject degraded Recon coverage")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     configure(quiet=args.quiet, verbose=args.verbose)
@@ -689,8 +720,20 @@ def main(argv: list[str] | None = None) -> int:
         names, policies = vocabulary(feature_data)
         raw_feature_map = load_json(args.feature_map.resolve())
         exclusions = tuple(args.exclude)
-        feature_map = normalize_feature_map(raw_feature_map, names, policies, args.target_root, exclusions)
-        recon_context = validate_recon_context(raw_feature_map["recon_context"], args.target_root, exclusions)
+        feature_map = normalize_feature_map(
+            raw_feature_map,
+            names,
+            policies,
+            args.target_root,
+            exclusions,
+            require_complete=args.require_complete_compilation,
+        )
+        recon_context = validate_recon_context(
+            raw_feature_map["recon_context"],
+            args.target_root,
+            exclusions,
+            require_complete=args.require_complete_compilation,
+        )
         domain_configs = load_domains(root)
         scope_domains = parse_domains(args, set(domain_configs))
         environment_context = load_json(args.environment_context.resolve()) if args.environment_context else {"schema_version": 1, "facts": {}}

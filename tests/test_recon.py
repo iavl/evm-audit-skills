@@ -11,6 +11,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.recon import DETECTOR_IMPLEMENTATIONS, SAFE_ABSENCE_IMPLEMENTATIONS, load_detector_config
+
 from helpers import ROOT, load_json
 
 
@@ -25,6 +27,19 @@ def run_recon(target: Path, *extra: str) -> subprocess.CompletedProcess[str]:
 
 
 class ReconTests(unittest.TestCase):
+    def test_detector_registry_matches_python_implementations(self) -> None:
+        features = set(load_json(ROOT / "data/features.json")["features"])
+        detectors = load_detector_config(ROOT, features)
+        self.assertTrue(detectors)
+        for feature, detector in detectors.items():
+            with self.subTest(feature=feature):
+                if detector["mode"] == "structural":
+                    self.assertIn(detector["implementation"], DETECTOR_IMPLEMENTATIONS)
+                    if detector["absence_capable"]:
+                        self.assertIn(detector["implementation"], SAFE_ABSENCE_IMPLEMENTATIONS)
+                else:
+                    self.assertTrue(detector["terms"])
+
     def test_recon_uses_slither_evidence_and_confirms_supported_absence(self) -> None:
         result = run_recon(ROOT / "tests/fixtures/recon/ReconFixture.sol")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -68,7 +83,7 @@ class ReconTests(unittest.TestCase):
         ):
             self.assertEqual(features[feature]["status"], "UNKNOWN")
 
-    def test_incomplete_compilation_rejects_fast_filter(self) -> None:
+    def test_incomplete_compilation_uses_conservative_degraded_routing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             feature_path = Path(temp_dir) / "feature-map.json"
             recon = run_recon(
@@ -90,13 +105,39 @@ class ReconTests(unittest.TestCase):
                     str(ROOT),
                     "--domain",
                     "evm-audit-general",
+                    "--manifest-out",
+                    str(Path(temp_dir) / "manifest.json"),
                 ],
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
             )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("compilation_complete", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest = load_json(Path(temp_dir) / "manifest.json")
+            self.assertEqual(
+                manifest["feature_map"]["recon_context"]["recon_quality"]["mode"],
+                "CONSERVATIVE_DEGRADED",
+            )
+            self.assertEqual(manifest["filtered_count"], 0)
+
+            strict = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/select_checks.py",
+                    "--feature-map",
+                    str(feature_path),
+                    "--target-root",
+                    str(ROOT),
+                    "--domain",
+                    "evm-audit-general",
+                    "--require-complete-compilation",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(strict.returncode, 0)
+            self.assertIn("complete compilation", strict.stderr)
 
 
 if __name__ == "__main__":

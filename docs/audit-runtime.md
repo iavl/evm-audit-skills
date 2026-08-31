@@ -41,14 +41,18 @@ snapshot-bound Domain Context and rerun Screen with both artifacts.
 evidence for the relevant exclusion dimension; uncertainty remains `CANDIDATE`.
 `LIKELY_SAFE` is not a valid state.
 
-Each candidate canonical ID receives exactly one owner-Domain JSONL review
-record. Deep/proof records include snapshot/hash identity, applicability, code
-path, preconditions, exploitability, impact, PoC/invariant evidence, and one
-of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
+Each candidate canonical ID receives one owner-Domain JSONL event stream.
+Events include snapshot/hash identity, a contiguous revision, applicability,
+code path, preconditions, exploitability, impact, PoC/invariant evidence, and
+one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
+`SUSPICIOUS` may be resolved only by a later `PROOF` event; the latest valid
+event is the derived state and earlier events remain visible in the Markdown
+view.
 
 `--append-record` accepts a current review payload with `record_type: "review"`
-and `schema_version: 4`; `CONFIRMED` requires `PROOF` and strong proof evidence.
-Missing, stale, or older record shapes are rejected.
+and `schema_version: 5`; the append command assigns the next revision when it
+is omitted. `CONFIRMED` requires `PROOF` and strong proof evidence. Missing,
+stale, or older record shapes are rejected.
 
 Runtime Markdown is a generated view with snapshot, registry, source,
 compilation-input, profile, and candidate-set hashes; the renderer validates
@@ -70,9 +74,9 @@ python3 scripts/validate_audit_run.py --manifest routing/manifest.json \
 ```
 
 Only `CONFIRMED` records may become findings. `NOT_APPLICABLE`, `REVIEWED_SAFE`,
-and `SUSPICIOUS` records never appear as findings in `AUDIT-REPORT.md`. If
-suspicious items remain, the report must disclose unresolved review status and
-must not claim the audit is clean.
+and `SUSPICIOUS` records never appear as findings in `AUDIT-REPORT.md`. The
+machine state is `COMPLETE_CLEAN`, `COMPLETE_WITH_FINDINGS`, or an explicit
+`INCOMPLETE_*` state; incomplete artifacts cannot claim a clean audit.
 
 ## Confirmed finding format
 

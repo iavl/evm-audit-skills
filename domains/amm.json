@@ -14,21 +14,33 @@
   "always_screen": false,
   "required_context": [
     {
-      "key": "pool_model_fee_tier_liquidity_hooks_and_price_source",
+      "key": "pool_model",
       "required": true,
-      "description": "pool model, fee tier, liquidity, hooks, and price source"
+      "description": "pool and invariant model"
+    },
+    {
+      "key": "fee_model",
+      "required": true,
+      "description": "fee tiers and fee accounting"
+    },
+    {
+      "key": "liquidity_model",
+      "required": true,
+      "description": "liquidity sources, depth, and price impact"
+    },
+    {
+      "key": "hook_surface",
+      "required": true,
+      "description": "hooks, callbacks, and external control points"
+    },
+    {
+      "key": "price_source",
+      "required": true,
+      "description": "spot, TWAP, oracle, or other price source"
     }
   ],
   "review_requirements": [
     "model price impact, slippage, callback, and accounting invariants"
   ],
-  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]},
-  "screening_terms": [
-    "swap",
-    "pool",
-    "liquidity",
-    "reserve",
-    "hook",
-    "slippage"
-  ]
+  "trusted_absence_policy": {"requires_complete_scope": true, "allowed_evidence": ["scope", "inheritance", "interface", "dependency", "deployment"]}
 }

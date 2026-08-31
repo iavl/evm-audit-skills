@@ -24,6 +24,8 @@ jobs:
           python3 scripts/generate_checklists.py --check
       - name: Validate registry and provenance
         run: python3 scripts/validate_checklists.py --strict
+      - name: Run routing regression benchmark
+        run: python3 scripts/benchmark_routing.py
 
   python-tests:
     runs-on: ubuntu-latest
