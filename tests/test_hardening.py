@@ -249,6 +249,76 @@ class HardeningTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "mismatched review_state_digest"):
                 synthesize(ROOT, manifest, registry, state, [ledger], severity, finding_details=details, screen_results=screen, domain_context=domain_context, context=context)
 
+    def test_registry_mutation_invalidates_current_state(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        domain_context = self.context(manifest)
+        screen, _ = self.screen(manifest, candidate=False)
+        changed_registry = json.loads(json.dumps(registry))
+        changed_registry["checks"][0]["title"] += " changed"
+        state = validate_run(
+            ROOT,
+            manifest,
+            changed_registry,
+            screen,
+            None,
+            domain_context,
+            self.context_artifact(manifest),
+            [],
+        )
+        self.assertEqual(state["status"], "INVALID_SNAPSHOT")
+        self.assertTrue(any("registry" in reason for reason in state["reasons"]))
+
+    def test_severity_and_details_mutation_rewrites_final_report(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        domain_context = self.context(manifest)
+        screen, candidate_id = self.screen(manifest, candidate=True)
+        context = self.context_artifact(manifest)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, context_path = root / "manifest.json", root / "context.json"
+            domain_context_path, screen_path = root / "domain-context.json", root / "screen-results.json"
+            state_path, ledger = root / "audit-state.json", root / "review.jsonl"
+            severity_path, details_path = root / "severity.json", root / "details.json"
+            report_path, issues_path = root / "AUDIT-REPORT.md", root / "issue-candidates.json"
+            for path, value in ((manifest_path, manifest), (context_path, context), (domain_context_path, domain_context), (screen_path, screen)):
+                write_json(path, value)
+            append(
+                ledger,
+                manifest,
+                self.review_record(registry, manifest, candidate_id, confirmed=True),
+                registry,
+                {candidate_id},
+                domain_context=domain_context,
+                screen_results=screen,
+            )
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            write_json(state_path, state)
+            identity = {
+                "schema_version": 2,
+                "routing_snapshot_id": manifest["routing_snapshot_id"],
+                "review_state_digest": state["review_state_digest"],
+                **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
+            }
+            severity = {**identity, "decisions": {candidate_id: {"severity": "High", "rationale": "first", "dimensions": {key: "first" for key in ("impact", "exploitability", "privileges", "capital_required", "repeatability", "user_interaction", "loss_bound", "protocol_exposure", "recoverability")}}}}
+            details = {**identity, "findings": [{"canonical_id": candidate_id, "location": "Fixture.sol:1", "description": "first description", "recommendation": "first fix"}]}
+            write_json(severity_path, severity)
+            write_json(details_path, details)
+            command = [
+                "--manifest", str(manifest_path), "--audit-state", str(state_path), "--context", str(context_path),
+                "--domain-context", str(domain_context_path), "--screen-results", str(screen_path), "--ledger", str(ledger),
+                "--severity-decisions", str(severity_path), "--finding-details", str(details_path),
+                "--output", str(report_path), "--issue-candidates-out", str(issues_path),
+            ]
+            self.assertEqual(synthesize_main(command), 0)
+            severity["decisions"][candidate_id]["severity"] = "Medium"
+            details["findings"][0]["description"] = "updated description"
+            write_json(severity_path, severity)
+            write_json(details_path, details)
+            self.assertEqual(synthesize_main(command), 0)
+            report = report_path.read_text(encoding="utf-8")
+            self.assertIn("**Severity:** Medium", report)
+            self.assertIn("updated description", report)
+
     def test_failed_direct_synthesis_removes_stale_final_outputs(self) -> None:
         registry, _, _, manifest = build_manifest()
         domain_context = self.context(manifest)
