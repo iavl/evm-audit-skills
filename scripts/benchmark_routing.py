@@ -13,12 +13,12 @@ from pathlib import Path
 try:
     from audit_artifacts import validate_domain_context, validate_domain_resolution, validate_schema
     from render_runtime import domain_context_template, render, selected_entries, validate_manifest, validate_screen_results
-    from scope_context import compilation_digests, scope_inventory
+    from scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, scope_inventory
     from select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import validate_domain_context, validate_domain_resolution, validate_schema
     from scripts.render_runtime import domain_context_template, render, selected_entries, validate_manifest, validate_screen_results
-    from scripts.scope_context import compilation_digests, scope_inventory
+    from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, scope_inventory
     from scripts.select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
 
 
@@ -36,11 +36,19 @@ def aggregate_domain_skill_bytes(root: Path) -> int:
 
 
 def recon_context(target: Path) -> dict[str, object]:
+    build_root = resolve_build_root(target)
     files, excluded = scope_inventory(target)
-    digests = compilation_digests(target, files, "0.8.24")
+    digests = compilation_digests(
+        target,
+        files,
+        "0.8.24",
+        build_root=build_root,
+        dependency_roots=DEFAULT_DEPENDENCY_ROOTS,
+    )
     return {
-        "target_root": str(target.resolve()), "files_analyzed": files,
-        "excluded_paths": excluded, "exclusion_patterns": [], "uncompiled_paths": [],
+        "target_root": str(target.resolve()), "build_root": str(build_root.resolve()), "files_analyzed": files,
+        "excluded_paths": excluded, "exclusion_patterns": [], "include_patterns": [],
+        "dependency_roots": sorted(DEFAULT_DEPENDENCY_ROOTS), "uncompiled_paths": [],
         "source_digest": digests["audit_source_digest"], **digests, "compilation_complete": True,
         "recon_quality": {
             "compilation_complete": True,

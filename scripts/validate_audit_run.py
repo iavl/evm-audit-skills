@@ -16,7 +16,9 @@ from evm_audit_runtime.state import COMPLETE_STATES, derive_status
 
 try:
     from audit_artifacts import (
+        derive_review_snapshot_id,
         load_json,
+        review_state_digest,
         validate_artifact_identity,
         validate_context,
         validate_domain_context,
@@ -28,7 +30,9 @@ try:
     from review_ledger import collect_review_records
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
+        derive_review_snapshot_id,
         load_json,
+        review_state_digest,
         validate_artifact_identity,
         validate_context,
         validate_domain_context,
@@ -65,6 +69,9 @@ def validate_run(
     domain_errors: list[str] = []
     context_errors: list[str] = []
     review_errors: list[str] = []
+    review_snapshot: str | None = None
+    screen_valid = False
+    domain_context_valid = False
 
     try:
         validate_manifest(root, manifest, registry)
@@ -95,6 +102,7 @@ def validate_run(
         try:
             candidates = validate_screen_results(root, manifest, screen_results, domain_resolution)
             screen_not_applicable = selected - candidates
+            screen_valid = True
         except (ValueError, KeyError) as error:
             coverage_errors.append(str(error))
             raw_results = screen_results.get("results", [])
@@ -139,8 +147,18 @@ def validate_run(
                 for item in sorted(unresolved_context)
             )
 
+            domain_context_valid = True
+
+    if screen_valid and domain_context_valid and not domain_errors and not context_errors:
+        try:
+            review_snapshot = derive_review_snapshot_id(
+                root, manifest, domain_resolution, domain_context, screen_results
+            )
+        except (ValueError, KeyError) as error:
+            review_errors.append(f"review snapshot is unavailable: {error}")
+
     records, ledger_errors = collect_review_records(
-        ledger_paths, manifest, registry, candidates, domain_resolution
+        ledger_paths, manifest, registry, candidates, domain_resolution, review_snapshot
     )
     review_errors.extend(ledger_errors)
     reviewed = set(records)
@@ -153,6 +171,13 @@ def validate_run(
     unresolved = suspicious | (candidates - reviewed)
     if suspicious:
         review_errors.append(f"SUSPICIOUS records block clean completion: {sorted(suspicious)}")
+
+    state_review_digest: str | None = None
+    if review_snapshot is not None and not ledger_errors and candidates <= reviewed:
+        try:
+            state_review_digest = review_state_digest(records, candidates)
+        except ValueError as error:
+            review_errors.append(str(error))
 
     status = derive_status(
         invalid=bool(invalid),
@@ -170,8 +195,10 @@ def validate_run(
         if reason not in reasons:
             reasons.append(reason)
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "routing_snapshot_id": manifest.get("routing_snapshot_id"),
+        "review_snapshot_id": review_snapshot,
+        "review_state_digest": state_review_digest,
         "registry_sha256": manifest.get("audit_context", {}).get("registry_sha256"),
         "source_digest": manifest.get("audit_context", {}).get("source_digest"),
         "compilation_input_digest": manifest.get("audit_context", {}).get("compilation_input_digest"),
@@ -254,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
                 registry,
                 set(coverage["deep_candidates"]),
                 domain,
+                state.get("review_snapshot_id"),
             )
             reviewed_safe = sum(record.get("status") == "REVIEWED_SAFE" for record in records.values())
         except (OSError, ValueError, KeyError, json.JSONDecodeError):

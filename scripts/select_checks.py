@@ -13,10 +13,10 @@ from typing import Any
 
 try:
     from audit_artifacts import bind_routing_snapshot, check_body_hash, registry_sha256, validate_schema
-    from scope_context import compilation_digests, resolve_scope_root, scope_inventory, source_digest
+    from scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import bind_routing_snapshot, check_body_hash, registry_sha256, validate_schema
-    from scripts.scope_context import compilation_digests, resolve_scope_root, scope_inventory, source_digest
+    from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 
 try:
     from runtime_log import configure, error, info, stage, success, verbose as verbose_log
@@ -235,12 +235,15 @@ def validate_recon_context(
     target_root: Path | None,
     exclusions: tuple[str, ...],
     *,
+    build_root: Path | None = None,
+    include_patterns: tuple[str, ...] = (),
+    dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
     require_complete: bool = False,
 ) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise SelectionInputError("Feature Map v4 requires recon_context")
     required = {
-        "target_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "uncompiled_paths", "source_digest",
+        "target_root", "build_root", "files_analyzed", "excluded_paths", "exclusion_patterns", "include_patterns", "dependency_roots", "uncompiled_paths", "source_digest",
         "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest",
         "compilation_complete", "recon_quality", "slither_version", "solc_version",
     }
@@ -251,9 +254,17 @@ def validate_recon_context(
     exclusion_patterns = _string_list(raw["exclusion_patterns"], "recon_context.exclusion_patterns")
     if exclusion_patterns != sorted(set(exclusions)):
         raise SelectionInputError("Recon exclusion_patterns do not match the current audit scope")
+    include_values = _string_list(raw["include_patterns"], "recon_context.include_patterns")
+    if include_values != sorted(set(include_patterns)):
+        raise SelectionInputError("Recon include_patterns do not match the current audit scope")
+    dependency_values = _string_list(raw["dependency_roots"], "recon_context.dependency_roots")
+    if dependency_values != sorted(set(dependency_roots)):
+        raise SelectionInputError("Recon dependency_roots do not match the current audit scope")
     uncompiled = _string_list(raw["uncompiled_paths"], "recon_context.uncompiled_paths")
     if not isinstance(raw["target_root"], str) or not raw["target_root"]:
         raise SelectionInputError("recon_context.target_root must be a path")
+    if not isinstance(raw["build_root"], str) or not raw["build_root"]:
+        raise SelectionInputError("recon_context.build_root must be a path")
     for key in ("source_digest", "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest"):
         if not isinstance(raw[key], str) or not re.fullmatch(r"[0-9a-f]{64}", raw[key]):
             raise SelectionInputError(f"recon_context.{key} must be a SHA-256 digest")
@@ -285,17 +296,26 @@ def validate_recon_context(
     if target_root is None:
         raise SelectionInputError("Feature Map v4 selection requires --target-root")
     resolved = resolve_scope_root(target_root)
-    files, excluded = scope_inventory(resolved, exclusions)
+    resolved_build_root = resolve_build_root(resolved, build_root or Path(raw["build_root"]))
+    files, excluded = scope_inventory(resolved, exclusions, include_values, dependency_values)
     scope_files = set(files)
     actual_digest = source_digest(resolved, files)
     if actual_digest != raw["source_digest"]:
         raise SelectionInputError("Recon source_digest does not match the current audit scope")
-    actual_digests = compilation_digests(resolved, files, raw["solc_version"])
+    actual_digests = compilation_digests(
+        resolved,
+        files,
+        raw["solc_version"],
+        build_root=resolved_build_root,
+        dependency_roots=dependency_values,
+    )
     for key, value in actual_digests.items():
         if raw[key] != value:
             raise SelectionInputError(f"Recon {key} does not match the current audit scope")
     if Path(raw["target_root"]).resolve() != resolved:
         raise SelectionInputError("Recon target_root does not match --target-root")
+    if resolved_build_root != Path(raw["build_root"]).resolve():
+        raise SelectionInputError("Recon build_root does not match the current compilation context")
     if raw["excluded_paths"] != excluded:
         raise SelectionInputError("Recon excluded_paths do not match the current audit scope")
     if not analyzed <= scope_files:
@@ -332,12 +352,21 @@ def normalize_feature_map(
     target_root: Path | None,
     exclusions: tuple[str, ...] = (),
     *,
+    build_root: Path | None = None,
+    include_patterns: tuple[str, ...] = (),
+    dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
     require_complete: bool = False,
 ) -> dict[str, dict[str, Any]]:
     if raw.get("schema_version") != FEATURE_MAP_VERSION:
         raise SelectionInputError(f"feature map schema_version must be {FEATURE_MAP_VERSION}")
     recon_context = validate_recon_context(
-        raw.get("recon_context"), target_root, exclusions, require_complete=require_complete
+        raw.get("recon_context"),
+        target_root,
+        exclusions,
+        build_root=build_root,
+        include_patterns=include_patterns,
+        dependency_roots=dependency_roots,
+        require_complete=require_complete,
     )
     entries = raw.get("features")
     if not isinstance(entries, dict):
@@ -697,7 +726,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--feature-map", type=Path, required=True, help="scope-bound Feature Map v4")
     parser.add_argument("--target-root", type=Path, required=True, help="current audit scope used to verify recon source_digest")
+    parser.add_argument("--build-root", type=Path, help="compilation/build project root; must match Recon")
     parser.add_argument("--exclude", action="append", default=[], help="additional audit-scope glob; must match Recon")
+    parser.add_argument("--include", action="append", default=[], help="include a normally dependency-only audit path; must match Recon")
+    parser.add_argument("--dependency-root", action="append", default=None, help="top-level dependency root; must match Recon")
     parser.add_argument("--domain", help="explicit single-domain scope")
     parser.add_argument("--domains", help="explicit comma-separated domain scope")
     parser.add_argument("--target-commit")
@@ -728,18 +760,27 @@ def main(argv: list[str] | None = None) -> int:
         names, policies = vocabulary(feature_data)
         raw_feature_map = load_json(args.feature_map.resolve())
         exclusions = tuple(args.exclude)
+        include_patterns = tuple(args.include)
+        dependency_roots = tuple(args.dependency_root) if args.dependency_root is not None else tuple(sorted(DEFAULT_DEPENDENCY_ROOTS))
+        resolved_build_root = resolve_build_root(args.target_root, args.build_root)
         feature_map = normalize_feature_map(
             raw_feature_map,
             names,
             policies,
             args.target_root,
             exclusions,
+            build_root=resolved_build_root,
+            include_patterns=include_patterns,
+            dependency_roots=dependency_roots,
             require_complete=args.require_complete_compilation,
         )
         recon_context = validate_recon_context(
             raw_feature_map["recon_context"],
             args.target_root,
             exclusions,
+            build_root=resolved_build_root,
+            include_patterns=include_patterns,
+            dependency_roots=dependency_roots,
             require_complete=args.require_complete_compilation,
         )
         domain_configs = load_domains(root)

@@ -15,6 +15,7 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 - `UNKNOWN` is never absence. Only trusted absence or confirmed environment mismatch may filter; Screen may emit only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`.
 - Deep reviews consume only Screen candidates. Every candidate needs one owner-Domain append-only JSONL event stream with valid revisions, typed evidence, and a terminal status.
 - `SUSPICIOUS` has no severity and must go through a later `PROOF` event. Only `CONFIRMED` records enter the final report.
+- Solidity POC source is user-owned evidence: keep audit-created or modified tests, helpers, and mocks in the target tree or archive temporary copies under `<run-dir>/poc/` before proof, record the durable path in `proof` or `evidence.location`, and never delete or overwrite them after `PROOF` or report generation.
 
 ## Controller
 
@@ -26,6 +27,10 @@ python3 <suite-root>/scripts/audit_run.py report --run-dir <run-dir> \
   --severity-decisions <run-dir>/reviews/severity-decisions.json \
   --finding-details <run-dir>/reviews/finding-details.json
 ```
+
+The controller emits compact progress to stderr by default. Use `--verbose` to
+forward child diagnostics or `--quiet` to suppress normal progress; the flags
+are available on `init`, `next`, `status`, and `report`, and are mutually exclusive.
 
 Repeat `next` until it returns a template or `REPORT`. Resolve only generated
 evidence-bound templates. `DEEP_REVIEW` means candidate records are missing;

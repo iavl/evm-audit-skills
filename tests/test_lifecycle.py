@@ -178,7 +178,7 @@ class LifecycleTests(unittest.TestCase):
         route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate)
         record = {
             "record_type": "review",
-            "schema_version": 5,
+            "schema_version": 6,
             "canonical_id": candidate,
             "owner_domain": route["owner_domain"],
             "check_body_hash": route["check_body_hash"],
@@ -203,6 +203,8 @@ class LifecycleTests(unittest.TestCase):
             str(paths["manifest"]),
             "--screen-results",
             str(paths["screen_results"]),
+            "--domain-context",
+            str(paths["domain_context"]),
             "--ledger",
             str(ledger),
             "--append-record",

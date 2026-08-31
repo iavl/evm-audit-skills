@@ -17,9 +17,14 @@ from evm_audit_runtime.routing import resolved_routes
 
 try:
     from audit_artifacts import (
+        atomic_write_json,
+        atomic_write_text,
+        invalidate_final_outputs,
         load_json,
+        review_state_digest,
         validate_artifact_identity,
         validate_domain_resolution,
+        validate_review_state_binding,
         validate_schema,
         validate_target_snapshot,
     )
@@ -27,9 +32,14 @@ try:
     from review_ledger import collect_review_records
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
+        atomic_write_json,
+        atomic_write_text,
+        invalidate_final_outputs,
         load_json,
+        review_state_digest,
         validate_artifact_identity,
         validate_domain_resolution,
+        validate_review_state_binding,
         validate_schema,
         validate_target_snapshot,
     )
@@ -105,11 +115,18 @@ def _coverage_sets(state: dict[str, Any]) -> tuple[set[str], set[str], set[str]]
     return selected, screen_not_applicable, candidates
 
 
-def _issue_artifact(root: Path, manifest: dict[str, Any], findings: list[dict[str, Any]]) -> dict[str, Any]:
+def _issue_artifact(
+    root: Path,
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+    findings: list[dict[str, Any]],
+) -> dict[str, Any]:
     identity = manifest["audit_context"]
     value = {
-        "schema_version": 1,
+        "schema_version": 2,
         "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "review_snapshot_id": state["review_snapshot_id"],
+        "review_state_digest": state["review_state_digest"],
         "registry_sha256": identity["registry_sha256"],
         "source_digest": identity["source_digest"],
         "compilation_input_digest": identity["compilation_input_digest"],
@@ -130,13 +147,29 @@ def synthesize(
     finding_details: dict[str, Any] | None = None,
     allow_incomplete: bool = False,
     domain_resolution: dict[str, Any] | None = None,
+    screen_results: dict[str, Any] | None = None,
+    domain_context: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     validate_manifest(root, manifest, registry)
     validate_target_snapshot(manifest)
+    try:
+        from validate_audit_run import validate_run
+    except ImportError:  # pragma: no cover - package-style import
+        from scripts.validate_audit_run import validate_run
+
+    state = validate_run(
+        root,
+        manifest,
+        registry,
+        screen_results,
+        domain_resolution,
+        domain_context,
+        context,
+        ledger_paths,
+    )
     validate_schema(root, "audit-state.schema.json", state)
     validate_artifact_identity(state, manifest)
-    if domain_resolution is not None:
-        validate_domain_resolution(root, manifest, domain_resolution)
     if state["recon_quality"] != manifest["feature_map"]["recon_context"]["recon_quality"]:
         raise ValueError("audit-state Recon quality does not match the routing manifest")
     selected, _, candidates = _coverage_sets(state)
@@ -144,7 +177,7 @@ def synthesize(
     if selected != active_ids:
         raise ValueError("audit-state selected coverage does not match the resolved routing manifest")
     latest, errors = collect_review_records(
-        ledger_paths, manifest, registry, candidates, domain_resolution
+        ledger_paths, manifest, registry, candidates, domain_resolution, state["review_snapshot_id"]
     )
     if errors:
         raise ValueError("; ".join(errors))
@@ -161,6 +194,11 @@ def synthesize(
         raise ValueError("audit-state confirmed coverage does not match latest ledger state")
     if suspicious != set(state["coverage"]["suspicious"]):
         raise ValueError("audit-state suspicious coverage does not match latest ledger state")
+    current_digest = None
+    if not errors and candidates <= reviewed and state["review_snapshot_id"] is not None:
+        current_digest = review_state_digest(latest, candidates)
+    if current_digest != state["review_state_digest"]:
+        raise ValueError("audit-state review_state_digest does not match latest ledger state")
     if state["complete"] and state["status"] not in {"COMPLETE_CLEAN", "COMPLETE_WITH_FINDINGS"}:
         raise ValueError("audit-state marks an invalid complete status")
     if state["complete"] and state["coverage"]["unresolved"]:
@@ -175,6 +213,7 @@ def synthesize(
         try:
             validate_schema(root, "severity-decisions.schema.json", severity_decisions)
             validate_artifact_identity(severity_decisions, manifest)
+            validate_review_state_binding(severity_decisions, current_digest)
             decisions = _severity_decisions(severity_decisions)
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"INCOMPLETE_SEVERITY: {error}") from error
@@ -196,6 +235,8 @@ def synthesize(
             "- **Clean:** `false`",
             f"- **Recon quality:** `{state['recon_quality']['mode']}`",
             f"- **Routing snapshot:** `{manifest['routing_snapshot_id']}`",
+            f"- **Review snapshot:** `{state['review_snapshot_id']}`",
+            f"- **Review state digest:** `{state['review_state_digest']}`",
             f"- **Registry:** `{manifest['audit_context']['registry_sha256']}`",
             f"- **Source digest:** `{manifest['audit_context']['source_digest']}`",
             f"- **Compilation input digest:** `{manifest['audit_context']['compilation_input_digest']}`",
@@ -206,7 +247,7 @@ def synthesize(
             *[f"- {reason}" for reason in state["reasons"]],
             "",
         ])
-        return report, _issue_artifact(root, manifest, [])
+        return report, _issue_artifact(root, manifest, state, [])
 
     if confirmed and severity_decisions is None:
         raise ValueError(f"INCOMPLETE_SEVERITY: missing severity decisions for {sorted(confirmed)}")
@@ -222,6 +263,7 @@ def synthesize(
         try:
             validate_schema(root, "finding-details.schema.json", finding_details)
             validate_artifact_identity(finding_details, manifest)
+            validate_review_state_binding(finding_details, current_digest)
             details = _finding_details(finding_details)
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"INCOMPLETE_REPORTING: {error}") from error
@@ -247,6 +289,8 @@ def synthesize(
         f"- **Complete:** `{str(state['complete']).lower()}`",
         f"- **Clean:** `{str(state['clean']).lower()}`",
         f"- **Routing snapshot:** `{manifest['routing_snapshot_id']}`",
+        f"- **Review snapshot:** `{state['review_snapshot_id']}`",
+        f"- **Review state digest:** `{state['review_state_digest']}`",
         f"- **Registry:** `{manifest['audit_context']['registry_sha256']}`",
         f"- **Source digest:** `{manifest['audit_context']['source_digest']}`",
         f"- **Compilation input digest:** `{manifest['audit_context']['compilation_input_digest']}`",
@@ -290,7 +334,7 @@ def synthesize(
         if issue_candidate(severity):
             issue_findings.append({"canonical_id": canonical_id, "severity": severity})
     report_lines.append("")
-    return "\n".join(report_lines), _issue_artifact(root, manifest, issue_findings)
+    return "\n".join(report_lines), _issue_artifact(root, manifest, state, issue_findings)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -300,6 +344,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--registry", type=Path, default=ROOT / "data/canonical-checks.json")
     parser.add_argument("--ledger", type=Path, action="append", default=[])
     parser.add_argument("--domain-resolution", type=Path)
+    parser.add_argument("--screen-results", type=Path, required=True)
+    parser.add_argument("--domain-context", type=Path, required=True)
+    parser.add_argument("--context", type=Path, required=True)
     parser.add_argument("--severity-decisions", type=Path)
     parser.add_argument("--finding-details", type=Path)
     parser.add_argument("--output", type=Path)
@@ -309,12 +356,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure(quiet=args.quiet)
     try:
+        invalidate_final_outputs(*(path for path in (args.output, args.issue_candidates_out) if path is not None))
         manifest = load_json(args.manifest)
         registry = load_json(args.registry)
         state = load_json(args.audit_state)
         severity = load_json(args.severity_decisions) if args.severity_decisions else None
         finding_details = load_json(args.finding_details) if args.finding_details else None
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
+        screen_results = load_json(args.screen_results)
+        domain_context = load_json(args.domain_context)
+        context = load_json(args.context)
         report, issues = synthesize(
             ROOT,
             manifest,
@@ -325,15 +376,16 @@ def main(argv: list[str] | None = None) -> int:
             finding_details=finding_details,
             allow_incomplete=args.allow_incomplete,
             domain_resolution=domain_resolution,
+            screen_results=screen_results,
+            domain_context=domain_context,
+            context=context,
         )
         if args.output:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(report, encoding="utf-8")
+            atomic_write_text(args.output, report)
         else:
             print(report, end="")
         if args.issue_candidates_out:
-            args.issue_candidates_out.parent.mkdir(parents=True, exist_ok=True)
-            args.issue_candidates_out.write_text(json.dumps(issues, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            atomic_write_json(args.issue_candidates_out, issues)
         success("Confirmed-only report synthesized")
         return 0
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:

@@ -76,9 +76,11 @@ class AuditRunTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("COMPLETE_CLEAN", result.stdout)
             manifest = self.read(run_dir / "routing/manifest.json")
+            state = self.read(run_dir / "audit-state.json")
             identity = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "routing_snapshot_id": manifest["routing_snapshot_id"],
+                "review_state_digest": state["review_state_digest"],
                 **{
                     key: manifest["audit_context"][key]
                     for key in ("registry_sha256", "source_digest", "compilation_input_digest")
@@ -149,7 +151,7 @@ class AuditRunTests(unittest.TestCase):
             route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate["canonical_id"])
             record = {
                 "record_type": "review",
-                "schema_version": 5,
+                "schema_version": 6,
                 "canonical_id": candidate["canonical_id"],
                 "owner_domain": route["owner_domain"],
                 "check_body_hash": route["check_body_hash"],
@@ -165,7 +167,15 @@ class AuditRunTests(unittest.TestCase):
                 "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}],
             }
             ledger = run_dir / "reviews/review-evm-audit-general.jsonl"
-            append(ledger, manifest, record, self.read(ROOT / "data/canonical-checks.json"), {candidate["canonical_id"]})
+            append(
+                ledger,
+                manifest,
+                record,
+                self.read(ROOT / "data/canonical-checks.json"),
+                {candidate["canonical_id"]},
+                domain_context=context,
+                screen_results=screen,
+            )
 
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -198,6 +208,19 @@ class AuditRunTests(unittest.TestCase):
                 "evm-audit-general",
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            poc_path = run_dir / "poc/RetainedPoC.t.sol"
+            poc_source = """// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.26;
+
+contract RetainedPoC {
+    function proof() external pure returns (uint256) {
+        return 1;
+    }
+}
+"""
+            poc_path.parent.mkdir(parents=True)
+            poc_path.write_text(poc_source, encoding="utf-8")
+            poc_location = poc_path.relative_to(run_dir).as_posix()
             context_path = run_dir / "reviews/domain-context.json"
             context = self.read(context_path)
             for requirements in context["domains"].values():
@@ -227,7 +250,7 @@ class AuditRunTests(unittest.TestCase):
             route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate["canonical_id"])
             suspicious = {
                 "record_type": "review",
-                "schema_version": 5,
+                "schema_version": 6,
                 "canonical_id": candidate["canonical_id"],
                 "owner_domain": route["owner_domain"],
                 "check_body_hash": route["check_body_hash"],
@@ -243,7 +266,15 @@ class AuditRunTests(unittest.TestCase):
                 "evidence": [{"kind": "manual", "location": "fixture", "reason": "deep review"}],
             }
             ledger = run_dir / "reviews/review-evm-audit-general.jsonl"
-            append(ledger, manifest, suspicious, self.read(ROOT / "data/canonical-checks.json"), {candidate["canonical_id"]})
+            append(
+                ledger,
+                manifest,
+                suspicious,
+                self.read(ROOT / "data/canonical-checks.json"),
+                {candidate["canonical_id"]},
+                domain_context=context,
+                screen_results=screen,
+            )
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("PROOF", result.stdout)
@@ -254,15 +285,28 @@ class AuditRunTests(unittest.TestCase):
                 "status": "REVIEWED_SAFE",
                 "exploitability": "guard holds",
                 "impact": "none",
-                "proof": "fixture invariant",
+                "proof": f"POC source retained at {poc_location}; fixture invariant holds",
                 "preserved_invariant": "fixture invariant",
-                "evidence": [{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
+                "evidence": [{"kind": "test", "location": poc_location, "reason": "proof source and test result"}],
             }
-            append(ledger, manifest, resolved, self.read(ROOT / "data/canonical-checks.json"), {candidate["canonical_id"]})
+            append(
+                ledger,
+                manifest,
+                resolved,
+                self.read(ROOT / "data/canonical-checks.json"),
+                {candidate["canonical_id"]},
+                domain_context=context,
+                screen_results=screen,
+            )
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("REPORT", result.stdout)
             self.assertIn("COMPLETE_CLEAN", result.stdout)
+            for _ in range(2):
+                result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(poc_path.read_text(encoding="utf-8"), poc_source)
+                self.assertIn(poc_location, (run_dir / "reviews/review-evm-audit-general.jsonl").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

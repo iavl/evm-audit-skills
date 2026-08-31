@@ -25,7 +25,7 @@ from scripts.scope_context import find_suite_root
 from scripts.select_checks import audit_context, load_domains, normalize_feature_map, select
 from scripts.validate_audit_run import validate_run
 
-from helpers import EMPTY_TARGET, ROOT, build_manifest, load_json, suite_inputs, synthetic_feature_map
+from helpers import EMPTY_TARGET, ROOT, build_manifest, load_json, review_inputs, suite_inputs, synthetic_feature_map
 
 
 class RuntimeTests(unittest.TestCase):
@@ -171,6 +171,13 @@ class RuntimeTests(unittest.TestCase):
             "scope_complete": False,
             "evidence": [{"kind": "source", "location": "fixture", "reason": "surface exists"}],
         }
+        for domain, item in resolution["domains"].items():
+            if item["status"] == "UNKNOWN":
+                resolution["domains"][domain] = {
+                    "status": "ABSENT_CONFIRMED",
+                    "scope_complete": True,
+                    "evidence": [{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+                }
         shared_id = "EVM-TIME-001"
         manifest_route = next(entry for entry in manifest["deferred"] if entry["canonical_id"] == shared_id)
         self.assertEqual(manifest_route["owner_domain"], primary)
@@ -183,7 +190,7 @@ class RuntimeTests(unittest.TestCase):
         check = next(item for item in registry["checks"] if item["canonical_id"] == shared_id)
         record = {
             "record_type": "review",
-            "schema_version": 5,
+            "schema_version": 6,
             "canonical_id": shared_id,
             "revision": 1,
             "owner_domain": fallback,
@@ -203,7 +210,9 @@ class RuntimeTests(unittest.TestCase):
         record.update({key: manifest["audit_context"][key] for key in (
             "registry_sha256", "source_digest", "compilation_input_digest",
         )})
-        self.assertEqual(validate_record(record, manifest, registry, {shared_id}, resolution), [])
+        screen, domain_context, snapshot = review_inputs(manifest, resolution)
+        record["review_snapshot_id"] = snapshot
+        self.assertEqual(validate_record(record, manifest, registry, {shared_id}, resolution, snapshot), [])
 
     def test_deferred_shared_owner_prefers_active_manifest_owner(self) -> None:
         registry, _, manifest, resolution = (*self.deferred_shared_manifest(),)
@@ -590,11 +599,12 @@ class RuntimeTests(unittest.TestCase):
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        screen, domain_context, snapshot = review_inputs(manifest)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "review.jsonl"
             record = {
                 "record_type": "review",
-                "schema_version": 5,
+                "schema_version": 6,
                 "canonical_id": check["canonical_id"],
                 "owner_domain": entry["owner_domain"],
                 "routing_snapshot_id": manifest["routing_snapshot_id"],
@@ -610,8 +620,9 @@ class RuntimeTests(unittest.TestCase):
                 "preserved_invariant": "fixture invariant",
                 "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}],
             }
-            append(path, manifest, record)
-            self.assertEqual(validate_records(load(path), manifest, registry, {check["canonical_id"]}), [])
+            record["review_snapshot_id"] = snapshot
+            append(path, manifest, record, domain_context=domain_context, screen_results=screen)
+            self.assertEqual(validate_records(load(path), manifest, registry, {check["canonical_id"]}, review_snapshot_id=snapshot), [])
             second_entry = manifest["selected"][1]
             second_check = next(item for item in registry["checks"] if item["canonical_id"] == second_entry["canonical_id"])
             second_record = {
@@ -620,24 +631,25 @@ class RuntimeTests(unittest.TestCase):
                 "owner_domain": second_entry["owner_domain"],
                 "check_body_hash": check_body_hash(second_check),
             }
-            append(path, manifest, second_record, registry, {check["canonical_id"], second_check["canonical_id"]})
+            append(path, manifest, second_record, registry, {check["canonical_id"], second_check["canonical_id"]}, domain_context=domain_context, screen_results=screen)
             self.assertEqual(len(load(path)), 3)
             self.assertEqual(
-                validate_records(load(path), manifest, registry, {check["canonical_id"], second_check["canonical_id"]}),
+                validate_records(load(path), manifest, registry, {check["canonical_id"], second_check["canonical_id"]}, review_snapshot_id=snapshot),
                 [],
             )
             changed = {**manifest, "audit_context": {**manifest["audit_context"], "source_digest": "0" * 64}}
             self.assertTrue(validate_records(load(path), changed, registry, {check["canonical_id"]}))
             with self.assertRaisesRegex(ValueError, "record_type=review"):
-                append(path, manifest, {key: value for key, value in record.items() if key != "record_type"})
+                append(path, manifest, {key: value for key, value in record.items() if key != "record_type"}, domain_context=domain_context, screen_results=screen)
 
     def test_review_revisions_preserve_history_and_derive_latest_state(self) -> None:
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        screen, domain_context, snapshot = review_inputs(manifest)
         first = {
             "record_type": "review",
-            "schema_version": 5,
+            "schema_version": 6,
             "canonical_id": entry["canonical_id"],
             "owner_domain": entry["owner_domain"],
             "routing_snapshot_id": manifest["routing_snapshot_id"],
@@ -656,6 +668,7 @@ class RuntimeTests(unittest.TestCase):
         first.update({key: manifest["audit_context"][key] for key in (
             "registry_sha256", "source_digest", "compilation_input_digest",
         )})
+        first["review_snapshot_id"] = snapshot
         second = {
             **{key: value for key, value in first.items() if key != "unresolved_reason"},
             "review_stage": "PROOF",
@@ -667,15 +680,15 @@ class RuntimeTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "review.jsonl"
-            append(path, manifest, first, registry, {entry["canonical_id"]})
-            append(path, manifest, second, registry, {entry["canonical_id"]})
+            append(path, manifest, first, registry, {entry["canonical_id"]}, domain_context=domain_context, screen_results=screen)
+            append(path, manifest, second, registry, {entry["canonical_id"]}, domain_context=domain_context, screen_results=screen)
             values = load(path)
             self.assertEqual([record["revision"] for record in values[1:]], [1, 2])
-            self.assertEqual(validate_records(values, manifest, registry, {entry["canonical_id"]}), [])
-            latest, errors = collect_review_records([path], manifest, registry, {entry["canonical_id"]})
+            self.assertEqual(validate_records(values, manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot), [])
+            latest, errors = collect_review_records([path], manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot)
             self.assertEqual(errors, [])
             self.assertEqual(latest[entry["canonical_id"]]["status"], "CONFIRMED")
-            history, errors = collect_review_history([path], manifest, registry, {entry["canonical_id"]})
+            history, errors = collect_review_history([path], manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot)
             self.assertEqual(errors, [])
             markdown = render_markdown(history, manifest, registry)
             self.assertIn("- **Revision:** 1", markdown)
@@ -686,9 +699,10 @@ class RuntimeTests(unittest.TestCase):
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        screen, domain_context, snapshot = review_inputs(manifest)
         base = {
             "record_type": "review",
-            "schema_version": 5,
+            "schema_version": 6,
             "canonical_id": entry["canonical_id"],
             "revision": 1,
             "owner_domain": entry["owner_domain"],
@@ -708,9 +722,10 @@ class RuntimeTests(unittest.TestCase):
         base.update({key: manifest["audit_context"][key] for key in (
             "registry_sha256", "source_digest", "compilation_input_digest",
         )})
+        base["review_snapshot_id"] = snapshot
         without_first = {**base, "revision": 2}
         self.assertTrue(any("first review revision must be 1" in error for error in validate_records(
-            [checkpoint(manifest), without_first], manifest, registry, {entry["canonical_id"]}
+            [checkpoint(manifest, snapshot), without_first], manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot
         )))
         safe_first = {
             **base,
@@ -726,7 +741,7 @@ class RuntimeTests(unittest.TestCase):
             "evidence": [{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
         }
         errors = validate_records(
-            [checkpoint(manifest), safe_first, safe_then_proof],
+            [checkpoint(manifest, snapshot), safe_first, safe_then_proof],
             manifest,
             registry,
             {entry["canonical_id"]},
@@ -741,7 +756,7 @@ class RuntimeTests(unittest.TestCase):
         }
         duplicate = {**proper_second}
         errors = validate_records(
-            [checkpoint(manifest), base, proper_second, duplicate],
+            [checkpoint(manifest, snapshot), base, proper_second, duplicate],
             manifest,
             registry,
             {entry["canonical_id"]},
@@ -765,7 +780,7 @@ class RuntimeTests(unittest.TestCase):
             ],
         }
         errors = validate_records(
-            [checkpoint(manifest), base, not_applicable],
+            [checkpoint(manifest, snapshot), base, not_applicable],
             manifest,
             registry,
             {entry["canonical_id"]},
@@ -776,9 +791,10 @@ class RuntimeTests(unittest.TestCase):
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        _, _, snapshot = review_inputs(manifest)
         record = {
             "record_type": "review",
-            "schema_version": 5,
+            "schema_version": 6,
             "canonical_id": entry["canonical_id"],
             "revision": 1,
             "owner_domain": entry["owner_domain"],
@@ -799,15 +815,17 @@ class RuntimeTests(unittest.TestCase):
             ],
         }
         record.update({key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")})
-        self.assertEqual(validate_record(record, manifest, registry, {entry["canonical_id"]}), [])
+        record["review_snapshot_id"] = snapshot
+        self.assertEqual(validate_record(record, manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot), [])
 
     def test_confirmed_requires_proof_stage_and_strong_evidence(self) -> None:
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        _, _, snapshot = review_inputs(manifest)
         record = {
             "record_type": "review",
-            "schema_version": 5,
+            "schema_version": 6,
             "canonical_id": entry["canonical_id"],
             "revision": 1,
             "owner_domain": entry["owner_domain"],
@@ -824,21 +842,23 @@ class RuntimeTests(unittest.TestCase):
             "evidence": [{"kind": "manual", "location": "fixture", "reason": "manual only"}],
         }
         record.update({key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")})
-        errors = validate_record(record, manifest, registry, {entry["canonical_id"]})
+        record["review_snapshot_id"] = snapshot
+        errors = validate_record(record, manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot)
         self.assertTrue(any("PROOF" in error or "strong proof" in error for error in errors))
         record["review_stage"] = "PROOF"
-        errors = validate_record(record, manifest, registry, {entry["canonical_id"]})
+        errors = validate_record(record, manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot)
         self.assertTrue(any("strong proof" in error or "not valid" in error for error in errors))
         record["evidence"] = [{"kind": "trace", "location": "fixture", "reason": "deterministic trace"}]
-        self.assertEqual(validate_record(record, manifest, registry, {entry["canonical_id"]}), [])
+        self.assertEqual(validate_record(record, manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot), [])
 
     def test_cross_ledger_duplicate_is_rejected(self) -> None:
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        screen, domain_context, snapshot = review_inputs(manifest)
         record = {
             "record_type": "review",
-            "schema_version": 5,
+            "schema_version": 6,
             "canonical_id": entry["canonical_id"],
             "revision": 1,
             "owner_domain": entry["owner_domain"],
@@ -856,11 +876,12 @@ class RuntimeTests(unittest.TestCase):
             "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}],
         }
         record.update({key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")})
+        record["review_snapshot_id"] = snapshot
         with tempfile.TemporaryDirectory() as directory:
             first, second = Path(directory) / "first.jsonl", Path(directory) / "second.jsonl"
-            write_ledger(first, manifest, [record], registry, {entry["canonical_id"]})
-            write_ledger(second, manifest, [record], registry, {entry["canonical_id"]})
-            _, errors = collect_review_records([first, second], manifest, registry, {entry["canonical_id"]})
+            write_ledger(first, manifest, [record], registry, {entry["canonical_id"]}, domain_context=domain_context, screen_results=screen)
+            write_ledger(second, manifest, [record], registry, {entry["canonical_id"]}, domain_context=domain_context, screen_results=screen)
+            _, errors = collect_review_records([first, second], manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot)
         self.assertTrue(any("duplicate Deep record across ledgers" in error for error in errors))
 
     def test_checkpoint_cli_has_no_cross_snapshot_option(self) -> None:
@@ -909,8 +930,9 @@ class RuntimeTests(unittest.TestCase):
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        _, _, snapshot = review_inputs(manifest)
         base = {
-                "schema_version": 5,
+                "schema_version": 6,
             "record_type": "review",
             "canonical_id": entry["canonical_id"],
             "revision": 1,
@@ -932,6 +954,7 @@ class RuntimeTests(unittest.TestCase):
                 for key in ("registry_sha256", "source_digest", "compilation_input_digest")
             }
         )
+        base["review_snapshot_id"] = snapshot
         suspicious = {
             **base,
             "status": "SUSPICIOUS",

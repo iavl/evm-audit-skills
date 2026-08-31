@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from scripts.scope_context import compilation_digests, scope_inventory
+from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, scope_inventory
 from scripts.select_checks import audit_context, load_domains, normalize_feature_map, select, vocabulary
+from scripts.audit_artifacts import derive_review_snapshot_id
+from scripts.render_runtime import domain_context_template, screen_results_template
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,8 +31,15 @@ def synthetic_feature_map(
     target: Path = EMPTY_TARGET,
 ) -> dict[str, Any]:
     _, feature_names, policies = suite_inputs()
+    build_root = resolve_build_root(target)
     files, excluded = scope_inventory(target)
-    digests = compilation_digests(target, files, "0.8.24")
+    digests = compilation_digests(
+        target,
+        files,
+        "0.8.24",
+        build_root=build_root,
+        dependency_roots=DEFAULT_DEPENDENCY_ROOTS,
+    )
     requested = dict(statuses or {})
     features: dict[str, dict[str, Any]] = {}
     for feature in sorted(feature_names):
@@ -47,9 +56,12 @@ def synthetic_feature_map(
         "schema_version": 4,
         "recon_context": {
             "target_root": str(target.resolve()),
+            "build_root": str(build_root.resolve()),
             "files_analyzed": files,
             "excluded_paths": excluded,
             "exclusion_patterns": [],
+            "include_patterns": [],
+            "dependency_roots": sorted(DEFAULT_DEPENDENCY_ROOTS),
             "uncompiled_paths": [],
             "source_digest": digests["audit_source_digest"],
             **digests,
@@ -111,3 +123,18 @@ def build_manifest(
         raw["recon_context"],
     )
     return registry, raw, normalized, manifest
+
+
+def review_inputs(
+    manifest: dict[str, Any],
+    domain_resolution: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    screen = screen_results_template(manifest, domain_resolution)
+    domain_context = domain_context_template(manifest, domain_resolution)
+    evidence = [{"kind": "scope", "location": "fixture", "reason": "complete scope"}]
+    for requirements in domain_context["domains"].values():
+        for item in requirements.values():
+            item.update(status="KNOWN", value="fixture", evidence=evidence)
+    return screen, domain_context, derive_review_snapshot_id(
+        ROOT, manifest, domain_resolution, domain_context, screen
+    )

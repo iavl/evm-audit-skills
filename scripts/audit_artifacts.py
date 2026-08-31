@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +43,16 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _canonical_value(value: Any) -> Any:
+    """Normalize JSON values whose array ordering is not semantically relevant."""
+    if isinstance(value, dict):
+        return {key: _canonical_value(value[key]) for key in sorted(value)}
+    if isinstance(value, list):
+        normalized = [_canonical_value(item) for item in value]
+        return sorted(normalized, key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    return value
+
+
 def check_body_hash(check: dict[str, Any]) -> str:
     return canonical_sha256(check)
 
@@ -63,6 +75,90 @@ def bind_routing_snapshot(manifest: dict[str, Any]) -> dict[str, Any]:
     result = dict(manifest)
     result["routing_snapshot_id"] = routing_snapshot_id(result)
     return result
+
+
+def review_snapshot_id(
+    manifest: dict[str, Any],
+    domain_resolution: dict[str, Any] | None,
+    domain_context: dict[str, Any],
+    screen_results: dict[str, Any],
+) -> str:
+    """Hash the exact post-routing inputs consumed by Deep Review."""
+    snapshot = manifest.get("routing_snapshot_id")
+    if not isinstance(snapshot, str) or not SHA256_RE.fullmatch(snapshot):
+        raise ValueError("review snapshot requires a valid routing_snapshot_id")
+    # A no-op empty resolution artifact is semantically identical to no Deferred Domains.
+    normalized_resolution = None if not manifest.get("deferred_domains") else domain_resolution
+    return canonical_sha256(
+        {
+            "routing_snapshot_id": snapshot,
+            "domain_resolution": _canonical_value(normalized_resolution),
+            "domain_context": _canonical_value(domain_context),
+            "screen_results": _canonical_value(screen_results),
+        }
+    )
+
+
+def review_state_digest(records: dict[str, dict[str, Any]], candidate_ids: set[str]) -> str:
+    """Hash the current latest review record for every Deep candidate."""
+    missing = sorted(candidate_ids - set(records))
+    if missing:
+        raise ValueError(f"cannot derive review_state_digest; missing review records: {missing}")
+    return canonical_sha256(
+        {
+            "candidates": [
+                {"canonical_id": canonical_id, "record": _canonical_value(records[canonical_id])}
+                for canonical_id in sorted(candidate_ids)
+            ]
+        }
+    )
+
+
+def validate_review_state_binding(value: dict[str, Any], digest: str | None) -> None:
+    if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+        raise ValueError("current review_state_digest is unavailable")
+    if value.get("review_state_digest") != digest:
+        raise ValueError("artifact has mismatched review_state_digest")
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    """Replace a file atomically, leaving no stale partial output."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: str | None = None
+    try:
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        try:
+            descriptor = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        except OSError:
+            pass
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+
+
+def atomic_write_json(path: Path, value: Any) -> None:
+    atomic_write_text(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+
+
+def invalidate_final_outputs(*paths: Path) -> None:
+    for path in paths:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def validate_routing_snapshot(manifest: dict[str, Any]) -> str:
@@ -161,7 +257,11 @@ def absence_evidence_errors(
 
 def _domain_route(manifest: dict[str, Any], domain: str) -> dict[str, Any] | None:
     return next(
-        (entry for entry in manifest.get("deferred_domains", []) if entry.get("domain") == domain),
+        (
+            entry
+            for entry in [*manifest.get("selected_domains", []), *manifest.get("deferred_domains", [])]
+            if entry.get("domain") == domain
+        ),
         None,
     )
 
@@ -193,6 +293,9 @@ def validate_domain_resolution(
         if status == "PRESENT" and not evidence:
             raise ValueError(f"{domain}: PRESENT requires evidence")
         if status == "ABSENT_CONFIRMED":
+            quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality", {})
+            if quality.get("absence_filtering_complete") is not True:
+                raise ValueError(f"{domain}: ABSENT_CONFIRMED is unavailable with incomplete compilation")
             policy = route.get("trusted_absence_policy") or {}
             kinds = {item["kind"] for item in evidence}
             allowed = set(policy.get("allowed_evidence", []))
@@ -273,8 +376,24 @@ def validate_domain_context(
             if status == "KNOWN":
                 if not _non_empty_value(item.get("value")) or not item.get("evidence"):
                     raise ValueError(f"{domain}.{key} KNOWN requires value and evidence")
-            elif status == "NOT_APPLICABLE" and not item.get("evidence"):
-                raise ValueError(f"{domain}.{key} NOT_APPLICABLE requires evidence")
+            elif status == "NOT_APPLICABLE":
+                quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality", {})
+                if quality.get("absence_filtering_complete") is not True:
+                    raise ValueError(f"{domain}.{key}: NOT_APPLICABLE is unavailable with incomplete compilation")
+                route = _domain_route(manifest, domain)
+                policy = route.get("trusted_absence_policy") if route else None
+                if not isinstance(policy, dict):
+                    raise ValueError(f"{domain}.{key} NOT_APPLICABLE has no trusted_absence_policy")
+                errors = absence_evidence_errors(
+                    item.get("evidence"), item.get("scope_complete"), f"{domain}.{key}"
+                )
+                evidence = item.get("evidence")
+                kinds = {entry.get("kind") for entry in evidence if isinstance(entry, dict)} if isinstance(evidence, list) else set()
+                allowed = set(policy.get("allowed_evidence", []))
+                if kinds and not kinds <= allowed:
+                    errors.append(f"{domain}.{key}: non-applicability evidence violates trusted_absence_policy")
+                if errors:
+                    raise ValueError("; ".join(errors))
             if requirements[domain][key]["required"] and status == "UNKNOWN":
                 unresolved.add(f"{domain}.{key}")
                 if require_complete:
@@ -282,18 +401,52 @@ def validate_domain_context(
     return unresolved
 
 
+def derive_review_snapshot_id(
+    root: Path,
+    manifest: dict[str, Any],
+    domain_resolution: dict[str, Any] | None,
+    domain_context: dict[str, Any],
+    screen_results: dict[str, Any],
+) -> str:
+    """Validate all current Deep inputs, then derive their deterministic identity."""
+    validate_routing_snapshot(manifest)
+    if manifest.get("deferred_domains"):
+        if domain_resolution is None:
+            raise ValueError("review snapshot requires domain-resolution.json")
+        validate_domain_resolution(root, manifest, domain_resolution, require_terminal=True)
+    elif domain_resolution is not None:
+        validate_domain_resolution(root, manifest, domain_resolution, require_terminal=True)
+    validate_domain_context(root, manifest, domain_context, domain_resolution, require_complete=True)
+    try:
+        from render_runtime import validate_screen_results
+    except ImportError:  # pragma: no cover - package-style import
+        from scripts.render_runtime import validate_screen_results
+
+    validate_screen_results(root, manifest, screen_results, domain_resolution)
+    return review_snapshot_id(manifest, domain_resolution, domain_context, screen_results)
+
+
 def validate_target_snapshot(manifest: dict[str, Any]) -> None:
     """Reject consumption of a manifest after the audited target changed."""
     try:
-        from scope_context import compilation_digests, resolve_scope_root, scope_inventory
+        from scope_context import compilation_digests, resolve_build_root, resolve_scope_root, scope_inventory
     except ImportError:  # pragma: no cover - supports package-style imports
-        from scripts.scope_context import compilation_digests, resolve_scope_root, scope_inventory
+        from scripts.scope_context import compilation_digests, resolve_build_root, resolve_scope_root, scope_inventory
 
     recon = manifest["feature_map"]["recon_context"]
     target_root = resolve_scope_root(Path(recon["target_root"]))
+    build_root = resolve_build_root(target_root, Path(recon["build_root"]))
     exclusions = tuple(recon["exclusion_patterns"])
-    files, excluded = scope_inventory(target_root, exclusions)
-    current = compilation_digests(target_root, files, recon["solc_version"])
+    includes = tuple(recon.get("include_patterns", ()))
+    dependency_roots = tuple(recon.get("dependency_roots", ()))
+    files, excluded = scope_inventory(target_root, exclusions, includes, dependency_roots)
+    current = compilation_digests(
+        target_root,
+        files,
+        recon["solc_version"],
+        build_root=build_root,
+        dependency_roots=dependency_roots,
+    )
     expected = {
         "source_digest": recon["source_digest"],
         "audit_source_digest": recon["audit_source_digest"],
@@ -306,5 +459,9 @@ def validate_target_snapshot(manifest: dict[str, Any]) -> None:
         "audit_source_digest": current["audit_source_digest"],
         **current,
     }
-    if excluded != recon["excluded_paths"] or any(actual[key] != expected[key] for key in expected):
+    if (
+        str(build_root) != recon["build_root"]
+        or excluded != recon["excluded_paths"]
+        or any(actual[key] != expected[key] for key in expected)
+    ):
         raise ValueError("Target source/build inputs changed after routing. Rerun Recon and Selector.")

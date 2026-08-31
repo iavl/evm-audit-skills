@@ -17,16 +17,23 @@ DEFAULT_EXCLUDED_PARTS = {
     "cache",
     "deployments",
     "fizz_data",
-    "lib",
-    "node_modules",
     "out",
     "venv",
 }
-BUILD_CONFIG_NAMES = {"foundry.toml", "remappings.txt", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
+BUILD_CONFIG_NAMES = {
+    "foundry.toml",
+    "forge.lock",
+    "remappings.txt",
+    "package.json",
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+}
 DEPENDENCY_LOCK_NAMES = {"forge.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"}
 DEPENDENCY_METADATA_NAMES = DEPENDENCY_LOCK_NAMES | {".gitmodules"}
-DEPENDENCY_ROOTS = {"lib", "node_modules"}
-NON_SOURCE_PARTS = {".git", "artifacts", "build", "cache", "deployments", "fizz_data", "out", "venv"}
+DEFAULT_DEPENDENCY_ROOTS = {"lib", "node_modules"}
+DEPENDENCY_ROOTS = DEFAULT_DEPENDENCY_ROOTS
+NON_SOURCE_PARTS = DEFAULT_EXCLUDED_PARTS | {"build"}
 
 
 def find_suite_root(start_path: Path) -> Path:
@@ -56,20 +63,39 @@ def relative_scope_path(root: Path, path: Path) -> str | None:
         return None
 
 
-def _excluded(relative: str, patterns: Iterable[str]) -> bool:
-    path = Path(relative)
-    if any(part in DEFAULT_EXCLUDED_PARTS for part in path.parts):
-        return True
+def _matches(path: Path, patterns: Iterable[str]) -> bool:
     return any(path.match(pattern) for pattern in patterns)
 
 
-def scope_inventory(root: Path, exclusions: Iterable[str] = ()) -> tuple[list[str], list[str]]:
+def _excluded(
+    relative: str,
+    patterns: Iterable[str],
+    include_patterns: Iterable[str] = (),
+    dependency_roots: Iterable[str] = DEFAULT_DEPENDENCY_ROOTS,
+) -> bool:
+    path = Path(relative)
+    if any(part in DEFAULT_EXCLUDED_PARTS for part in path.parts):
+        return True
+    if _matches(path, patterns):
+        return True
+    roots = set(dependency_roots)
+    return bool(path.parts and path.parts[0] in roots and not _matches(path, include_patterns))
+
+
+def scope_inventory(
+    root: Path,
+    exclusions: Iterable[str] = (),
+    include_patterns: Iterable[str] = (),
+    dependency_roots: Iterable[str] = DEFAULT_DEPENDENCY_ROOTS,
+) -> tuple[list[str], list[str]]:
     patterns = tuple(sorted({pattern.strip() for pattern in exclusions if pattern.strip()}))
+    includes = tuple(sorted({pattern.strip() for pattern in include_patterns if pattern.strip()}))
+    dependency_roots = tuple(sorted({root.strip() for root in dependency_roots if root.strip()}))
     if root.is_file():
         if root.suffix != ".sol":
             raise ValueError(f"audit scope file must be Solidity: {root}")
         relative = root.name
-        if _excluded(relative, patterns):
+        if _excluded(relative, patterns, includes, dependency_roots):
             raise ValueError(f"audit scope excludes its only Solidity file: {root}")
         return [relative], []
 
@@ -77,7 +103,7 @@ def scope_inventory(root: Path, exclusions: Iterable[str] = ()) -> tuple[list[st
     excluded: list[str] = []
     for path in sorted(root.rglob("*.sol")):
         relative = path.relative_to(root).as_posix()
-        (excluded if _excluded(relative, patterns) else included).append(relative)
+        (excluded if _excluded(relative, patterns, includes, dependency_roots) else included).append(relative)
     if not included:
         raise ValueError(f"audit scope contains no Solidity files: {root}")
     return included, excluded
@@ -106,17 +132,24 @@ def _digest_files(root: Path, files: Iterable[Path]) -> str:
     return digest.hexdigest()
 
 
-def _dependency_sources(root: Path) -> list[Path]:
-    sources: list[Path] = []
-    for dependency_root in sorted(DEPENDENCY_ROOTS):
-        base = root / dependency_root
-        if not base.is_dir():
-            continue
-        for path in sorted(base.rglob("*.sol")):
-            relative_parts = path.relative_to(root).parts
-            if not any(part in NON_SOURCE_PARTS for part in relative_parts):
-                sources.append(path)
-    return sources
+def _compilation_sources(root: Path) -> list[Path]:
+    return [
+        path
+        for path in sorted(root.rglob("*.sol"))
+        if not any(part in NON_SOURCE_PARTS for part in path.relative_to(root).parts)
+    ]
+
+
+def _build_configs(root: Path, dependency_roots: Iterable[str]) -> list[Path]:
+    roots = set(dependency_roots)
+    return [
+        path
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+        and (path.name in BUILD_CONFIG_NAMES or path.name == ".gitmodules" or path.name.startswith("hardhat.config."))
+        and not any(part in NON_SOURCE_PARTS for part in path.relative_to(root).parts)
+        and (not path.relative_to(root).parts or path.relative_to(root).parts[0] not in roots)
+    ]
 
 
 def _compilation_digest(
@@ -129,9 +162,9 @@ def _compilation_digest(
     return hashlib.sha256(b"\0".join(value.encode("utf-8") for value in values)).hexdigest()
 
 
-def _submodule_commits(root: Path) -> str:
+def _submodule_commits(root: Path, dependency_roots: Iterable[str]) -> str:
     result = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-s", "--", "lib", "node_modules"],
+        ["git", "-C", str(root), "ls-files", "-s", "--", *sorted(dependency_roots)],
         capture_output=True,
         text=True,
         check=False,
@@ -139,32 +172,59 @@ def _submodule_commits(root: Path) -> str:
     return "\n".join(line.strip() for line in result.stdout.splitlines() if line.startswith("160000 "))
 
 
-def compilation_digests(root: Path, source_files: Iterable[str], compiler_version: str | None = None) -> dict[str, str]:
-    """Fingerprint audit and resolved compilation inputs separately."""
-    if root.is_file():
-        audit = source_digest(root, source_files)
-        empty = hashlib.sha256(b"").hexdigest()
-        return {
-            "audit_source_digest": audit,
-            "dependency_digest": empty,
-            "build_config_digest": empty,
-            "compilation_input_digest": _compilation_digest(audit, empty, empty, compiler_version),
-        }
-    configs = [
-        path
-        for path in root.rglob("*")
-        if path.is_file()
-        and (path.name in BUILD_CONFIG_NAMES or path.name in {".gitmodules"} or path.name.startswith("hardhat.config."))
-        and not any(part in DEPENDENCY_ROOTS for part in path.relative_to(root).parts)
-        and not _excluded(path.relative_to(root).as_posix(), ())
-    ]
-    dependencies = [
-        path for path in configs if path.name in DEPENDENCY_METADATA_NAMES
-    ] + _dependency_sources(root)
+def resolve_build_root(target: Path, build_root: Path | None = None) -> Path:
+    """Resolve the compilation project independently from the audit scope."""
+    if build_root is not None:
+        resolved = build_root.resolve()
+        if not resolved.is_dir():
+            raise ValueError(f"build root must be a directory: {resolved}")
+        return resolved
+    if target.is_dir():
+        return target.resolve()
+    start = target.resolve().parent
+    for candidate in (start, *start.parents):
+        if (
+            (candidate / "foundry.toml").is_file()
+            or (candidate / "package.json").is_file()
+            or (candidate / "remappings.txt").is_file()
+            or any(candidate.glob("hardhat.config.*"))
+        ):
+            return candidate
+    # A standalone Solidity file still gets a conservative parent compilation context.
+    return start
+
+
+def compilation_digests(
+    root: Path,
+    source_files: Iterable[str],
+    compiler_version: str | None = None,
+    *,
+    build_root: Path | None = None,
+    dependency_roots: Iterable[str] = DEFAULT_DEPENDENCY_ROOTS,
+) -> dict[str, str]:
+    """Fingerprint audit scope and the complete selected compilation context separately."""
+    source_files = tuple(source_files)
+    audit_root = root.resolve()
+    compilation_root = (build_root or (audit_root if audit_root.is_dir() else audit_root.parent)).resolve()
+    if not compilation_root.is_dir():
+        raise ValueError(f"build root must be a directory: {compilation_root}")
+    if audit_root.is_dir():
+        try:
+            audit_root.relative_to(compilation_root)
+        except ValueError as error:
+            raise ValueError("audit root must be inside build root") from error
+    audit = source_digest(audit_root, source_files)
+    compilation_sources = _compilation_sources(compilation_root)
+    audit_paths = {
+        (audit_root if audit_root.is_file() else audit_root / relative).resolve()
+        for relative in source_files
+    }
+    dependency_sources = [path for path in compilation_sources if path.resolve() not in audit_paths]
+    configs = _build_configs(compilation_root, dependency_roots)
+    dependencies = [path for path in configs if path.name in DEPENDENCY_METADATA_NAMES] + dependency_sources
+    dependency_files = _digest_files(compilation_root, sorted(set(dependencies)))
+    dependency = hashlib.sha256((dependency_files + "\0" + _submodule_commits(compilation_root, dependency_roots)).encode("utf-8")).hexdigest()
     build_configs = [path for path in configs if path.name not in DEPENDENCY_METADATA_NAMES]
-    audit = source_digest(root, source_files)
-    dependency_files = _digest_files(root, sorted(set(dependencies)))
-    dependency = hashlib.sha256((dependency_files + "\0" + _submodule_commits(root)).encode("utf-8")).hexdigest()
-    build = _digest_files(root, build_configs)
+    build = _digest_files(compilation_root, build_configs)
     compilation = _compilation_digest(audit, dependency, build, compiler_version)
     return {"audit_source_digest": audit, "dependency_digest": dependency, "build_config_digest": build, "compilation_input_digest": compilation}

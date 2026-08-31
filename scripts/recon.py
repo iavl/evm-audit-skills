@@ -20,9 +20,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from scope_context import compilation_digests, relative_scope_path, resolve_scope_root, scope_inventory, source_digest
+    from scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 except ImportError:  # pragma: no cover - supports importing from another cwd
-    from scripts.scope_context import compilation_digests, relative_scope_path, resolve_scope_root, scope_inventory, source_digest
+    from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 
 try:
     from audit_artifacts import validate_schema
@@ -247,6 +247,9 @@ def build_feature_map(
     confirm_absence: bool,
     audit_root: Path | None = None,
     exclusions: tuple[str, ...] = (),
+    build_root: Path | None = None,
+    include_patterns: tuple[str, ...] = (),
+    dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
 ) -> dict[str, Any]:
     feature_data = json.loads((root / "data" / "features.json").read_text(encoding="utf-8"))
     feature_names = sorted(feature_data["features"])
@@ -258,7 +261,11 @@ def build_feature_map(
     slither = Slither(str(target.resolve()), **kwargs)
     detected = detect(slither, detector_config)
     scope_root = resolve_scope_root(target, audit_root)
-    scope_files, excluded_paths = scope_inventory(scope_root, exclusions)
+    compilation_root = resolve_build_root(
+        scope_root if build_root is None and scope_root.is_dir() else target,
+        build_root,
+    )
+    scope_files, excluded_paths = scope_inventory(scope_root, exclusions, include_patterns, dependency_roots)
     files_analyzed = analyzed_source_paths(slither, scope_root)
     uncompiled_paths = sorted(set(scope_files) - set(files_analyzed))
     compilation_complete = not uncompiled_paths
@@ -283,14 +290,23 @@ def build_feature_map(
         else:
             features[feature] = {"status": "UNKNOWN", "evidence": []}
     solc_version = command_version(solc)
-    digests = compilation_digests(scope_root, scope_files, solc_version)
+    digests = compilation_digests(
+        scope_root,
+        scope_files,
+        solc_version,
+        build_root=compilation_root,
+        dependency_roots=dependency_roots,
+    )
     return {
         "schema_version": 4,
         "recon_context": {
             "target_root": str(scope_root),
+            "build_root": str(compilation_root),
             "files_analyzed": files_analyzed,
             "excluded_paths": excluded_paths,
             "exclusion_patterns": sorted(set(exclusions)),
+            "include_patterns": sorted(set(include_patterns)),
+            "dependency_roots": sorted(set(dependency_roots)),
             "uncompiled_paths": uncompiled_paths,
             "source_digest": digests["audit_source_digest"],
             **digests,
@@ -314,7 +330,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=ROOT, help="evm-audit-skills suite root")
     parser.add_argument("--solc", help="solc executable forwarded to Slither")
     parser.add_argument("--audit-root", type=Path, help="complete audit scope; defaults to the Slither target")
+    parser.add_argument("--build-root", type=Path, help="compilation/build project root; inferred for file targets")
     parser.add_argument("--exclude", action="append", default=[], help="additional audit-scope glob to exclude; repeatable")
+    parser.add_argument("--include", action="append", default=[], help="include a normally dependency-only audit path; repeatable")
+    parser.add_argument("--dependency-root", action="append", default=None, help="top-level dependency root; repeatable")
     parser.add_argument("--present-only", action="store_true", help="leave detector absences UNKNOWN")
     parser.add_argument("--output", type=Path, help="write JSON to this path instead of stdout")
     parser.add_argument("--quiet", action="store_true", help="suppress progress output")
@@ -330,6 +349,9 @@ def main(argv: list[str] | None = None) -> int:
             not args.present_only,
             args.audit_root,
             tuple(args.exclude),
+            args.build_root,
+            tuple(args.include),
+            tuple(args.dependency_root) if args.dependency_root is not None else tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
         )
         rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         if args.output:

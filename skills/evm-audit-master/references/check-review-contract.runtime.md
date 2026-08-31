@@ -29,6 +29,19 @@ revision may resolve only a prior `SUSPICIOUS` event and must use `PROOF`.
 `CONFIRMED` records require `PROOF` stage and strong test, trace, invariant, or
 calculation evidence.
 
+## PoC source retention
+
+Solidity test/POC source used during Deep Review or `PROOF`, including supporting
+helpers and mocks, is user-owned audit evidence and remains a deliverable.
+
+- Keep POC source at its original target-project path when possible.
+- If it was created in a disposable directory, copy it to `<run-dir>/poc/`
+  before running the proof.
+- Record the durable path in `proof` or an `evidence.location` entry.
+- After proof succeeds, and after final-report generation or regeneration, do
+  not delete or overwrite the source. Cleanup may remove only generated views
+  and disposable build/cache artifacts that do not contain POC source.
+
 ```markdown
 ### <canonical-id> — <title>
 - **Review stage**: DEEP_REVIEW | PROOF

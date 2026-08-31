@@ -13,6 +13,7 @@ try:
         absence_evidence_errors,
         canonical_sha256,
         check_body_hash,
+        derive_review_snapshot_id,
         load_json,
         registry_sha256,
         resolved_routes,
@@ -28,6 +29,7 @@ except ImportError:  # pragma: no cover
         absence_evidence_errors,
         canonical_sha256,
         check_body_hash,
+        derive_review_snapshot_id,
         load_json,
         registry_sha256,
         resolved_routes,
@@ -162,6 +164,7 @@ def domain_context_template(
         }
     return {
         **_empty_identity(manifest),
+        "schema_version": 3,
         "domains": {
             domain: {
                 key: {"status": "UNKNOWN", "evidence": []}
@@ -183,6 +186,11 @@ def validate_screen_results(root: Path, manifest: dict[str, Any], value: dict[st
         raise ValueError("screen results must resolve every selected ID exactly once")
     for entry in results:
         if entry["result"] == "NOT_APPLICABLE_CONFIRMED":
+            quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality", {})
+            if quality.get("absence_filtering_complete") is not True:
+                raise ValueError(
+                    f"{entry['canonical_id']}: NOT_APPLICABLE_CONFIRMED requires complete compilation"
+                )
             errors = absence_evidence_errors(
                 entry["evidence"], entry.get("scope_complete"), entry["canonical_id"]
             )
@@ -191,7 +199,15 @@ def validate_screen_results(root: Path, manifest: dict[str, Any], value: dict[st
     return {entry["canonical_id"] for entry in results if entry["result"] == "CANDIDATE"}
 
 
-def render(manifest: dict[str, Any], registry: dict[str, Any], profile: str, candidate_ids: set[str], owner_domain: str | None = None, domain_resolution: dict[str, Any] | None = None) -> str:
+def render(
+    manifest: dict[str, Any],
+    registry: dict[str, Any],
+    profile: str,
+    candidate_ids: set[str],
+    owner_domain: str | None = None,
+    domain_resolution: dict[str, Any] | None = None,
+    review_snapshot: str | None = None,
+) -> str:
     entries = {entry["canonical_id"]: entry for entry in selected_entries(manifest, owner_domain, domain_resolution)}
     checks = {
         check["canonical_id"]: check
@@ -204,12 +220,14 @@ def render(manifest: dict[str, Any], registry: dict[str, Any], profile: str, can
         "<!-- GENERATED RUNTIME ARTIFACT",
         f"artifact_type: runtime-{profile}",
         f"routing_snapshot_id: {manifest['routing_snapshot_id']}",
+        f"review_snapshot_id: {review_snapshot or 'not-yet-defined'}",
         f"registry_sha256: {audit['registry_sha256']}",
         f"source_digest: {audit['source_digest']}",
         f"audit_source_digest: {audit['audit_source_digest']}",
         f"compilation_input_digest: {audit['compilation_input_digest']}",
         f"profile: {profile}",
         f"candidate_set_sha256: {canonical_sha256(ids)}",
+        f"candidate_set: {','.join(ids)}",
         "source: data/canonical-checks.json; do not edit by hand. -->",
         "# Routed EVM Audit Checks",
         "",
@@ -293,6 +311,8 @@ def main(argv: list[str] | None = None) -> int:
                 warning(f"{len(unresolved_context)} required Domain context item(s) remain UNKNOWN")
             else:
                 success("Domain Context validated")
+        review_snapshot: str | None = None
+        screen_results: dict[str, Any] | None = None
         if args.profile == "deep":
             stage("DEEP REVIEW", step=5, total=7, detail="Rendering candidate-only Deep Review")
             if not args.screen_results:
@@ -301,7 +321,11 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("Deep Review blocked: --domain-resolution is required for Deferred Domains")
             if not args.domain_context:
                 raise ValueError("--profile deep requires --domain-context")
-            candidates = validate_screen_results(ROOT, manifest, load_json(args.screen_results), domain_resolution)
+            screen_results = load_json(args.screen_results)
+            candidates = validate_screen_results(ROOT, manifest, screen_results, domain_resolution)
+            review_snapshot = derive_review_snapshot_id(
+                ROOT, manifest, domain_resolution, domain_context, screen_results
+            )
         else:
             stage("SCREEN", step=4, total=7, detail="Screening routed checks")
             candidates = set()
@@ -317,7 +341,18 @@ def main(argv: list[str] | None = None) -> int:
                 write_json(args.domain_context_out, domain_context_template(manifest, domain_resolution))
                 info(f"Domain Context template written to {args.domain_context_out}")
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(render(manifest, registry, args.profile, candidates, args.owner_domain, domain_resolution), encoding="utf-8")
+        args.output.write_text(
+            render(
+                manifest,
+                registry,
+                args.profile,
+                candidates,
+                args.owner_domain,
+                domain_resolution,
+                review_snapshot,
+            ),
+            encoding="utf-8",
+        )
         entries = selected_entries(manifest, args.owner_domain, domain_resolution)
         if args.profile == "screen":
             info(f"Rendered checks: {len(entries)}")

@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:domain-context:v2",
+  "$id": "urn:evm-audit-skills:domain-context:v3",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest", "domains"],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "routing_snapshot_id": {"$ref": "#/$defs/hash"},
     "registry_sha256": {"$ref": "#/$defs/hash"},
     "source_digest": {"$ref": "#/$defs/hash"},
@@ -38,6 +38,7 @@
       "required": ["status"],
       "properties": {
         "status": {"enum": ["KNOWN", "NOT_APPLICABLE", "UNKNOWN"]},
+        "scope_complete": {"type": "boolean"},
         "value": {},
         "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}}
       },
@@ -48,7 +49,7 @@
         },
         {
           "if": {"properties": {"status": {"const": "NOT_APPLICABLE"}}},
-          "then": {"required": ["evidence"], "properties": {"evidence": {"minItems": 1}}}
+          "then": {"required": ["scope_complete", "evidence"], "properties": {"scope_complete": {"const": true}, "evidence": {"minItems": 1}}}
         }
       ]
     }
