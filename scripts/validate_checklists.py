@@ -21,14 +21,16 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 try:
-    from generate_checklists import check_outputs, load_domains, load_registry, normalize_registry
+    from audit_artifacts import validate_schema
+    from generate_checklists import check_outputs, load_domains, load_registry
     from select_checks import (
         PREDICATE_KEYS,
         check_predicate,
         vocabulary as feature_vocabulary,
     )
 except ImportError:  # pragma: no cover - supports importing this file from another cwd
-    from scripts.generate_checklists import check_outputs, load_domains, load_registry, normalize_registry
+    from scripts.audit_artifacts import validate_schema
+    from scripts.generate_checklists import check_outputs, load_domains, load_registry
     from scripts.select_checks import (
         PREDICATE_KEYS,
         check_predicate,
@@ -44,12 +46,8 @@ README_RUNTIME_RE = re.compile(r"(\d[\d,]*)\s+generated runtime entries")
 MASTER_CANONICAL_RE = re.compile(r"Total:\s+(\d[\d,]*)\s+canonical checks")
 MASTER_RUNTIME_RE = re.compile(r"and\s+(\d[\d,]*)\s+generated runtime entries")
 REVIEW_ROW_RE = re.compile(
-    r"^\|\s*([A-Z]+-\d+)\s*\|.*\|\s*(MERGED|MERGE|KEEP_DISTINCT|PENDING_USER_CONFIRMATION)\s*\|\s*$"
+    r"^\|\s*([A-Z]+-\d+)\s*\|.*\|\s*(MERGED|KEEP_DISTINCT|PENDING_USER_CONFIRMATION)\s*\|\s*$"
 )
-LEDGER_HEADING_RE = re.compile(r"^###\s+([^\s]+)\s+—\s+(.+?)\s*$")
-LEDGER_FIELD_RE = re.compile(r"^-\s+\*\*(.+?)\*\*:\s*(.*)$")
-LEDGER_STATUSES = {"NOT_APPLICABLE", "REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}
-LEDGER_STAGES = {"FAST_FILTER", "DEEP_REVIEW", "PROOF"}
 CANONICAL_ID_RE = re.compile(r"\[([A-Z0-9]+(?:-[A-Z0-9]+)+-\d{3})\]")
 URL_VALUE_RE = re.compile(r"^https?://[^\s]+$")
 CHECK_TYPES = {"normative", "semantic", "exploit-pattern", "heuristic"}
@@ -284,7 +282,7 @@ def validate_registry(root: Path) -> list[str]:
             errors.append(f"{prefix}: missing skill directory")
 
     try:
-        registry = normalize_registry(load_registry(path))
+        registry = load_registry(path)
     except (OSError, json.JSONDecodeError) as error:
         return errors + [f"{path}: cannot parse JSON: {error}"]
     if registry.get("schema_version") != 5:
@@ -499,7 +497,7 @@ def validate_registry(root: Path) -> list[str]:
                     continue
                 alias_key = (alias["path"], alias["line"])
                 if alias_key in alias_keys:
-                    errors.append(f"{prefix}: duplicate legacy alias {alias_key}")
+                    errors.append(f"{prefix}: duplicate source alias {alias_key}")
                 alias_keys.add(alias_key)
                 for source_id in alias.get("source_ids", []):
                     if not SOURCE_ID_RE.fullmatch(source_id):
@@ -550,6 +548,21 @@ def validate_artifact_schemas(root: Path) -> list[str]:
     return errors
 
 
+def validate_benchmark_fixtures(root: Path) -> list[str]:
+    errors: list[str] = []
+    benchmark_root = root / "development" / "benchmarks" / "routing"
+    flat = sorted(benchmark_root.glob("*.json"))
+    if flat:
+        errors.append("routing benchmark fixtures must be under automatic/ or explicit/")
+    for mode in ("automatic", "explicit"):
+        for path in sorted((benchmark_root / mode).glob("*.json")):
+            try:
+                validate_schema(root, "benchmark-routing-fixture.schema.json", load_registry(path))
+            except (OSError, json.JSONDecodeError, ValueError) as error:
+                errors.append(f"{path}: invalid benchmark fixture: {error}")
+    return errors
+
+
 def validate_generated_registry(root: Path, registry: dict[str, object]) -> list[str]:
     errors: list[str] = []
     generated_errors = check_outputs(registry, root)
@@ -591,7 +604,7 @@ def validate_knowledge_claims(root: Path, registry: dict[str, Any] | None = None
         return errors + [f"{path}: claims must be a list"]
     if registry is None:
         try:
-            registry = normalize_registry(load_registry(root / "data" / "canonical-checks.json"))
+            registry = load_registry(root / "data" / "canonical-checks.json")
         except (OSError, json.JSONDecodeError, ValueError) as error:
             return errors + [f"{path}: cannot load registry: {error}"]
     checks = {check.get("canonical_id"): check for check in registry.get("checks", [])}
@@ -879,12 +892,13 @@ def main(argv: list[str]) -> int:
 
     errors.extend(validate_registry(root))
     errors.extend(validate_artifact_schemas(root))
+    errors.extend(validate_benchmark_fixtures(root))
     registry_path = root / "data" / "canonical-checks.json"
     if registry_path.exists():
         try:
-            normalized_registry = normalize_registry(load_registry(registry_path))
-            errors.extend(validate_generated_registry(root, normalized_registry))
-            errors.extend(validate_knowledge_claims(root, normalized_registry))
+            registry = load_registry(registry_path)
+            errors.extend(validate_generated_registry(root, registry))
+            errors.extend(validate_knowledge_claims(root, registry))
         except (OSError, json.JSONDecodeError) as error:
             errors.append(f"{registry_path}: cannot load generated coverage: {error}")
 

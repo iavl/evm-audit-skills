@@ -37,7 +37,7 @@ Each skill is a structured, sourced checklist of **non-obvious** security vulner
 - `scripts/` — audit engine and maintenance commands.
 - `schemas/` — runtime artifact schemas.
 - `docs/` — architecture and maintenance documentation.
-- `development/` — benchmarks and historical migrations; not required for normal audits.
+- `development/` — benchmark fixtures; not required for normal audits.
 - `tests/` — repository development infrastructure intentionally kept at the root for Python, Foundry, and CI path stability.
 - `.github/` — GitHub Actions, which must remain at the repository root.
 

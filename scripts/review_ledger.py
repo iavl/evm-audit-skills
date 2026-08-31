@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 TERMINAL = {"NOT_APPLICABLE", "REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}
 REVIEW_STAGES = {"DEEP_REVIEW", "PROOF"}
 IDENTITY_KEYS = ("routing_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest")
@@ -32,24 +32,16 @@ def read_json(path: Path) -> dict[str, Any]:
     return load_json(path)
 
 
-def _audit_context(manifest: dict[str, Any]) -> dict[str, Any]:
-    return manifest.get("audit_context", manifest)
-
-
-def checkpoint(manifest: dict[str, Any], resumed_from: Iterable[str] = ()) -> dict[str, Any]:
-    audit = _audit_context(manifest)
-    value = {
+def checkpoint(manifest: dict[str, Any]) -> dict[str, Any]:
+    audit = manifest["audit_context"]
+    return {
         "record_type": "checkpoint",
         "schema_version": SCHEMA_VERSION,
-        "routing_snapshot_id": manifest.get("routing_snapshot_id"),
-        "registry_sha256": audit.get("registry_sha256"),
-        "source_digest": audit.get("source_digest"),
-        "compilation_input_digest": audit.get("compilation_input_digest"),
+        "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "registry_sha256": audit["registry_sha256"],
+        "source_digest": audit["source_digest"],
+        "compilation_input_digest": audit["compilation_input_digest"],
     }
-    sources = sorted(set(resumed_from))
-    if sources:
-        value["resumed_from"] = sources
-    return value
 
 
 def load(path: Path) -> list[dict[str, Any]]:
@@ -64,10 +56,6 @@ def load(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"{path}:{number} must contain an object")
         records.append(value)
     return records
-
-
-def _hashes(registry: dict[str, Any]) -> dict[str, str]:
-    return {check["canonical_id"]: check_body_hash(check) for check in registry.get("checks", [])}
 
 
 def _manifest_routes(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -172,18 +160,24 @@ def validate_records(records: list[dict[str, Any]], manifest: dict[str, Any], re
 
 
 def append(path: Path, manifest: dict[str, Any], record: dict[str, Any], registry: dict[str, Any] | None = None, expected_ids: set[str] | None = None) -> None:
-    if record.get("record_type") not in {None, "review"}:
-        raise ValueError("append accepts a review record")
+    if record.get("record_type") != "review":
+        raise ValueError("append requires record_type=review")
+    if record.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"append requires schema_version={SCHEMA_VERSION}")
     identity = checkpoint(manifest)
-    record = {"record_type": "review", "schema_version": SCHEMA_VERSION, **{key: identity[key] for key in IDENTITY_KEYS}, **record}
-    errors = validate_record(record, manifest, registry or read_json(ROOT / "data/canonical-checks.json"), expected_ids)
+    for key in IDENTITY_KEYS:
+        if key in record and record[key] != identity[key]:
+            raise ValueError(f"append record {key} does not match manifest")
+    record = {**record, **{key: identity[key] for key in IDENTITY_KEYS}}
+    registry_value = registry or read_json(ROOT / "data/canonical-checks.json")
+    errors = validate_record(record, manifest, registry_value, expected_ids)
     if errors:
         raise ValueError("; ".join(errors))
     records = load(path)
     if records:
-        expected = checkpoint(manifest)
-        if any(records[0].get(key) != expected.get(key) for key in IDENTITY_KEYS):
-            raise ValueError("checkpoint context changed; start a new ledger")
+        existing_errors = validate_records(records, manifest, registry_value, expected_ids)
+        if existing_errors:
+            raise ValueError(f"invalid existing ledger: {'; '.join(existing_errors)}")
         if any(item.get("canonical_id") == record.get("canonical_id") for item in records[1:]):
             raise ValueError(f"duplicate review record: {record['canonical_id']}")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,46 +185,6 @@ def append(path: Path, manifest: dict[str, Any], record: dict[str, Any], registr
         if not records:
             output.write(json.dumps(checkpoint(manifest), ensure_ascii=False, sort_keys=True) + "\n")
         output.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-
-
-def resumable(path: Path, manifest: dict[str, Any], registry: dict[str, Any], candidate_ids: set[str] | None = None) -> dict[str, dict[str, Any]]:
-    records = load(path)
-    if not records or records[0].get("record_type") != "checkpoint":
-        return {}
-    old = records[0]
-    current = checkpoint(manifest)
-    if any(old.get(key) != current.get(key) for key in ("source_digest", "compilation_input_digest")):
-        return {}
-    hashes = _hashes(registry)
-    wanted = set(_manifest_routes(manifest)) if candidate_ids is None else set(candidate_ids)
-    result: dict[str, dict[str, Any]] = {}
-    for record in records[1:]:
-        canonical_id = record.get("canonical_id")
-        if canonical_id not in wanted or record.get("record_type") != "review" or record.get("status") not in TERMINAL:
-            continue
-        if record.get("check_body_hash") != hashes.get(canonical_id):
-            continue
-        copied = dict(record)
-        copied["schema_version"] = SCHEMA_VERSION
-        copied["routing_snapshot_id"] = manifest.get("routing_snapshot_id")
-        current_identity = checkpoint(manifest)
-        for key in ("registry_sha256", "source_digest", "compilation_input_digest"):
-            copied[key] = current_identity[key]
-        copied["resumed_from_snapshot_id"] = old.get("routing_snapshot_id")
-        copied["resumed_from"] = [str(path)]
-        if not validate_record(copied, manifest, registry, wanted):
-            result[canonical_id] = copied
-    return result
-
-
-def merge(paths: list[Path], manifest: dict[str, Any], registry: dict[str, Any], candidate_ids: set[str] | None = None) -> dict[str, dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
-    for path in paths:
-        for canonical_id, record in resumable(path, manifest, registry, candidate_ids).items():
-            if canonical_id in merged and merged[canonical_id] != record:
-                raise ValueError(f"conflicting resumed review for {canonical_id}")
-            merged[canonical_id] = record
-    return merged
 
 
 def pending(manifest: dict[str, Any], screen: dict[str, Any], ledgers: list[Path], registry: dict[str, Any], domain_resolution: dict[str, Any] | None = None) -> dict[str, list[str]]:
@@ -297,10 +251,10 @@ def render_markdown(records: list[dict[str, Any]], manifest: dict[str, Any], reg
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_ledger(path: Path, manifest: dict[str, Any], records: Iterable[dict[str, Any]], sources: Iterable[str] = (), registry: dict[str, Any] | None = None, expected_ids: set[str] | None = None) -> None:
+def write_ledger(path: Path, manifest: dict[str, Any], records: Iterable[dict[str, Any]], registry: dict[str, Any] | None = None, expected_ids: set[str] | None = None) -> None:
     if path.exists():
         raise ValueError(f"refusing to overwrite existing ledger: {path}")
-    values = [checkpoint(manifest, sources), *records]
+    values = [checkpoint(manifest), *records]
     errors = validate_records(values, manifest, registry or read_json(ROOT / "data/canonical-checks.json"), expected_ids)
     if errors:
         raise ValueError("; ".join(errors))
@@ -317,9 +271,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ledger", type=Path, action="append", default=[])
     parser.add_argument("--pending", action="store_true")
     parser.add_argument("--append-record", type=Path)
-    parser.add_argument("--resume-from", type=Path, action="append", default=[])
     parser.add_argument("--render-markdown", type=Path)
-    parser.add_argument("--output", type=Path, help="new ledger output for --resume-from")
     args = parser.parse_args(argv)
     try:
         manifest, registry = read_json(args.manifest), read_json(args.registry)
@@ -336,12 +288,6 @@ def main(argv: list[str] | None = None) -> int:
             if len(args.ledger) != 1:
                 raise ValueError("--append-record requires exactly one --ledger output")
             append(args.ledger[0], manifest, read_json(args.append_record), registry, candidates)
-        if args.resume_from:
-            output = args.output or (args.ledger[0] if len(args.ledger) == 1 else None)
-            if output is None:
-                raise ValueError("--resume-from requires --output or exactly one --ledger")
-            records = merge(args.resume_from, manifest, registry, candidates)
-            write_ledger(output, manifest, records.values(), [str(path) for path in args.resume_from], registry, candidates)
         if args.render_markdown:
             values: list[dict[str, Any]] = []
             for path in args.ledger:

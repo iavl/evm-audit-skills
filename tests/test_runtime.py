@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import subprocess
 import sys
@@ -12,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from scripts.render_runtime import render, screen_results_template, validate_manifest, validate_screen_results
-from scripts.review_ledger import append, check_body_hash, merge, resumable, validate_record
+from scripts.review_ledger import append, check_body_hash, load, validate_record, validate_records
 from scripts.scope_context import find_suite_root
 from scripts.select_checks import audit_context, load_domains, normalize_feature_map, select
 from scripts.validate_audit_run import validate_run
@@ -246,13 +245,15 @@ class RuntimeTests(unittest.TestCase):
         state = validate_run(ROOT, manifest, self.registry, screen, resolution, None, [])
         self.assertEqual(state["status"], "COMPLETE_WITH_UNRESOLVED_DOMAIN_ROUTING")
 
-    def test_jsonl_resume_reuses_only_matching_terminal_record(self) -> None:
+    def test_jsonl_resume_requires_same_snapshot_and_appends(self) -> None:
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "review.jsonl"
             record = {
+                "record_type": "review",
+                "schema_version": 3,
                 "canonical_id": check["canonical_id"],
                 "owner_domain": entry["owner_domain"],
                 "routing_snapshot_id": manifest["routing_snapshot_id"],
@@ -269,11 +270,35 @@ class RuntimeTests(unittest.TestCase):
                 "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}],
             }
             append(path, manifest, record)
-            self.assertIn(check["canonical_id"], resumable(path, manifest, registry, {check["canonical_id"]}))
-            self.assertIn(check["canonical_id"], merge([path], manifest, registry, {check["canonical_id"]}))
-            changed = copy.deepcopy(manifest)
-            changed["audit_context"]["source_digest"] = "0" * 64
-            self.assertEqual(resumable(path, changed, registry, {check["canonical_id"]}), {})
+            self.assertEqual(validate_records(load(path), manifest, registry, {check["canonical_id"]}), [])
+            second_entry = manifest["selected"][1]
+            second_check = next(item for item in registry["checks"] if item["canonical_id"] == second_entry["canonical_id"])
+            second_record = {
+                **record,
+                "canonical_id": second_check["canonical_id"],
+                "owner_domain": second_entry["owner_domain"],
+                "check_body_hash": check_body_hash(second_check),
+            }
+            append(path, manifest, second_record, registry, {check["canonical_id"], second_check["canonical_id"]})
+            self.assertEqual(len(load(path)), 3)
+            self.assertEqual(
+                validate_records(load(path), manifest, registry, {check["canonical_id"], second_check["canonical_id"]}),
+                [],
+            )
+            changed = {**manifest, "audit_context": {**manifest["audit_context"], "source_digest": "0" * 64}}
+            self.assertTrue(validate_records(load(path), changed, registry, {check["canonical_id"]}))
+            with self.assertRaisesRegex(ValueError, "record_type=review"):
+                append(path, manifest, {key: value for key, value in record.items() if key != "record_type"})
+
+    def test_cross_snapshot_resume_cli_is_removed(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "scripts/review_ledger.py", "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("--" + "resume-from", result.stdout)
 
     def test_domain_skills_embed_the_evidence_gate(self) -> None:
         for skill_path in sorted((ROOT / "skills").glob("evm-audit-*/SKILL.md")):
@@ -302,7 +327,7 @@ class RuntimeTests(unittest.TestCase):
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
         base = {
-            "schema_version": 2,
+            "schema_version": 3,
             "record_type": "review",
             "canonical_id": entry["canonical_id"],
             "owner_domain": entry["owner_domain"],
@@ -338,6 +363,8 @@ class RuntimeTests(unittest.TestCase):
         )
         confirmed = {**base, "status": "CONFIRMED"}
         self.assertEqual(validate_record(confirmed, manifest, registry, {entry["canonical_id"]}), [])
+        old_schema = {**confirmed, "schema_version": 2}
+        self.assertTrue(validate_record(old_schema, manifest, registry, {entry["canonical_id"]}))
         incomplete = {key: value for key, value in confirmed.items() if key != "proof"}
         self.assertTrue(
             any(

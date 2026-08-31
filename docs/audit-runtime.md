@@ -34,6 +34,10 @@ record. Deep/proof records include snapshot/hash identity, applicability, code
 path, preconditions, exploitability, impact, PoC/invariant evidence, and one
 of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
 
+`--append-record` accepts a current review payload with `record_type: "review"`
+and `schema_version: 3`; the ledger binds its identity fields to the manifest.
+Missing, stale, or older record shapes are rejected.
+
 Runtime Markdown is a generated view with snapshot, registry, source,
 compilation-input, profile, and candidate-set hashes; the renderer validates
 those identities before reading check bodies. Filtered IDs remain in the
@@ -64,7 +68,7 @@ Confirmed findings use this format:
 ## [X-N] Title
 **Status**: CONFIRMED
 **Checklist reference**: `<canonical-id>`
-**Legacy/source references**: `<source IDs or aliases from canonical registry>`
+**Provenance references**: `<source IDs or aliases from canonical registry>`
 **Severity**: Critical / High / Medium / Low / Info
 **Category**: [skill name]
 **Location**: `functionName()` or file:line

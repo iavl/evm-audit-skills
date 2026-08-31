@@ -1,4 +1,4 @@
-# Source Tracking Compatibility Pointer
+# Source Tracking / Provenance
 
 Repository-level source tracking moved to
 [`docs/knowledge-lineage.md`](../../../docs/knowledge-lineage.md).

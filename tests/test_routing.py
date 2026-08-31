@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.benchmark_routing import run_profile
+from scripts.benchmark_routing import fixture_paths, run_profile, validate_fixture
 from scripts.generate_checklists import load_domains
 from scripts.select_checks import (
     audit_context,
@@ -319,13 +319,35 @@ class RoutingTests(unittest.TestCase):
                 self.assertEqual(evaluate_check(check, filtered_map, self.feature_names)["result"], "FALSE")
 
     def test_benchmark_runner_rejects_malformed_fixture(self) -> None:
-        with self.assertRaisesRegex(ValueError, "invalid features"):
-            run_profile(ROOT, {"name": "malformed", "detected_features": "uses-erc20", "absent_features": []})
+        with self.assertRaisesRegex(ValueError, "Additional properties"):
+            run_profile(ROOT, {"schema_version": 1, "name": "malformed", "present_features": [], "absent_features": [], "detected_features": ["uses-erc20"]})
+
+    def test_benchmark_fixtures_use_current_schema_and_layout(self) -> None:
+        self.assertFalse((ROOT / "development" / "migrations").exists())
+        paths = fixture_paths(ROOT)
+        self.assertTrue(paths)
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertIn(path.parent.name, {"automatic", "explicit"})
+                fixture = load_json(path)
+                validate_fixture(ROOT, fixture)
+                self.assertNotIn("detected_features", fixture)
+                self.assertNotIn("must_select_ids", fixture)
+                self.assertNotIn("must_not_filter_ids", fixture)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "suite"
+            routing = root / "development/benchmarks/routing"
+            routing.mkdir(parents=True)
+            (routing / "legacy.json").write_text("{}", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "automatic/ or explicit/"):
+                fixture_paths(root)
 
     def test_benchmark_runner_rejects_must_not_filter_violation(self) -> None:
         fixture = {
+            "schema_version": 1,
             "name": "must-not-filter",
-            "detected_features": [],
+            "present_features": [],
             "absent_features": ["uses-erc4626"],
             "domain_scope": ["evm-audit-erc4626"],
             "must_not_filter_checks": ["EVM-ERC4626-043"],
@@ -338,8 +360,9 @@ class RoutingTests(unittest.TestCase):
             run_profile(
                 ROOT,
                 {
+                    "schema_version": 1,
                     "name": "budget",
-                    "detected_features": [],
+                    "present_features": [],
                     "absent_features": [],
                     "max_runtime_bytes": 0,
                 },

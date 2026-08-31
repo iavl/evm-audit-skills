@@ -20,7 +20,7 @@ Resolve `<suite-root>` as the nearest ancestor of this Skill containing
 
 `<suite-root>/data/canonical-checks.json` is the only editable checklist knowledge source.
 `<suite-root>/domains/*.json` contains Domain taxonomy and methodology. The generated
-`references/checklist.md` files are compatibility/maintenance views. Run
+`references/checklist.md` files are generated human-readable reference views. Run
 `python3 <suite-root>/scripts/generate_checklists.py` after editing JSON; the generator
 never repairs or infers knowledge. Repository-level source lineage is documented
 in `<suite-root>/docs/knowledge-lineage.md`; per-source provenance maps remain in

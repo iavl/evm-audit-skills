@@ -47,7 +47,7 @@ def validate_domain_resolution(root: Path, manifest: dict[str, Any], value: dict
         return errors
     if (identity_error := _identity_error(value, manifest)):
         errors.append(identity_error)
-    for key, expected in manifest.get("audit_context", {}).items():
+    for key, expected in manifest["audit_context"].items():
         if value.get(key) != expected:
             errors.append(f"context {key} does not match manifest")
     deferred = _domain_ids(manifest, "deferred_domains")

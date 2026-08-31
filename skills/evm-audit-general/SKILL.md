@@ -41,4 +41,4 @@ Apply `<suite-root>/skills/evm-audit-master/references/check-review-contract.run
 Related domains (advisory only; never auto-expand direct scope): `evm-audit-precision-math`.
 
 ## Maintenance View
-- `references/checklist.md` is generated for maintenance and compatibility.
+- `references/checklist.md` is a generated human-readable reference view.

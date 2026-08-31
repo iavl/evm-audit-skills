@@ -23,7 +23,8 @@ safe path cannot establish `REVIEWED_SAFE` or `CONFIRMED`.
 The authoritative JSON object includes `routing_snapshot_id`,
 `registry_sha256`, `source_digest`, `compilation_input_digest`, `owner_domain`,
 `check_body_hash`, `review_stage`, `status`, all review fields, and typed
-`evidence` entries (`kind`, `location`, `reason`).
+`evidence` entries (`kind`, `location`, `reason`). It uses review-record schema
+v3 and must match the one routing snapshot that owns the ledger.
 
 ```markdown
 ### <canonical-id> — <title>

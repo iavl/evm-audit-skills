@@ -1,12 +1,14 @@
 {
+  "schema_version": 1,
   "name": "governance",
-  "detected_features": ["uses-governance"],
+  "present_features": ["uses-governance"],
+  "absent_features": [],
   "domain_scope": ["evm-audit-general", "evm-audit-governance"],
-  "selected_domains": ["evm-audit-general", "evm-audit-governance"],
+  "expected_selected_domains": ["evm-audit-general", "evm-audit-governance"],
   "expected_selected_checks": 163,
   "expected_filtered_checks": 0,
-  "must_select_ids": ["EVM-GEN-001", "EVM-GOV-001"],
-  "must_not_filter_ids": ["EVM-GOV-001"],
+  "must_select_checks": ["EVM-GEN-001", "EVM-GOV-001"],
+  "must_not_filter_checks": ["EVM-GOV-001"],
   "max_runtime_bytes": 129024,
   "max_total_context_bytes": 368640
 }

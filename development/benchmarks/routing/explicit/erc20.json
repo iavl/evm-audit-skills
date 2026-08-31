@@ -1,12 +1,14 @@
 {
+  "schema_version": 1,
   "name": "erc20",
-  "detected_features": ["uses-erc20"],
+  "present_features": ["uses-erc20"],
+  "absent_features": [],
   "domain_scope": ["evm-audit-general", "evm-audit-erc20"],
-  "selected_domains": ["evm-audit-general", "evm-audit-erc20"],
+  "expected_selected_domains": ["evm-audit-general", "evm-audit-erc20"],
   "expected_selected_checks": 149,
   "expected_filtered_checks": 0,
-  "must_select_ids": ["EVM-GEN-001", "EVM-ERC20-001", "EVM-ERC20-020"],
-  "must_not_filter_ids": ["EVM-ERC20-020"],
+  "must_select_checks": ["EVM-GEN-001", "EVM-ERC20-001", "EVM-ERC20-020"],
+  "must_not_filter_checks": ["EVM-ERC20-020"],
   "max_runtime_bytes": 120832,
   "max_total_context_bytes": 343040
 }

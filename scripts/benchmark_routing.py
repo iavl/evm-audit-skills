@@ -11,10 +11,12 @@ import tempfile
 from pathlib import Path
 
 try:
+    from audit_artifacts import validate_schema
     from render_runtime import render, validate_manifest, validate_screen_results
     from scope_context import compilation_digests, scope_inventory
     from select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
 except ImportError:  # pragma: no cover
+    from scripts.audit_artifacts import validate_schema
     from scripts.render_runtime import render, validate_manifest, validate_screen_results
     from scripts.scope_context import compilation_digests, scope_inventory
     from scripts.select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
@@ -75,15 +77,21 @@ def _rounded_budget(value: int) -> int:
     return ((value * 11 + 9) // 10 + 1023) // 1024 * 1024
 
 
+def validate_fixture(root: Path, fixture: dict[str, object]) -> None:
+    validate_schema(root, "benchmark-routing-fixture.schema.json", fixture)
+    if set(fixture["present_features"]) & set(fixture["absent_features"]):  # type: ignore[index]
+        raise ValueError(f"{fixture['name']}: present_features and absent_features overlap")
+
+
 def _assert_fixture(fixture: dict[str, object], normalized: dict[str, dict[str, object]], manifest: dict[str, object]) -> None:
-    name = fixture.get("name")
+    name = fixture["name"]
     selected_domains, deferred_domains, filtered_domains = map(lambda bucket: set(_domains(manifest, bucket)), ("selected_domains", "deferred_domains", "filtered_domains"))
     selected_ids = {entry["canonical_id"] for entry in manifest["selected"]}  # type: ignore[index]
     filtered_ids = {entry["canonical_id"] for entry in manifest["filtered"]}  # type: ignore[index]
-    for feature in fixture.get("must_detect_features", fixture.get("detected_features", [])):
+    for feature in fixture.get("must_detect_features", []):
         if normalized.get(feature, {}).get("status") != "PRESENT":
             raise ValueError(f"{name}: must-detect feature is not PRESENT: {feature}")
-    must_select = set(fixture.get("must_select_checks", fixture.get("must_select_ids", [])))
+    must_select = set(fixture.get("must_select_checks", []))
     if not must_select <= selected_ids:
         raise ValueError(f"{name}: must-select checks missing: {sorted(must_select - selected_ids)}")
     expected_selected_checks = fixture.get("expected_selected_checks")
@@ -92,7 +100,7 @@ def _assert_fixture(fixture: dict[str, object], normalized: dict[str, dict[str, 
     expected_filtered_checks = fixture.get("expected_filtered_checks")
     if isinstance(expected_filtered_checks, int) and expected_filtered_checks != len(filtered_ids):
         raise ValueError(f"{name}: filtered check count mismatch: expected={expected_filtered_checks} actual={len(filtered_ids)}")
-    must_not_filter = set(fixture.get("must_not_filter_checks", fixture.get("must_not_filter_ids", [])))
+    must_not_filter = set(fixture.get("must_not_filter_checks", []))
     if must_not_filter & filtered_ids:
         raise ValueError(f"{name}: must-not-filter checks filtered: {sorted(must_not_filter & filtered_ids)}")
     for key, actual in (
@@ -101,11 +109,9 @@ def _assert_fixture(fixture: dict[str, object], normalized: dict[str, dict[str, 
         ("expected_filtered_domains", filtered_domains),
     ):
         expected = fixture.get(key)
-        if expected is None and key == "expected_selected_domains" and fixture.get("domain_scope") is not None:
-            expected = fixture.get("selected_domains")
         if expected is not None and set(expected) != actual:
             raise ValueError(f"{name}: {key} mismatch: expected={sorted(expected)} actual={sorted(actual)}")
-    required = set(fixture.get("must_select_domains", fixture.get("selected_domains", [])))
+    required = set(fixture.get("must_select_domains", []))
     if not required <= selected_domains:
         raise ValueError(f"{name}: selected Domains missing: {sorted(required - selected_domains)}")
     forbidden = set(fixture.get("must_not_filter_domains", [])) | set(fixture.get("must_not_select_domains", []))
@@ -116,12 +122,13 @@ def _assert_fixture(fixture: dict[str, object], normalized: dict[str, dict[str, 
 
 
 def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
+    validate_fixture(root, fixture)
     registry = load_json(root / "data/canonical-checks.json")
     names, policies = vocabulary(load_json(root / "data/features.json"))
     domains = load_domains(root)
-    present, absent = fixture.get("detected_features", []), fixture.get("absent_features", [])
+    present, absent = fixture["present_features"], fixture["absent_features"]
     if not isinstance(present, list) or not isinstance(absent, list) or not set(present + absent) <= names:
-        raise ValueError(f"invalid features in {fixture.get('name')}")
+        raise ValueError(f"invalid features in {fixture['name']}")
     raw_map = feature_map(names, policies, present, absent)
     normalized = normalize_feature_map(raw_map, names, policies, SYNTHETIC_TARGET)
     scope = fixture.get("domain_scope")
@@ -137,17 +144,17 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
     deep = render(manifest, registry, "deep", candidates)
     cost = _total_cost(manifest, screen, deep)
     if len(screen) >= len(deep):
-        raise ValueError(f"{fixture.get('name')}: screen runtime must be smaller than candidate Deep runtime")
+        raise ValueError(f"{fixture['name']}: screen runtime must be smaller than candidate Deep runtime")
     for key, actual in (("max_selected_checks", len(candidates)), ("max_runtime_bytes", len(screen.encode())), ("max_total_context_bytes", cost["total_context_bytes"])):
         limit = fixture.get(key)
         if isinstance(limit, int) and actual > limit:
-            raise ValueError(f"{fixture.get('name')}: {key}={actual} exceeds hard budget {limit}")
+            raise ValueError(f"{fixture['name']}: {key}={actual} exceeds hard budget {limit}")
     for key, actual in (("max_runtime_bytes", len(screen.encode())), ("max_total_context_bytes", cost["total_context_bytes"])):
         limit = fixture.get(key)
         if isinstance(limit, int) and limit != _rounded_budget(actual):
-            raise ValueError(f"{fixture.get('name')}: {key} must be baseline+10% rounded to 1KiB: expected={_rounded_budget(actual)} actual={limit}")
+            raise ValueError(f"{fixture['name']}: {key} must be baseline+10% rounded to 1KiB: expected={_rounded_budget(actual)} actual={limit}")
     return {
-        "name": fixture.get("name"), "selected_domains": sorted(_domains(manifest, "selected_domains")),
+        "name": fixture["name"], "selected_domains": sorted(_domains(manifest, "selected_domains")),
         "deferred_domains": sorted(_domains(manifest, "deferred_domains")), "filtered_domains": sorted(_domains(manifest, "filtered_domains")),
         "selected_checks": len(candidates), "deferred_checks": manifest["deferred_count"],
         "filtered_checks": manifest["filtered_count"], "screen_runtime_bytes": len(screen.encode()),
@@ -205,6 +212,20 @@ def run_e2e(root: Path) -> list[dict[str, object]]:
     return results
 
 
+def fixture_paths(root: Path) -> list[Path]:
+    benchmark_root = root / "development/benchmarks/routing"
+    flat = sorted(benchmark_root.glob("*.json"))
+    if flat:
+        raise ValueError("routing benchmark fixtures must be under automatic/ or explicit/")
+    unexpected = sorted(path.name for path in benchmark_root.iterdir() if path.is_dir() and path.name not in {"automatic", "explicit"}) if benchmark_root.exists() else []
+    if unexpected:
+        raise ValueError(f"unsupported routing fixture directories: {', '.join(unexpected)}")
+    paths = sorted(path for mode in ("automatic", "explicit") for path in (benchmark_root / mode).glob("*.json"))
+    if not paths:
+        raise ValueError("no routing benchmark fixtures found")
+    return paths
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
@@ -212,12 +233,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         root = args.root.resolve()
-        paths = sorted((root / "development/benchmarks/routing").glob("*/*.json")) or sorted((root / "development/benchmarks/routing").glob("*.json"))
+        paths = fixture_paths(root)
         results = [run_profile(root, load_json(path)) for path in paths]
         if args.e2e:
             results.extend(run_e2e(root))
-        if not results:
-            raise ValueError("no routing benchmark fixtures found")
         for item in results:
             print(json.dumps(item, ensure_ascii=False, sort_keys=True))
         return 0

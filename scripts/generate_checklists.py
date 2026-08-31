@@ -2,8 +2,8 @@
 """Render runtime Markdown views from the canonical JSON registry.
 
 The generator is deliberately knowledge-free: it never repairs, infers, or
-rewrites canonical records. Historical transformations live under
-``development/migrations`` and normal maintenance edits ``data/canonical-checks.json``.
+rewrites canonical records. Normal maintenance edits
+``data/canonical-checks.json`` and regenerates the derived views.
 """
 
 from __future__ import annotations
@@ -21,12 +21,6 @@ REGISTRY_PATH = ROOT / "data" / "canonical-checks.json"
 
 def load_registry(path: Path = REGISTRY_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def normalize_registry(registry: dict[str, Any]) -> dict[str, Any]:
-    """Compatibility helper retained for callers; canonical data is untouched."""
-
-    return registry
 
 
 def load_domains(root: Path = ROOT) -> dict[str, dict[str, Any]]:
@@ -163,7 +157,7 @@ Apply `<suite-root>/skills/evm-audit-master/references/check-review-contract.run
 Related domains (advisory only; never auto-expand direct scope): {related}.
 
 ## Maintenance View
-- `references/checklist.md` is generated for maintenance and compatibility.
+- `references/checklist.md` is a generated human-readable reference view.
 """
 
 

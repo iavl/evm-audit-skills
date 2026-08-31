@@ -1,1 +1,1 @@
-{"name":"governance","detected_features":["uses-governance"],"must_select_domains":["evm-audit-general","evm-audit-governance"],"must_select_checks":["EVM-GOV-001"],"max_selected_checks":190,"max_runtime_bytes":129024,"max_total_context_bytes":373760}
+{"schema_version":1,"name":"governance","present_features":["uses-governance"],"absent_features":[],"must_select_domains":["evm-audit-general","evm-audit-governance"],"must_select_checks":["EVM-GOV-001"],"max_selected_checks":190,"max_runtime_bytes":129024,"max_total_context_bytes":373760}

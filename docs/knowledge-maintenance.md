@@ -18,16 +18,19 @@ Feature definitions live in [`data/features.json`](../data/features.json), and
 the feature-map input shape is documented by
 [`data/feature-map.schema.json`](../data/feature-map.schema.json).
 
-## Generated views and migrations
+## Generated views
 
 The generated `references/checklist.md` files, Skill wrappers, and Domain
 catalog are derived views. Edit the JSON inputs and run the generator; do not
 hand-edit generated runtime views.
 
 The generator is a pure renderer and never repairs or overrides registry
-knowledge. One-time schema or knowledge transformations live in
-[`development/migrations/`](../development/migrations/); checked-in migrations
-have already been applied and are not part of ordinary maintenance.
+knowledge.
+
+The repository is forward-only. `HEAD` defines the only supported canonical
+schema. When the schema changes, update the canonical data, validators,
+generators, and tests in the same change. Older repository or audit-artifact
+schemas are not migrated automatically.
 
 For the field-level workflow, use [`Adding a Check`](adding-a-check.md). For
 source history and external integration policy, use

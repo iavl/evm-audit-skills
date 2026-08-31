@@ -3,7 +3,7 @@
   "description": "Reconnaissance feature vocabulary used to route canonical EVM checks. Domain names are metadata and are not routable features.",
   "features": {
     "uses-general": {
-      "description": "Cross-cutting Solidity/EVM surface (legacy compatibility; normally always screened)",
+      "description": "Cross-cutting Solidity/EVM surface (normally always screened)",
       "absence_policy": "manual-allowed",
       "allowed_absence_evidence": [
         "compiler-ast",

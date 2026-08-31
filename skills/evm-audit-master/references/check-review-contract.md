@@ -1,8 +1,8 @@
 # Per-Check Review Contract
 
 This contract defines the audit-run review ledger. The canonical JSON registry is
-the knowledge source; generated domain checklists are the runtime compatibility
-view. Statuses belong only to the run-specific ledger under
+the knowledge source; generated domain checklists are human-readable runtime
+views. Statuses belong only to the run-specific ledger under
 `audits/<repo>-<date>/`.
 
 ## Review Pipeline
@@ -82,8 +82,8 @@ Every record must end with exactly one of these four statuses. There is no emitt
 Use the stable `canonical_id` from the routed selected-check body or routing
 manifest as the review identity; the JSON registry is machine-only validation
 input. Preserve existing source identifiers, including `SAS-AV-*`,
-`DROZER-*`, and `AUDITMOS-*`, only as provenance. A legacy path/section/title
-alias may be included for traceability, but it is not a second review item.
+`DROZER-*`, and `AUDITMOS-*`, only as provenance; they are not separate review
+items.
 
 Each selected skill writes one `review-<skill>.jsonl` ledger for its Screen
 candidate IDs. The filename must
@@ -91,9 +91,12 @@ match the selected record's `owner_domain` (for example,
 `review-evm-audit-erc20.jsonl`). Preserve routed order
 and write exactly one record per candidate checklist item:
 
-The JSONL checkpoint and every review record carry `routing_snapshot_id`,
-`registry_sha256`, `source_digest`, `compilation_input_digest`, and the routed
-`check_body_hash`. Typed evidence entries use `kind`, `location`, and `reason`.
+The JSONL checkpoint carries `routing_snapshot_id`, `registry_sha256`,
+`source_digest`, and `compilation_input_digest`; every review record also
+carries the routed `check_body_hash`. Typed evidence entries use `kind`,
+`location`, and `reason`.
+The current review-record schema is v3. A ledger belongs to exactly one routing
+snapshot; if any identity or schema value changes, start a new audit run.
 Markdown ledgers are not runtime input; `review_ledger.py` renders them from
 JSONL when a human view is needed.
 

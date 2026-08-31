@@ -1,1 +1,1 @@
-{"name":"lending","detected_features":["uses-lending"],"must_select_domains":["evm-audit-general","evm-audit-defi-lending"],"must_select_checks":["EVM-LEND-001"],"max_selected_checks":220,"max_runtime_bytes":157696,"max_total_context_bytes":450560}
+{"schema_version":1,"name":"lending","present_features":["uses-lending"],"absent_features":[],"must_select_domains":["evm-audit-general","evm-audit-defi-lending"],"must_select_checks":["EVM-LEND-001"],"max_selected_checks":220,"max_runtime_bytes":157696,"max_total_context_bytes":451584}

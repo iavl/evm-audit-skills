@@ -1,1 +1,1 @@
-{"name":"proxy","detected_features":["uses-proxy"],"must_select_domains":["evm-audit-general","evm-audit-proxies"],"must_select_checks":["EVM-PROXY-001"],"max_selected_checks":160,"max_runtime_bytes":113664,"max_total_context_bytes":328704}
+{"schema_version":1,"name":"proxy","present_features":["uses-proxy"],"absent_features":[],"must_select_domains":["evm-audit-general","evm-audit-proxies"],"must_select_checks":["EVM-PROXY-001"],"max_selected_checks":160,"max_runtime_bytes":113664,"max_total_context_bytes":328704}

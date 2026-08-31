@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:benchmark-routing-fixture:v1",
+  "title": "EVM audit routing benchmark fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "present_features", "absent_features"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "name": {"type": "string", "minLength": 1},
+    "present_features": {"$ref": "#/$defs/string_list"},
+    "absent_features": {"$ref": "#/$defs/string_list"},
+    "must_detect_features": {"$ref": "#/$defs/string_list"},
+    "domain_scope": {"type": ["array", "null"], "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "must_select_checks": {"$ref": "#/$defs/string_list"},
+    "must_not_filter_checks": {"$ref": "#/$defs/string_list"},
+    "must_select_domains": {"$ref": "#/$defs/string_list"},
+    "must_not_filter_domains": {"$ref": "#/$defs/string_list"},
+    "must_not_select_domains": {"$ref": "#/$defs/string_list"},
+    "expected_selected_domains": {"$ref": "#/$defs/string_list"},
+    "expected_deferred_domains": {"$ref": "#/$defs/string_list"},
+    "expected_filtered_domains": {"$ref": "#/$defs/string_list"},
+    "expected_selected_checks": {"type": "integer", "minimum": 0},
+    "expected_filtered_checks": {"type": "integer", "minimum": 0},
+    "max_selected_checks": {"type": "integer", "minimum": 0},
+    "max_runtime_bytes": {"type": "integer", "minimum": 0},
+    "max_total_context_bytes": {"type": "integer", "minimum": 0}
+  },
+  "$defs": {
+    "string_list": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true}
+  }
+}

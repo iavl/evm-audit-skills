@@ -151,7 +151,7 @@ canonical runtime item is used.
 |---|---|---|---|
 | X-01 | general `Call to non-existent address`; assembly `call() to non-existent contract`; erc20 Solmate SafeTransferLib check | Same EVM behavior, but assembly return-data safety and ERC20-library integration may require different audit evidence. | KEEP_DISTINCT |
 | X-02 | general returndata bombing; assembly Return bomb; DOS Returndata bombing | Same gas-griefing primitive, but the runtime owner could be general, assembly, or DOS depending on whether the suite requires domain-local evidence. | KEEP_DISTINCT |
-| X-03 | general `try/catch` insufficient gas; DOS `try/catch` insufficient gas | Exact same title and source behavior across two runtime skills. Canonical: general / External Calls & Low-Level Interactions. | MERGE |
+| X-03 | general `try/catch` insufficient gas; DOS `try/catch` insufficient gas | Exact same title and source behavior across two runtime skills. Canonical: general / External Calls & Low-Level Interactions. | MERGED |
 | X-04 | general `EVM-GEN-021` beneficiary binding; governance `EVM-GOV-026` beneficiary binding | Generic claim binding and governance-specific claim flows retain distinct agent-facing contexts while linking to the shared general invariant. | KEEP_DISTINCT |
 | X-05 | flashloans `Flash-loan voting`; governance `Flash loan voting` | Same governance attack family, but the flash-loan skill emphasizes capital composition while governance emphasizes snapshot/quorum rules. | KEEP_DISTINCT |
 | X-06 | general `msg.value` persistence; assembly delegatecall preserves `msg.value`; ERC-4337 UserOperation value paths | Same value-preservation primitive, but delegatecall and account-abstraction execution have distinct trust boundaries. | KEEP_DISTINCT |

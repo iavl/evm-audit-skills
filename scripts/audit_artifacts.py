@@ -89,12 +89,12 @@ def has_placeholder(*values: Any) -> bool:
 
 def artifact_identity(manifest: dict[str, Any]) -> dict[str, Any]:
     """Return the hashes every post-routing artifact must carry."""
-    audit = manifest.get("audit_context", {})
+    audit = manifest["audit_context"]
     return {
-        "routing_snapshot_id": manifest.get("routing_snapshot_id"),
-        "registry_sha256": audit.get("registry_sha256"),
-        "source_digest": audit.get("source_digest"),
-        "compilation_input_digest": audit.get("compilation_input_digest"),
+        "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "registry_sha256": audit["registry_sha256"],
+        "source_digest": audit["source_digest"],
+        "compilation_input_digest": audit["compilation_input_digest"],
     }
 
 

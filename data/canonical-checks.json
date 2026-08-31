@@ -1,6 +1,6 @@
 {
   "schema_version": 5,
-  "description": "Canonical EVM audit checks. Generated Markdown is a pure runtime compatibility view.",
+  "description": "Canonical EVM audit checks. Generated Markdown is a human-readable reference view.",
   "source_catalog": {
     "sanbir-solidity-auditor-skills": {
       "label": "sanbir/solidity-auditor-skills",

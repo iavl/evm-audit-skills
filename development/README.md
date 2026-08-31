@@ -2,9 +2,19 @@
 
 This directory is not required for normal audits.
 
-- `benchmarks/` contains routing, runtime-cost, and model-knowledge fixtures for quality and regression evaluation. The runner is [`scripts/benchmark_routing.py`](../scripts/benchmark_routing.py).
-- `migrations/` contains historical, one-time canonical-data migrations. Do not run these during a normal audit.
+- `benchmarks/` contains routing, runtime-cost, and model-knowledge fixtures for quality and regression evaluation. Routing fixtures follow [`schemas/benchmark-routing-fixture.schema.json`](../schemas/benchmark-routing-fixture.schema.json) and live under `benchmarks/routing/automatic/` or `benchmarks/routing/explicit/`. The runner is [`scripts/benchmark_routing.py`](../scripts/benchmark_routing.py).
 - [`../tests/`](../tests/) contains automated repository verification and remains at the root because Python, Foundry, claims, and CI use those stable paths.
+
+## Versioning policy
+
+This repository is forward-only while it is under active development.
+
+- `main` defines the only supported schema and runtime contract.
+- Old audit artifacts are not upgraded.
+- Old CLI aliases are not preserved.
+- Canonical data is updated in place.
+- Schema changes update code, data, tests, and docs atomically.
+- Unsupported schema versions fail fast and must be regenerated.
 
 Runtime inputs remain outside this directory: [`../skills/`](../skills/),
 [`../data/`](../data/), [`../domains/`](../domains/), and
