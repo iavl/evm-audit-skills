@@ -1,20 +1,22 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:code-context-benchmark:v1",
+  "$id": "urn:evm-audit-skills:code-context-benchmark:v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version", "name", "index_bytes", "query_bytes", "selected_nodes",
-    "edge_count", "returned_edge_count", "unresolved_edge_count", "truncated", "edges_truncated"
+    "edge_count", "unique_edge_count", "returned_edge_count", "serialized_edge_count", "unresolved_edge_count", "truncated", "edges_truncated"
   ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "name": {"type": "string", "minLength": 1},
     "index_bytes": {"type": "integer", "minimum": 0},
     "query_bytes": {"type": "integer", "minimum": 0},
     "selected_nodes": {"type": "integer", "minimum": 0},
     "edge_count": {"type": "integer", "minimum": 0},
+    "unique_edge_count": {"type": "integer", "minimum": 0},
     "returned_edge_count": {"type": "integer", "minimum": 0},
+    "serialized_edge_count": {"type": "integer", "minimum": 0},
     "unresolved_edge_count": {"type": "integer", "minimum": 0},
     "truncated": {"type": "boolean"},
     "edges_truncated": {"type": "boolean"}

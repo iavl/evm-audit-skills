@@ -425,6 +425,93 @@ class PlanHardeningTests(unittest.TestCase):
                             ),
                         )
 
+    def _cycle_index(self) -> tuple[dict, list[str]]:
+        contract_id = "build://Cycle.sol::Cycle"
+        names = ["A", "B", "C"]
+        functions = {
+            f"{contract_id}.{name}()": {
+                "function_id": f"{contract_id}.{name}()",
+                "contract_id": contract_id,
+                "contract": "Cycle",
+                "name": name,
+                "file": "build://Cycle.sol",
+                "start_line": number * 2 - 1,
+                "end_line": number * 2,
+                "visibility": "internal",
+                "modifiers": [],
+                "reads": [],
+                "writes": [],
+                "state_reads": [],
+                "state_writes": [],
+                "local_writes": [],
+                "internal_calls": [f"{contract_id}.{names[(number) % 3]}()"],
+                "external_calls": [],
+                "scope_origin": "AUDIT_SCOPE",
+            }
+            for number, name in enumerate(names, 1)
+        }
+        ids = list(functions)
+        edges = [
+            {
+                "caller": ids[number],
+                "target": ids[(number + 1) % 3],
+                "kind": "internal",
+                "file": "build://Cycle.sol",
+                "start_line": (number + 1) * 2,
+            }
+            for number in range(3)
+        ]
+        return {
+            "schema_version": 2,
+            "target_root": "fixture",
+            "build_root": "fixture",
+            "source_digest": "a" * 64,
+            "compilation_input_digest": "b" * 64,
+            "contracts": {
+                contract_id: {
+                    "file": "build://Cycle.sol",
+                    "start_line": 1,
+                    "end_line": 6,
+                    "bases": [],
+                    "scope_origin": "AUDIT_SCOPE",
+                }
+            },
+            "inheritance": {contract_id: []},
+            "external_calls": edges,
+            "storage_writes": [],
+            "modifiers": {function_id: [] for function_id in functions},
+            "source_ranges": {
+                function_id: {
+                    "file": value["file"],
+                    "start_line": value["start_line"],
+                    "end_line": value["end_line"],
+                }
+                for function_id, value in functions.items()
+            },
+            "functions": functions,
+        }, ids
+
+    def test_selected_edge_is_not_double_charged_to_edge_budget(self) -> None:
+        index, ids = self._cycle_index()
+        validate_code_index(ROOT, index)
+        result = lookup(index, ids[0], include_callers=True, include_callees=True, depth=3, max_edges=3)
+        self.assertEqual(result["edge_count"], 3)
+        self.assertEqual(result["unique_edge_count"], 3)
+        self.assertEqual(result["returned_edge_count"], 3)
+        self.assertEqual(result["serialized_edge_count"], 6)
+        self.assertFalse(result["edges_truncated"])
+
+    def test_edge_budget_preserves_deterministic_unique_counts(self) -> None:
+        index, ids = self._cycle_index()
+        first = lookup(index, ids[0], include_callers=True, include_callees=True, depth=3, max_edges=2)
+        second = lookup(index, ids[0], include_callers=True, include_callees=True, depth=3, max_edges=2)
+        self.assertEqual(first, second)
+        self.assertEqual(first["edge_count"], 3)
+        self.assertEqual(first["unique_edge_count"], 3)
+        self.assertEqual(first["returned_edge_count"], 2)
+        self.assertEqual(first["serialized_edge_count"], 4)
+        self.assertTrue(first["edges_truncated"])
+
     def test_code_index_relational_validation_rejects_inconsistent_maps(self) -> None:
         digest = "a" * 64
         contract_id = "build://Target.sol::Target"

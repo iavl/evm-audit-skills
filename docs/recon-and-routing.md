@@ -83,14 +83,17 @@ python3 scripts/code_context.py --run-dir <run-dir> --function <function-id> \
 ```
 
 Development-only standalone inspection requires `--allow-unbound-index`.
-Query v3 keeps selected caller/callee edges separate from explicit
+Query v4 keeps selected caller/callee views separate from explicit
 `boundary_edges`; unresolved calls remain in `unresolved_edges` because
 uncertainty is not absence. Expansion is deterministic and cycle-safe; verify
 every returned range against source because the index is never authoritative.
+`edge_count`/`unique_edge_count` and `returned_edge_count` count unique physical
+edges, while `serialized_edge_count` exposes duplicate caller/callee view
+entries when both views are requested.
 `edges_truncated` and `truncated` mean the graph is incomplete and require
 direct source inspection. When the edge cap applies, deterministic priority is
-unresolved edges, selected caller edges, selected callee edges, then boundary
-edges; each category is already stably sorted. The actual compilation closure is used for the compilation
+unresolved edges, selected edges, then boundary edges; each category is already
+stably sorted. The actual compilation closure is used for the compilation
 digest when Slither exposes it, with the conservative full-source fallback
 otherwise; `recon_quality.compilation_provenance` records which mode was used.
 Older v4 Feature Maps without that additive field are treated as the

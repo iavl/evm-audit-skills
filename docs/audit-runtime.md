@@ -45,7 +45,7 @@ audit artifacts.
 | runtime Markdown | no, generated view | sidecar identity + body SHA-256 | regenerate |
 | code-index | no, navigation hint | Recon `navigation_artifacts.code_index.sha256` plus current target snapshot | disable navigation |
 | severity/finding details | reporting input | review-state digest | report admission error |
-| final report + issue candidates | derived outputs | report-bundle v2 marker, body hashes, and finding-input hashes | stale/incomplete |
+| final report + issue candidates | derived outputs | immutable report generation, `report-current.json`, report-bundle v2 marker, body hashes, and finding-input hashes | stale/incomplete |
 
 The machine-readable JSON/JSONL artifacts are authoritative. Runtime Markdown
 is paired with a schema-validated `.meta.json` sidecar containing
@@ -56,8 +56,12 @@ unbound index is reported as unavailable without changing authoritative audit
 state. Bound code-index queries validate the routing manifest, target snapshot,
 Recon binding, exact body hash, schema version, and index lineage before lookup;
 an unbound `--index` query requires explicit development opt-in. `report-bundle.json`
-is written after both final bodies and is current only when its identity, body
-hashes, and (for finding reports) exact report-input hashes match the current state.
+is written inside an immutable `report-generations/generation-<id>/` directory.
+The small `report-current.json` pointer is the publication commit boundary; a
+failed generation leaves the previous pointer and generation untouched. Stable
+top-level report files and `report-inputs/` files are convenience copies only.
+The current bundle is accepted only when its identity, body hashes, exact
+generation snapshots, and deterministic synthesis match the current state.
 
 `non-authoritative != integrity-unchecked`.
 
@@ -110,11 +114,13 @@ python3 scripts/code_context.py --run-dir <run-dir> --function <function-id> \
 ```
 
 `MISSING`, `TAMPERED`, and `UNAVAILABLE` disable navigation; they do not
-invalidate authoritative audit state. `edge_count` is the deterministic number
-of available returned-category edges before the cap, while
-`returned_edge_count` and `edges_truncated` expose any omitted edges. Capped
-edges are returned in deterministic priority order: unresolved, selected
-caller, selected callee, then boundary edges.
+invalidate authoritative audit state. `edge_count` and `unique_edge_count` are
+the deterministic number of unique available graph edges before the cap;
+`returned_edge_count` counts unique edges admitted by the cap, while
+`serialized_edge_count` reports returned array entries when callers and callees
+both request the same selected edge. `edges_truncated` exposes omitted unique
+edges. Capped edges are returned in deterministic priority order: unresolved,
+selected, then boundary edges.
 
 Render the runtime views from the immutable manifest:
 
@@ -209,10 +215,10 @@ python3 scripts/audit_run.py report --run-dir <run-dir> \
 
 `next` returns `DEEP_REVIEW` for missing candidate records and `PROOF` for
 latest `SUSPICIOUS` records. `report` always runs `status_run()` first,
-validates and synthesizes in memory, then atomically replaces the final
-outputs. A failed report leaves the previous deliverables untouched and exits
-non-zero if current reporting is incomplete. It never trusts a previous
-`audit-state.json`.
+validates and synthesizes in memory, then commits a complete immutable
+generation through `report-current.json`. A failed report leaves the previous
+current generation untouched and exits non-zero if current reporting is
+incomplete. It never trusts a previous `audit-state.json`.
 
 The low-level `synthesize_report.py --audit-state` argument is an optional
 derived cache for compatibility; synthesis re-derives the current state from
@@ -278,12 +284,12 @@ Each confirmed ID must occur exactly once with non-empty `location`,
 Missing severity or details is a report admission error (`INCOMPLETE_SEVERITY`
 or `INCOMPLETE_REPORTING`), not a new audit-state status.
 
-The controller copies the exact validated UTF-8 reporting inputs into
-`report-inputs/severity-decisions.json` and
-`report-inputs/finding-details.json` before committing a finding report. The
-report-bundle v2 marker hashes those snapshots; clean reports record `null` for
-both input hashes. A body hash proves marker/body consistency, not that a
-hand-edited body was generated from the expected inputs.
+The controller stores the exact validated UTF-8 reporting inputs in the
+committed generation as `severity-decisions.json` and `finding-details.json`.
+The report-bundle v2 marker hashes those snapshots; clean reports record
+`null` for both input hashes. Previous generations remain available for
+reproducibility; operators may remove unreferenced generations only under an
+explicit retention policy after preserving any required audit evidence.
 
 Severity is assigned only after confirmation using the dimensions and mapping
 in [`severity-scoring.md`](../skills/evm-audit-master/references/severity-scoring.md).

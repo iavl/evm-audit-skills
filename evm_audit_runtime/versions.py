@@ -7,8 +7,8 @@ SCHEMA_VERSIONS = {
     "audit-context": 1,
     "audit-state": 2,
     "benchmark-routing-fixture": 1,
-    "code-context-query": 3,
-    "code-context-benchmark": 1,
+    "code-context-query": 4,
+    "code-context-benchmark": 2,
     "code-index": 2,
     "codex-model-profile": 1,
     "domain-context": 3,
@@ -22,6 +22,7 @@ SCHEMA_VERSIONS = {
     "review-record": 7,
     "routing-manifest": 7,
     "report-bundle": 2,
+    "report-current": 1,
     "runtime-metadata": 1,
     "screen-results": 2,
     "severity-decisions": 2,
@@ -43,6 +44,7 @@ KNOWLEDGE_METRICS_VERSION = SCHEMA_VERSIONS["knowledge-metrics"]
 REVIEW_RECORD_VERSION = SCHEMA_VERSIONS["review-record"]
 ROUTING_MANIFEST_VERSION = SCHEMA_VERSIONS["routing-manifest"]
 REPORT_BUNDLE_VERSION = SCHEMA_VERSIONS["report-bundle"]
+REPORT_CURRENT_VERSION = SCHEMA_VERSIONS["report-current"]
 RUNTIME_METADATA_VERSION = SCHEMA_VERSIONS["runtime-metadata"]
 SCREEN_RESULTS_VERSION = SCHEMA_VERSIONS["screen-results"]
 SEVERITY_DECISIONS_VERSION = SCHEMA_VERSIONS["severity-decisions"]

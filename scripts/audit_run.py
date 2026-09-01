@@ -10,11 +10,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from evm_audit_runtime.versions import REPORTING_VERSION
+from evm_audit_runtime.versions import REPORT_CURRENT_VERSION, REPORTING_VERSION
 from evm_audit_runtime.controller_state import STAGE_PROGRESS, TOTAL_STAGES, display_stage as _display_stage, progress_metadata
 
 try:
@@ -54,6 +55,7 @@ try:
         load_json,
         load_json_bytes,
         report_bundle_metadata,
+        validate_report_generation,
         validate_domain_context,
         validate_domain_resolution,
         validate_issue_candidates,
@@ -76,6 +78,7 @@ except ImportError:  # pragma: no cover
         load_json,
         load_json_bytes,
         report_bundle_metadata,
+        validate_report_generation,
         validate_domain_context,
         validate_domain_resolution,
         validate_issue_candidates,
@@ -117,6 +120,8 @@ def paths(run_dir: Path) -> dict[str, Any]:
         "report": run_dir / "AUDIT-REPORT.md",
         "issue_candidates": run_dir / "issue-candidates.json",
         "report_bundle": run_dir / "report-bundle.json",
+        "report_current": run_dir / "report-current.json",
+        "report_generations": run_dir / "report-generations",
         "severity_decisions": run_dir / "reviews/severity-decisions.json",
         "finding_details": run_dir / "reviews/finding-details.json",
         "report_input_severity": run_dir / "report-inputs/severity-decisions.json",
@@ -704,24 +709,87 @@ def _optional_code_index_status(
     return bound_code_index_status(root, manifest, values["code_index"], registry=registry)
 
 
+def _report_generation_paths(base: Path) -> dict[str, Path]:
+    return {
+        "report": base / "AUDIT-REPORT.md",
+        "issue_candidates": base / "issue-candidates.json",
+        "report_bundle": base / "report-bundle.json",
+        "report_input_severity": base / "severity-decisions.json",
+        "report_input_details": base / "finding-details.json",
+    }
+
+
+def _current_report_generation(
+    root: Path,
+    values: dict[str, Any],
+) -> tuple[dict[str, Path], dict[str, Any]] | None:
+    pointer_path = values["report_current"]
+    if not pointer_path.exists():
+        generations = values["report_generations"]
+        if generations.exists() and any(path.is_dir() for path in generations.iterdir()):
+            raise ValueError("report-current.json is missing for existing report generations")
+        return None
+    pointer = load_json(pointer_path)
+    validate_schema(root, "report-current.schema.json", pointer)
+    generation = pointer["generation"]
+    generation_root = values["report_generations"] / generation
+    if generation_root.parent.resolve() != values["report_generations"].resolve() or not generation_root.is_dir():
+        raise ValueError("report-current.json points outside report-generations")
+    artifacts = _report_generation_paths(generation_root)
+    bundle_bytes = artifacts["report_bundle"].read_bytes()
+    if hashlib.sha256(bundle_bytes).hexdigest() != pointer["report_bundle_sha256"]:
+        raise ValueError("report-current.json does not match its report bundle")
+    return artifacts, pointer
+
+
+def _sync_report_convenience_copies(
+    values: dict[str, Any],
+    artifacts: dict[str, Path],
+    *,
+    finding_report: bool,
+) -> None:
+    # ponytail: convenience copies are best-effort; report-current.json is the commit boundary.
+    copies = (
+        (values["report"], artifacts["report"]),
+        (values["issue_candidates"], artifacts["issue_candidates"]),
+        (values["report_bundle"], artifacts["report_bundle"]),
+    )
+    if finding_report:
+        copies += (
+            (values["report_input_severity"], artifacts["report_input_severity"]),
+            (values["report_input_details"], artifacts["report_input_details"]),
+        )
+    for destination, source in copies:
+        try:
+            atomic_write_bytes(destination, source.read_bytes())
+        except OSError as exc:
+            warning(f"could not refresh convenience report copy {destination}: {exc}")
+
+
 def _report_bundle_status(
     root: Path,
     values: dict[str, Any],
     manifest: dict[str, Any],
     state: dict[str, Any],
 ) -> dict[str, Any]:
-    marker = values["report_bundle"]
-    if not marker.exists():
-        return {"status": "ABSENT", "current": False, "message": "report bundle has not been committed"}
     try:
+        current = _current_report_generation(root, values)
+        artifacts, pointer = current if current is not None else (values, None)
+        if pointer is None and values["report_bundle"].exists():
+            raise ValueError("report-current.json is missing for the report bundle")
+        marker = artifacts["report_bundle"]
+        if not marker.exists():
+            if pointer is not None:
+                raise ValueError("current report generation has no report bundle")
+            return {"status": "ABSENT", "current": False, "message": "report bundle has not been committed"}
         metadata = load_json(marker)
         validate_schema(root, "report-bundle.schema.json", metadata)
-        issue_candidates, issue_candidates_bytes = load_json_bytes(values["issue_candidates"])
-        validate_issue_candidates(root, manifest, state, issue_candidates)
+        issue_candidates, issue_candidates_bytes = load_json_bytes(artifacts["issue_candidates"])
         severity_decisions_bytes = finding_details_bytes = None
+        severity_decisions = finding_details = None
         if state.get("status") == "COMPLETE_WITH_FINDINGS":
-            severity_decisions, severity_decisions_bytes = load_json_bytes(values["report_input_severity"])
-            finding_details, finding_details_bytes = load_json_bytes(values["report_input_details"])
+            severity_decisions, severity_decisions_bytes = load_json_bytes(artifacts["report_input_severity"])
+            finding_details, finding_details_bytes = load_json_bytes(artifacts["report_input_details"])
             validate_reporting_inputs(
                 root,
                 manifest,
@@ -729,10 +797,48 @@ def _report_bundle_status(
                 severity_decisions,
                 finding_details,
             )
+        validate_issue_candidates(
+            root,
+            manifest,
+            state,
+            issue_candidates,
+            severity_decisions,
+        )
+        if pointer is not None:
+            run_dir = values["manifest"].parent.parent
+            resolution = load_json(values["resolution"]) if values["resolution"].exists() else None
+            screen = load_json(values["screen_results"]) if values["screen_results"].exists() else None
+            domain_context = load_json(values["domain_context"]) if values["domain_context"].exists() else None
+            context = load_json(values["context"]) if values["context"].exists() else None
+            synthesis = synthesize(
+                root,
+                manifest,
+                load_json(root / "data/canonical-checks.json"),
+                state,
+                _ledger_paths(run_dir),
+                severity_decisions,
+                finding_details=finding_details,
+                severity_decisions_bytes=severity_decisions_bytes,
+                finding_details_bytes=finding_details_bytes,
+                allow_incomplete=not state["complete"],
+                domain_resolution=resolution,
+                screen_results=screen,
+                domain_context=domain_context,
+                context=context,
+            )
+            if synthesis.state != state:
+                raise ValueError("report generation state differs from current audit state")
+            validate_report_generation(
+                synthesis.report,
+                synthesis.issue_candidates,
+                artifacts["report"].read_bytes(),
+                issue_candidates,
+                issue_candidates_bytes,
+            )
         expected = report_bundle_metadata(
             manifest,
             state,
-            values["report"].read_bytes(),
+            artifacts["report"].read_bytes(),
             issue_candidates,
             issue_candidates_bytes=issue_candidates_bytes,
             severity_decisions_bytes=severity_decisions_bytes,
@@ -742,7 +848,10 @@ def _report_bundle_status(
             raise ValueError("report bundle marker or body hashes do not match current audit state")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         return {"status": "STALE", "current": False, "message": f"report bundle is not current: {error}"}
-    return {"status": "CURRENT", "current": True, "message": "report bundle matches current audit state"}
+    result = {"status": "CURRENT", "current": True, "message": "report bundle matches current audit state"}
+    if pointer is not None:
+        result["generation"] = pointer["generation"]
+    return result
 
 
 def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -1287,20 +1396,14 @@ def report_run(
         domain_context=domain_context,
         context=context,
     )
-    if hasattr(synthesis, "state"):
-        current_state = synthesis.state
-        report = synthesis.report
-        issues = synthesis.issue_candidates
-        severity_bytes = synthesis.severity_decisions_bytes
-        finding_details_bytes = synthesis.finding_details_bytes
-    else:  # Keep tests and downstream wrappers that return the legacy two-tuple working.
-        report, issues = synthesis
-        current_state = state
+    current_state = synthesis.state
+    report = synthesis.report
+    issues = synthesis.issue_candidates
+    severity_bytes = synthesis.severity_decisions_bytes
+    finding_details_bytes = synthesis.finding_details_bytes
     if current_state["status"] == "COMPLETE_WITH_FINDINGS":
         if severity_bytes is None or finding_details_bytes is None:
             raise ValueError("finding report is missing exact reporting input bytes")
-        atomic_write_bytes(values["report_input_severity"], severity_bytes)
-        atomic_write_bytes(values["report_input_details"], finding_details_bytes)
     bundle = report_bundle_metadata(
         manifest,
         current_state,
@@ -1311,9 +1414,54 @@ def report_run(
         finding_details_bytes=finding_details_bytes,
     )
     validate_schema(root, "report-bundle.schema.json", bundle)
-    atomic_write_text(values["report"], report)
-    atomic_write_json(values["issue_candidates"], issues)
-    atomic_write_json(values["report_bundle"], bundle)
+    report_generations = values["report_generations"]
+    report_generations.mkdir(parents=True, exist_ok=True)
+    generation_id = uuid.uuid4().hex
+    staging = Path(tempfile.mkdtemp(prefix=f".tmp-{generation_id}-", dir=report_generations))
+    generation = report_generations / f"generation-{generation_id}"
+    artifacts = _report_generation_paths(staging)
+    try:
+        if current_state["status"] == "COMPLETE_WITH_FINDINGS":
+            atomic_write_bytes(artifacts["report_input_severity"], severity_bytes)
+            atomic_write_bytes(artifacts["report_input_details"], finding_details_bytes)
+        atomic_write_text(artifacts["report"], report)
+        atomic_write_json(artifacts["issue_candidates"], issues)
+        atomic_write_json(artifacts["report_bundle"], bundle)
+        bundle_bytes = artifacts["report_bundle"].read_bytes()
+        candidate_issues, _ = load_json_bytes(artifacts["issue_candidates"])
+        candidate_severity = None
+        if current_state["status"] == "COMPLETE_WITH_FINDINGS":
+            candidate_severity = load_json(artifacts["report_input_severity"])
+        validate_issue_candidates(root, manifest, current_state, candidate_issues, candidate_severity)
+        validate_report_generation(
+            report,
+            issues,
+            artifacts["report"].read_bytes(),
+            candidate_issues,
+            artifacts["issue_candidates"].read_bytes(),
+        )
+        validate_schema(root, "report-bundle.schema.json", load_json(artifacts["report_bundle"]))
+        staging.replace(generation)
+        staging = generation
+        pointer = {
+            "artifact_type": "report-current",
+            "schema_version": REPORT_CURRENT_VERSION,
+            "generation": generation.name,
+            "report_bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
+        }
+        validate_schema(root, "report-current.schema.json", pointer)
+        atomic_write_json(values["report_current"], pointer)
+        _sync_report_convenience_copies(
+            values,
+            _report_generation_paths(generation),
+            finding_report=current_state["status"] == "COMPLETE_WITH_FINDINGS",
+        )
+    finally:
+        if staging.exists() and staging == generation:
+            # The renamed generation is intentionally retained for history.
+            pass
+        elif staging.exists():
+            shutil.rmtree(staging)
     if current_state["complete"]:
         success("Audit complete")
     else:

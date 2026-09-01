@@ -35,6 +35,17 @@ def _select_function(functions: dict[str, Any], requested: str) -> str:
     return matches[0]
 
 
+def _edge_fingerprint(edge: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(edge.get(key) for key in ("caller", "target", "kind", "file", "start_line"))
+
+
+def _unique_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unique: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for edge in sorted(edges, key=lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))):
+        unique.setdefault(_edge_fingerprint(edge), edge)
+    return list(unique.values())
+
+
 def lookup(
     index: dict[str, Any],
     function: str,
@@ -112,14 +123,12 @@ def lookup(
                     "start_line": value["start_line"],
                     "location_fallback": True,
                 })
-    edges.sort(key=lambda value: json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
-    caller_edges = [
+    edges = _unique_edges(edges)
+    selected_edges = [
         edge for edge in edges
-        if include_callers and edge.get("target") in selected and edge.get("caller") in selected
-    ]
-    callee_edges = [
-        edge for edge in edges
-        if include_callees and edge.get("caller") in selected and edge.get("target") in selected
+        if (include_callers or include_callees)
+        and edge.get("caller") in selected
+        and edge.get("target") in selected
     ]
     boundary_edges = [
         edge for edge in edges
@@ -133,8 +142,7 @@ def lookup(
     ]
     available_edges = [
         ("unresolved_edges", unresolved_edges),
-        ("caller_edges", caller_edges),
-        ("callee_edges", callee_edges),
+        ("selected_edges", selected_edges),
         ("boundary_edges", boundary_edges),
     ]
     edge_count = sum(len(items) for _, items in available_edges)
@@ -143,7 +151,16 @@ def lookup(
     for name, items in available_edges:
         returned[name] = items[:remaining]
         remaining -= len(returned[name])
-    returned_edge_count = sum(len(items) for items in returned.values())
+    returned["caller_edges"] = returned["selected_edges"] if include_callers else []
+    returned["callee_edges"] = returned["selected_edges"] if include_callees else []
+    returned_edge_count = sum(
+        len(returned[name]) for name in ("unresolved_edges", "selected_edges", "boundary_edges")
+    )
+    serialized_edge_count = len(returned["unresolved_edges"])
+    serialized_edge_count += len(returned["boundary_edges"])
+    serialized_edge_count += len(returned["selected_edges"]) * (
+        int(include_callers) + int(include_callees)
+    )
     return {
         "schema_version": CODE_CONTEXT_QUERY_VERSION,
         "source_digest": index["source_digest"],
@@ -155,7 +172,9 @@ def lookup(
         "boundary_edges": returned["boundary_edges"],
         "unresolved_edges": returned["unresolved_edges"],
         "edge_count": edge_count,
+        "unique_edge_count": edge_count,
         "returned_edge_count": returned_edge_count,
+        "serialized_edge_count": serialized_edge_count,
         "max_edges": max_edges,
         "edges_truncated": returned_edge_count < edge_count,
         "depth": depth,

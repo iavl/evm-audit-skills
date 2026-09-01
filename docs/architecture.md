@@ -9,7 +9,7 @@ ROUTING    Recon/Feature Map v4 → environment → Domain → check gates → i
      ↓
 RUNTIME    manifest → Domain Resolution → Domain Context → Screen results → candidate-only Deep JSONL → proof
      ↓
-REPORTING  confirmed-only synthesis → AUDIT-REPORT.md
+REPORTING  confirmed-only synthesis → report generation → report-current.json
 ```
 
 User-facing Skill packages live under `skills/`; runtime assets remain in

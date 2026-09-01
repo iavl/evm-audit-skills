@@ -17,6 +17,7 @@ if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
 from evm_audit_runtime.routing import effective_owner_domain, resolved_routes
 from evm_audit_runtime.code_index import validate_code_index
+from evm_audit_runtime.reporting import derive_issue_candidates
 from evm_audit_runtime.versions import REPORT_BUNDLE_VERSION
 
 
@@ -124,6 +125,21 @@ def report_bundle_metadata(
             sha256_bytes(finding_details_bytes) if finding_details_bytes is not None else None
         ),
     }
+
+
+def validate_report_generation(
+    expected_report: str,
+    expected_issue_candidates: dict[str, Any],
+    report_bytes: bytes,
+    issue_candidates: dict[str, Any],
+    issue_candidates_bytes: bytes,
+) -> None:
+    """Validate committed report bodies against one pure synthesis result."""
+    if report_bytes != expected_report.encode("utf-8"):
+        raise ValueError("report body is not the deterministic current synthesis")
+    expected_issue_bytes = json_text(expected_issue_candidates).encode("utf-8")
+    if issue_candidates != expected_issue_candidates or issue_candidates_bytes != expected_issue_bytes:
+        raise ValueError("issue candidates are not the deterministic current synthesis")
 
 
 def _validate_json_bytes(value: dict[str, Any], raw: bytes, label: str) -> None:
@@ -383,8 +399,9 @@ def validate_issue_candidates(
     manifest: dict[str, Any],
     state: dict[str, Any],
     value: dict[str, Any],
+    severity_decisions: dict[str, Any] | None = None,
 ) -> set[str]:
-    """Validate an issue artifact against the current confirmed review IDs."""
+    """Validate an issue artifact against the current reporting projection."""
     validate_schema(root, "issue-candidates.schema.json", value)
     validate_artifact_identity(value, manifest)
     for key in ("review_snapshot_id", "review_state_digest"):
@@ -401,6 +418,17 @@ def validate_issue_candidates(
     unknown = set(ids) - set(confirmed)
     if unknown:
         raise ValueError(f"issue candidates contain non-confirmed canonical IDs: {sorted(unknown)}")
+    if state.get("status") == "COMPLETE_WITH_FINDINGS":
+        if not isinstance(severity_decisions, dict):
+            raise ValueError("issue candidates require current severity decisions")
+        decisions = severity_decisions.get("decisions")
+        if not isinstance(decisions, dict):
+            raise ValueError("issue candidates require a severity decisions object")
+        expected = derive_issue_candidates(confirmed, decisions)
+    else:
+        expected = []
+    if findings != expected:
+        raise ValueError("issue candidates are not the exact severity projection")
     return set(ids)
 
 

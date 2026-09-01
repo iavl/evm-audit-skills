@@ -8,15 +8,33 @@ import unittest
 from pathlib import Path
 
 from scripts.audit_artifacts import check_body_hash
+from evm_audit_runtime.reporting import derive_issue_candidates
 from scripts.render_runtime import domain_context_template, screen_results_template
 from scripts.review_ledger import append
-from scripts.synthesize_report import synthesize
+from scripts.synthesize_report import ReportSynthesisResult, synthesize
 from scripts.validate_audit_run import validate_run
 
 from helpers import ROOT, build_manifest
 
 
 class ReportingTests(unittest.TestCase):
+    def test_issue_candidates_are_exact_projection_of_severity(self) -> None:
+        decisions = {
+            "INFO": {"severity": "Info"},
+            "LOW": {"severity": "Low"},
+            "MEDIUM": {"severity": "Medium"},
+            "HIGH": {"severity": "High"},
+            "CRITICAL": {"severity": "Critical"},
+        }
+        self.assertEqual(
+            derive_issue_candidates(decisions, decisions),
+            [
+                {"canonical_id": "CRITICAL", "severity": "Critical"},
+                {"canonical_id": "HIGH", "severity": "High"},
+                {"canonical_id": "MEDIUM", "severity": "Medium"},
+            ],
+        )
+
     def artifacts(self, candidate: bool) -> tuple[dict, dict, dict, dict, dict, str]:
         registry, _, _, manifest = build_manifest()
         screen = screen_results_template(manifest)
@@ -143,7 +161,7 @@ class ReportingTests(unittest.TestCase):
         *,
         finding_details: dict | None = None,
         allow_incomplete: bool = False,
-    ) -> tuple[str, dict]:
+    ) -> ReportSynthesisResult:
         return synthesize(
             ROOT,
             manifest,
@@ -164,7 +182,7 @@ class ReportingTests(unittest.TestCase):
             ledger = Path(directory) / "review.jsonl"
             self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
             state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
-            report, issues = self.run_synthesis(
+            synthesis = self.run_synthesis(
                 registry,
                 manifest,
                 state,
@@ -175,6 +193,7 @@ class ReportingTests(unittest.TestCase):
                 self.severity_artifact(manifest, candidate_id, state["review_state_digest"]),
                 finding_details=self.finding_details(manifest, candidate_id, state["review_state_digest"]),
             )
+            report, issues = synthesis.report, synthesis.issue_candidates
         self.assertEqual(state["status"], "COMPLETE_WITH_FINDINGS")
         self.assertIn(f"## Findings\n\n### [{candidate_id}]", report)
         self.assertIn("**Status:** `CONFIRMED`", report)
@@ -191,9 +210,10 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(state["status"], "INCOMPLETE_REVIEW")
         with self.assertRaisesRegex(ValueError, "incomplete audit"):
             self.run_synthesis(registry, manifest, state, [], screen, context, domain_context)
-        report, issues = self.run_synthesis(
+        synthesis = self.run_synthesis(
             registry, manifest, state, [], screen, context, domain_context, allow_incomplete=True
         )
+        report, issues = synthesis.report, synthesis.issue_candidates
         self.assertIn("# INCOMPLETE AUDIT", report)
         self.assertNotIn("Clean: `true`", report)
         self.assertEqual(issues["findings"], [])
@@ -243,7 +263,7 @@ class ReportingTests(unittest.TestCase):
                     domain_context,
                     self.severity_artifact(manifest, candidate_id, state["review_state_digest"]),
                 )
-            report, issues = self.run_synthesis(
+            synthesis = self.run_synthesis(
                 registry,
                 manifest,
                 state,
@@ -254,6 +274,7 @@ class ReportingTests(unittest.TestCase):
                 self.severity_artifact(manifest, candidate_id, state["review_state_digest"], "Info"),
                 finding_details=self.finding_details(manifest, candidate_id, state["review_state_digest"]),
             )
+            report, issues = synthesis.report, synthesis.issue_candidates
         self.assertIn("**Severity:** Info", report)
         self.assertEqual(issues["findings"], [])
 
@@ -332,7 +353,7 @@ class ReportingTests(unittest.TestCase):
             self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
             state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
             stale = {**state, "coverage": {**state["coverage"], "deep_reviewed": []}}
-            report, _ = self.run_synthesis(
+            report = self.run_synthesis(
                 registry,
                 manifest,
                 stale,
@@ -342,7 +363,7 @@ class ReportingTests(unittest.TestCase):
                 domain_context,
                 self.severity_artifact(manifest, candidate_id, state["review_state_digest"]),
                 finding_details=self.finding_details(manifest, candidate_id, state["review_state_digest"]),
-            )
+            ).report
         self.assertIn("# EVM Audit Report", report)
 
 

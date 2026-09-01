@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.audit_artifacts import canonical_sha256, check_body_hash, derive_review_snapshot_id
+from scripts.audit_artifacts import canonical_sha256, check_body_hash, derive_review_snapshot_id, validate_issue_candidates
 from scripts.audit_run import _ensure_reporting_templates, _report_bundle_status, _runtime_view_current, paths as audit_paths
 from scripts.render_runtime import domain_context_template, domain_resolution_template, render, runtime_identity, runtime_metadata, screen_results_template
 from scripts.review_ledger import append
@@ -25,6 +25,71 @@ def write_json(path: Path, value: dict) -> None:
 
 
 class HardeningTests(unittest.TestCase):
+    def issue_artifact(self, manifest: dict, state: dict, findings: list[dict]) -> dict:
+        return {
+            "schema_version": 2,
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "review_snapshot_id": state["review_snapshot_id"],
+            "review_state_digest": state["review_state_digest"],
+            **{
+                key: manifest["audit_context"][key]
+                for key in ("registry_sha256", "source_digest", "compilation_input_digest")
+            },
+            "findings": findings,
+        }
+
+    def issue_state(self, manifest: dict, confirmed: list[str]) -> dict:
+        return {
+            "status": "COMPLETE_WITH_FINDINGS",
+            "review_snapshot_id": "1" * 64,
+            "review_state_digest": "2" * 64,
+            "coverage": {"confirmed": confirmed},
+        }
+
+    def test_bundle_rejects_missing_required_high_issue_candidate(self) -> None:
+        _, _, _, manifest = build_manifest()
+        state = self.issue_state(manifest, ["FINDING-HIGH"])
+        severity = {"decisions": {"FINDING-HIGH": {"severity": "High"}}}
+        value = self.issue_artifact(manifest, state, [])
+        with self.assertRaisesRegex(ValueError, "exact severity projection"):
+            validate_issue_candidates(ROOT, manifest, state, value, severity)
+
+    def test_bundle_rejects_low_issue_candidate(self) -> None:
+        _, _, _, manifest = build_manifest()
+        state = self.issue_state(manifest, ["FINDING-MEDIUM", "FINDING-LOW"])
+        severity = {
+            "decisions": {
+                "FINDING-MEDIUM": {"severity": "Medium"},
+                "FINDING-LOW": {"severity": "Low"},
+            }
+        }
+        value = self.issue_artifact(
+            manifest,
+            state,
+            [
+                {"canonical_id": "FINDING-MEDIUM", "severity": "Medium"},
+                {"canonical_id": "FINDING-LOW", "severity": "High"},
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "exact severity projection"):
+            validate_issue_candidates(ROOT, manifest, state, value, severity)
+
+    def test_bundle_rejects_issue_severity_mismatch(self) -> None:
+        _, _, _, manifest = build_manifest()
+        state = self.issue_state(manifest, ["FINDING"])
+        severity = {"decisions": {"FINDING": {"severity": "High"}}}
+        value = self.issue_artifact(manifest, state, [{"canonical_id": "FINDING", "severity": "Medium"}])
+        with self.assertRaisesRegex(ValueError, "exact severity projection"):
+            validate_issue_candidates(ROOT, manifest, state, value, severity)
+
+    def test_bundle_rejects_issue_candidate_without_severity_decision(self) -> None:
+        _, _, _, manifest = build_manifest()
+        state = self.issue_state(manifest, ["FINDING-A", "FINDING-B"])
+        severity = {"decisions": {"FINDING-A": {"severity": "High"}}}
+        value = self.issue_artifact(manifest, state, [{"canonical_id": "FINDING-A", "severity": "High"}])
+        with self.assertRaisesRegex(ValueError, "severity decision IDs"):
+            validate_issue_candidates(ROOT, manifest, state, value, severity)
+
     def test_multi_output_clis_reject_exact_and_symlink_aliases(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -63,6 +128,47 @@ class HardeningTests(unittest.TestCase):
                 ]),
                 1,
             )
+
+    def test_recon_rejects_feature_map_output_over_target(self) -> None:
+        self.assertEqual(
+            recon_main([str(EMPTY_TARGET), "--output", str(EMPTY_TARGET), "--quiet"]),
+            1,
+        )
+
+    def test_recon_rejects_code_index_output_over_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "feature-map.json"
+            self.assertEqual(
+                recon_main([
+                    str(EMPTY_TARGET), "--output", str(output),
+                    "--code-index-out", str(EMPTY_TARGET), "--quiet",
+                ]),
+                1,
+            )
+
+    def test_recon_rejects_symlink_alias_to_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            alias = root / "Target.sol"
+            alias.symlink_to(EMPTY_TARGET)
+            output = root / "feature-map.json"
+            self.assertEqual(
+                recon_main([
+                    str(EMPTY_TARGET), "--output", str(output),
+                    "--code-index-out", str(alias), "--quiet",
+                ]),
+                1,
+            )
+
+    def test_recon_allows_normal_output_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "recon" / "feature-map.json"
+            output.parent.mkdir()
+            self.assertEqual(
+                recon_main([str(EMPTY_TARGET), "--output", str(output), "--quiet"]),
+                0,
+            )
+            self.assertTrue(output.exists())
 
     def context(self, manifest: dict, resolution: dict | None = None) -> dict:
         value = domain_context_template(manifest, resolution)
@@ -609,7 +715,7 @@ class HardeningTests(unittest.TestCase):
             ]
             self.assertEqual(synthesize_main(command), 0)
             values = audit_paths(root)
-            self.assertTrue(_report_bundle_status(ROOT, values, manifest, state)["current"])
+            self.assertFalse(_report_bundle_status(ROOT, values, manifest, state)["current"])
             bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
             self.assertIsNone(bundle["severity_decisions_sha256"])
             self.assertIsNone(bundle["finding_details_sha256"])

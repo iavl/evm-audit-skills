@@ -325,6 +325,36 @@ def command_version(command: str | None) -> str | None:
     return None
 
 
+def validate_output_targets(
+    scope_root: Path,
+    build_root: Path,
+    scope_files: list[str],
+    outputs: tuple[tuple[str, Path | None], ...],
+) -> None:
+    """Reject outputs that resolve to any audited or compilable Solidity file."""
+    source_paths = {
+        (scope_root if scope_root.is_file() else scope_root / relative).resolve()
+        for relative in scope_files
+    }
+    source_paths.update(
+        path.resolve()
+        for path in build_root.rglob("*.sol")
+        if path.is_file()
+    )
+    for label, output in outputs:
+        aliased = False
+        if output is not None:
+            resolved = output.resolve()
+            aliased = resolved in source_paths
+            if not aliased and output.exists():
+                aliased = any(os.path.samefile(output, source) for source in source_paths)
+        if aliased:
+            raise ValueError(
+                f"{label} output would overwrite an audited or compilation Solidity source: "
+                f"{resolved}"
+            )
+
+
 def build_feature_map(
     root: Path,
     target: Path,
@@ -336,6 +366,7 @@ def build_feature_map(
     include_patterns: tuple[str, ...] = (),
     dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
     code_index_out: Path | None = None,
+    feature_map_out: Path | None = None,
 ) -> dict[str, Any]:
     feature_data = json.loads((root / "data" / "features.json").read_text(encoding="utf-8"))
     feature_names = sorted(feature_data["features"])
@@ -343,6 +374,12 @@ def build_feature_map(
     scope_root = resolve_scope_root(target, audit_root)
     compilation_root = resolve_build_root(scope_root, build_root)
     scope_files, excluded_paths = scope_inventory(scope_root, exclusions, include_patterns, dependency_roots)
+    validate_output_targets(
+        scope_root,
+        compilation_root,
+        scope_files,
+        (("feature-map", feature_map_out), ("code-index", code_index_out)),
+    )
     audit_files = set(scope_files)
     Slither = ensure_slither_import()
     kwargs: dict[str, Any] = {}
@@ -480,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
             tuple(args.include),
             tuple(args.dependency_root) if args.dependency_root is not None else tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
             args.code_index_out,
+            args.output,
         )
         rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         if args.output:

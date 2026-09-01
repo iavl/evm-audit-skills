@@ -68,7 +68,8 @@ Deep byte sizes, aggregate Domain `SKILL.md` bytes, `routing_recall`, and
 must-select check fails the fixture before any size result is accepted.
 
 The separate code-context benchmark records exact index/query bytes, selected
-nodes, total/returned edges, unresolved edges, and explicit truncation flags.
+nodes, unique and serialized edge counts, unresolved edges, and explicit
+truncation flags. The lightweight benchmark also runs in normal Python CI.
 
 The scheduled `knowledge-health.yml` workflow owns freshness/official-source
 checks and the base executable semantic suite:

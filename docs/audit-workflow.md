@@ -166,6 +166,9 @@ Only `CONFIRMED` records enter the final report. The main artifacts are:
 - `AUDIT-REPORT.md` for confirmed findings; and
 - `issue-candidates.json` for structured issue candidates.
 
+The controller commits these through an immutable report generation and the
+`report-current.json` pointer; top-level files are convenience copies.
+
 Incomplete or stale evidence prevents the runtime from presenting a clean,
 completed audit.
 

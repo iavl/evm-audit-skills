@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:report-current:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "generation", "report_bundle_sha256"],
+  "properties": {
+    "artifact_type": {"const": "report-current"},
+    "schema_version": {"const": 1},
+    "generation": {"type": "string", "pattern": "^generation-[0-9a-f]+$"},
+    "report_bundle_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

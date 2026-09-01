@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -75,51 +76,108 @@ class AuditRunTests(unittest.TestCase):
             state = self.read(values["audit_state"])
             bundle_status = audit_controller._report_bundle_status(ROOT, values, manifest, state)
             self.assertTrue(bundle_status["current"], bundle_status)
-            original_report = values["report"].read_text(encoding="utf-8")
-            original_issues = values["issue_candidates"].read_text(encoding="utf-8")
-            original_bundle = values["report_bundle"].read_text(encoding="utf-8")
-
-            original_synthesize = audit_controller.synthesize
+            original_pointer = values["report_current"].read_bytes()
+            generation = values["report_generations"] / json.loads(original_pointer)["generation"]
+            original_generation = {
+                path.relative_to(generation): path.read_bytes()
+                for path in generation.iterdir()
+                if path.is_file()
+            }
             original_atomic_text = audit_controller.atomic_write_text
             original_atomic_json = audit_controller.atomic_write_json
-
-            def changed_report(*args, **kwargs):
-                report, issues = original_synthesize(*args, **kwargs)
-                return report + "changed\n", issues
 
             def fail_report(path: Path, content: str) -> None:
                 if path.name == "AUDIT-REPORT.md":
                     raise OSError("report write failure")
                 original_atomic_text(path, content)
 
-            with patch.object(audit_controller, "synthesize", side_effect=changed_report), patch.object(audit_controller, "atomic_write_text", side_effect=fail_report):
+            with patch.object(audit_controller, "atomic_write_text", side_effect=fail_report):
                 with self.assertRaisesRegex(OSError, "report write failure"):
                     audit_controller.report_run(ROOT, run_dir)
-            self.assertEqual(values["report"].read_text(encoding="utf-8"), original_report)
-            self.assertEqual(values["issue_candidates"].read_text(encoding="utf-8"), original_issues)
-            self.assertEqual(values["report_bundle"].read_text(encoding="utf-8"), original_bundle)
+            self.assertEqual(values["report_current"].read_bytes(), original_pointer)
+            self.assertEqual(
+                {path.relative_to(generation): path.read_bytes() for path in generation.iterdir() if path.is_file()},
+                original_generation,
+            )
+            self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
 
             def fail_issue(path: Path, value: dict) -> None:
                 if path.name == "issue-candidates.json":
                     raise OSError("issue-candidates write failure")
                 original_atomic_json(path, value)
 
-            with patch.object(audit_controller, "synthesize", side_effect=changed_report), patch.object(audit_controller, "atomic_write_json", side_effect=fail_issue):
+            with patch.object(audit_controller, "atomic_write_json", side_effect=fail_issue):
                 with self.assertRaisesRegex(OSError, "issue-candidates write failure"):
                     audit_controller.report_run(ROOT, run_dir)
-            self.assertFalse(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
-
-            audit_controller.report_run(ROOT, run_dir)
+            self.assertEqual(values["report_current"].read_bytes(), original_pointer)
+            self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
 
             def fail_bundle(path: Path, value: dict) -> None:
                 if path.name == "report-bundle.json":
                     raise OSError("metadata write failure")
                 original_atomic_json(path, value)
 
-            with patch.object(audit_controller, "synthesize", side_effect=changed_report), patch.object(audit_controller, "atomic_write_json", side_effect=fail_bundle):
+            with patch.object(audit_controller, "atomic_write_json", side_effect=fail_bundle):
                 with self.assertRaisesRegex(OSError, "metadata write failure"):
                     audit_controller.report_run(ROOT, run_dir)
-            self.assertFalse(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+            self.assertEqual(values["report_current"].read_bytes(), original_pointer)
+            self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+
+            audit_controller.report_run(ROOT, run_dir)
+            self.assertNotEqual(values["report_current"].read_bytes(), original_pointer)
+
+    def test_first_report_failure_does_not_create_fake_current_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            values = audit_controller.paths(run_dir)
+            original_atomic_text = audit_controller.atomic_write_text
+
+            def fail_report(path: Path, content: str) -> None:
+                if path.name == "AUDIT-REPORT.md":
+                    raise OSError("first report write failure")
+                original_atomic_text(path, content)
+
+            with patch.object(audit_controller, "atomic_write_text", side_effect=fail_report):
+                with self.assertRaisesRegex(OSError, "first report write failure"):
+                    audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse(values["report_current"].exists())
+            self.assertFalse(any(values["report_generations"].glob("generation-*")))
+            audit_controller.report_run(ROOT, run_dir)
+            self.assertTrue(values["report_current"].exists())
+
+    def test_bundle_rederivation_accepts_official_report(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            manifest = self.read(values["manifest"])
+            state = self.read(values["audit_state"])
+            status = audit_controller._report_bundle_status(ROOT, values, manifest, state)
+            self.assertEqual(status["status"], "CURRENT", status)
+            self.assertTrue(status["generation"])
+
+    def test_bundle_rejects_coordinated_report_and_marker_edit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            manifest = self.read(values["manifest"])
+            state = self.read(values["audit_state"])
+            pointer = self.read(values["report_current"])
+            generation = values["report_generations"] / pointer["generation"]
+            report_path = generation / "AUDIT-REPORT.md"
+            report_path.write_text(report_path.read_text(encoding="utf-8") + "tampered\n", encoding="utf-8")
+            bundle_path = generation / "report-bundle.json"
+            bundle = self.read(bundle_path)
+            bundle["report_sha256"] = hashlib.sha256(report_path.read_bytes()).hexdigest()
+            bundle_path.write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
+            pointer["report_bundle_sha256"] = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+            values["report_current"].write_text(json.dumps(pointer, indent=2) + "\n", encoding="utf-8")
+            status = audit_controller._report_bundle_status(ROOT, values, manifest, state)
+            self.assertEqual(status["status"], "STALE", status)
 
     def test_init_failures_leave_no_partial_run_and_allow_safe_retry(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -423,13 +481,138 @@ class AuditRunTests(unittest.TestCase):
             self.assertEqual(values["report_input_details"].read_bytes(), details_path.read_bytes())
             bundle_status = audit_controller._report_bundle_status(ROOT, values, manifest, state)
             self.assertTrue(bundle_status["current"], bundle_status)
-            details_bytes = values["report_input_details"].read_bytes()
-            values["report_input_details"].write_bytes(details_bytes + b"\n")
+            generation = values["report_generations"] / json.loads(values["report_current"].read_bytes())["generation"]
+            details_snapshot = generation / "finding-details.json"
+            details_bytes = details_snapshot.read_bytes()
+            details_snapshot.write_bytes(details_bytes + b"\n")
             self.assertFalse(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
-            values["report_input_details"].write_bytes(details_bytes)
+            details_snapshot.write_bytes(details_bytes)
             self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
-            values["report_input_details"].unlink()
+            details_snapshot.unlink()
             self.assertFalse(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+
+    def test_failed_finding_report_preserves_previous_current_generation(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        screen = screen_results_template(manifest)
+        candidate_id = screen["results"][0]["canonical_id"]
+        evidence = [
+            {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+            {"kind": "inheritance", "location": "fixture", "reason": "screen disposition"},
+        ]
+        for item in screen["results"]:
+            is_candidate = item["canonical_id"] == candidate_id
+            item.update(
+                result="CANDIDATE" if is_candidate else "NOT_APPLICABLE_CONFIRMED",
+                scope_complete=not is_candidate,
+                evidence=[] if is_candidate else evidence,
+            )
+        domain_context = domain_context_template(manifest)
+        for requirements in domain_context["domains"].values():
+            for item in requirements.values():
+                item.update(status="KNOWN", value="fixture", evidence=[evidence[0]])
+        context = {**manifest["audit_context"], "routing_snapshot_id": manifest["routing_snapshot_id"]}
+        route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate_id)
+        check = next(item for item in registry["checks"] if item["canonical_id"] == candidate_id)
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            values = audit_controller.paths(run_dir)
+            values["manifest"].parent.mkdir(parents=True)
+            values["domain_context"].parent.mkdir(parents=True, exist_ok=True)
+            values["context"].write_text(json.dumps(context) + "\n", encoding="utf-8")
+            values["manifest"].write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            values["domain_context"].write_text(json.dumps(domain_context) + "\n", encoding="utf-8")
+            values["screen_results"].write_text(json.dumps(screen) + "\n", encoding="utf-8")
+            deep = {
+                "record_type": "review", "schema_version": 7, "canonical_id": candidate_id,
+                "owner_domain": route["owner_domain"], "check_body_hash": check_body_hash(check),
+                "review_stage": "DEEP_REVIEW", "status": "SUSPICIOUS", "code_path": "fixture entry",
+                "unresolved_reason": "proof pending", "evidence": [{"kind": "manual", "location": "fixture", "reason": "deep review"}],
+            }
+            ledger = run_dir / "reviews/review-evm-audit-general.jsonl"
+            append(ledger, manifest, deep, registry, {candidate_id}, domain_context=domain_context, screen_results=screen)
+            proof = {
+                **deep, "review_stage": "PROOF", "status": "CONFIRMED",
+                "applicability": "APPLICABLE - fixture", "preconditions": "fixture state",
+                "exploitability": "fixture path is reachable", "impact": "fixture impact",
+                "proof": "deterministic fixture trace", "evidence": [{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
+            }
+            append(ledger, manifest, proof, registry, {candidate_id}, domain_context=domain_context, screen_results=screen)
+            state = audit_controller.status_run(ROOT, run_dir, emit=False)
+            identity = {
+                "schema_version": 2, "routing_snapshot_id": manifest["routing_snapshot_id"],
+                "review_state_digest": state["review_state_digest"],
+                **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
+            }
+            severity_path = run_dir / "severity.json"
+            severity_path.write_text(json.dumps({**identity, "decisions": {
+                candidate_id: {
+                    "severity": "High", "rationale": "fixture proof", "dimensions": {
+                        "impact": "fund_loss", "exploitability": "permissionless", "privileges": "none",
+                        "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
+                        "loss_bound": "single_user", "protocol_exposure": "single_position", "recoverability": "irreversible",
+                    },
+                },
+            }}) + "\n", encoding="utf-8")
+            details_path = run_dir / "details.json"
+            details_path.write_text(json.dumps({**identity, "findings": [{
+                "canonical_id": candidate_id, "location": "Fixture.sol:1", "description": "fixture finding", "recommendation": "fix fixture",
+            }]}) + "\n", encoding="utf-8")
+            audit_controller.report_run(ROOT, run_dir, severity_path, details_path)
+
+            def snapshot() -> tuple[bytes, dict[Path, bytes]]:
+                pointer = values["report_current"].read_bytes()
+                generation = values["report_generations"] / json.loads(pointer)["generation"]
+                return pointer, {
+                    path.relative_to(generation): path.read_bytes()
+                    for path in generation.iterdir()
+                    if path.is_file()
+                }
+
+            failure_cases = (
+                ("severity", "bytes", "severity-decisions.json"),
+                ("details", "bytes", "finding-details.json"),
+                ("report", "text", "AUDIT-REPORT.md"),
+                ("issues", "json", "issue-candidates.json"),
+                ("bundle", "json", "report-bundle.json"),
+                ("pointer", "json", "report-current.json"),
+            )
+            for name, writer, filename in failure_cases:
+                with self.subTest(boundary=name):
+                    original_pointer, original_generation = snapshot()
+                    if writer == "bytes":
+                        original = audit_controller.atomic_write_bytes
+
+                        def fail(path: Path, content: bytes, *, original=original, filename=filename) -> None:
+                            if path.name == filename:
+                                raise OSError(f"{name} write failure")
+                            original(path, content)
+
+                        context_manager = patch.object(audit_controller, "atomic_write_bytes", side_effect=fail)
+                    elif writer == "text":
+                        original = audit_controller.atomic_write_text
+
+                        def fail(path: Path, content: str, *, original=original, filename=filename) -> None:
+                            if path.name == filename:
+                                raise OSError(f"{name} write failure")
+                            original(path, content)
+
+                        context_manager = patch.object(audit_controller, "atomic_write_text", side_effect=fail)
+                    else:
+                        original = audit_controller.atomic_write_json
+
+                        def fail(path: Path, value: dict, *, original=original, filename=filename) -> None:
+                            if path.name == filename:
+                                raise OSError(f"{name} write failure")
+                            original(path, value)
+
+                        context_manager = patch.object(audit_controller, "atomic_write_json", side_effect=fail)
+                    with context_manager:
+                        with self.assertRaisesRegex(OSError, f"{name} write failure"):
+                            audit_controller.report_run(ROOT, run_dir, severity_path, details_path)
+                    self.assertEqual(values["report_current"].read_bytes(), original_pointer)
+                    self.assertEqual(snapshot()[1], original_generation)
+                    self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+                    audit_controller.report_run(ROOT, run_dir, severity_path, details_path)
 
     def test_report_rederives_state_after_current_ledger_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

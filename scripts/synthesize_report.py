@@ -13,7 +13,7 @@ from typing import Any
 _SUITE_ROOT = str(Path(__file__).resolve().parents[1])
 if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
-from evm_audit_runtime.reporting import issue_candidate
+from evm_audit_runtime.reporting import derive_issue_candidates
 from evm_audit_runtime.routing import resolved_routes
 from evm_audit_runtime.versions import ISSUE_CANDIDATES_VERSION
 
@@ -86,10 +86,6 @@ class ReportSynthesisResult:
     issue_candidates: dict[str, Any]
     severity_decisions_bytes: bytes | None = None
     finding_details_bytes: bytes | None = None
-
-    def __iter__(self):
-        yield self.report
-        yield self.issue_candidates
 
 
 def _consumed_input_bytes(
@@ -375,7 +371,6 @@ def synthesize(
     ]
     if not confirmed:
         report_lines.extend(["", "No confirmed findings were established within the reviewed scope."])
-    issue_findings: list[dict[str, Any]] = []
     for canonical_id in sorted(confirmed):
         record = latest[canonical_id]
         check = checks.get(canonical_id)
@@ -406,13 +401,11 @@ def synthesize(
             f"- **Description:** {detail['description']}",
             f"- **Recommendation:** {detail['recommendation']}",
         ])
-        if issue_candidate(severity):
-            issue_findings.append({"canonical_id": canonical_id, "severity": severity})
     report_lines.append("")
     return ReportSynthesisResult(
         state,
         "\n".join(report_lines),
-        _issue_artifact(root, manifest, state, issue_findings),
+        _issue_artifact(root, manifest, state, derive_issue_candidates(confirmed, decisions)),
         severity_decisions_bytes,
         finding_details_bytes,
     )
