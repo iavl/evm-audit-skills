@@ -17,6 +17,13 @@ The low-level CLIs below are runtime interfaces. The short user-facing entry
 point is `scripts/audit_run.py`; its `next` command returns the next required
 stage and its `report` command always re-derives the current state.
 
+### Progress observability
+
+The controller keeps terminal-oriented progress on `stderr` and returns
+machine-readable `progress` metadata for executor/UI use on `stdout`. The
+Master Skill renders a compact chat banner from that metadata after a
+user-relevant stage transition; it does not parse or depend on `stderr`.
+
 ## Runtime profiles and artifacts
 
 ### Codex model policy

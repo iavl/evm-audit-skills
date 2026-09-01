@@ -38,6 +38,32 @@ evidence-bound templates. `DEEP_REVIEW` means candidate records are missing;
 current artifacts and refuses stale, incomplete, or under-specified reporting
 inputs.
 
+## Codex-visible stage progress
+
+Controller stderr is terminal-oriented and may be collapsed by the Codex UI.
+After `init`, `next`, `status`, or `report` returns a user-relevant stage,
+render exactly one compact chat banner from its `progress` and
+`recommended_execution` fields before continuing model-owned work. For `init`,
+use `next.stage` and its nested fields; for the other commands, use the returned
+stage fields.
+
+```text
++----------------------------------------------+
+|         EVM AUDIT :: <STAGE LABEL>           |
++----------------------------------------------+
+  Stage: <step>/<total>
+  <summary>
+  Model: <model>
+  Reasoning: <reasoning_effort>
+```
+
+Use only controller-provided stage and counts; never infer them from stderr.
+Keep UI-only last-stage state to avoid repeating a banner when no stage
+transition occurred, and never persist that state into audit artifacts. Do not
+show these banners for internal helper calls such as `recon.py`,
+`select_checks.py`, `render_runtime.py`, or `validate_audit_run.py`. The model
+recommendation is a handoff, not an automatic active-model switch.
+
 ## Codex model policy
 
 For a new Codex audit with no confirmed profile, ask once before starting:

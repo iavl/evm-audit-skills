@@ -50,6 +50,7 @@ class AuditRunTests(unittest.TestCase):
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("DOMAIN_CONTEXT", result.stdout)
+            self.assertEqual(json.loads(result.stdout)["progress"]["label"], "DOMAIN CONTEXT")
             context_path = run_dir / "reviews/domain-context.json"
             context = self.read(context_path)
             for requirements in context["domains"].values():
@@ -63,6 +64,9 @@ class AuditRunTests(unittest.TestCase):
 
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
+            screen_payload = json.loads(result.stdout)
+            self.assertEqual(screen_payload["progress"]["step"], 4)
+            self.assertEqual(screen_payload["progress"]["label"], "SCREEN")
             screen_path = run_dir / "reviews/screen-results.json"
             screen = self.read(screen_path)
             for item in screen["results"]:
@@ -79,8 +83,11 @@ class AuditRunTests(unittest.TestCase):
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("COMPLETE_CLEAN", result.stdout)
+            report_payload = json.loads(result.stdout)
+            self.assertEqual(report_payload["progress"]["step"], 7)
+            self.assertEqual(report_payload["progress"]["label"], "REPORT")
             self.assertEqual(
-                json.loads(result.stdout)["recommended_execution"],
+                report_payload["recommended_execution"],
                 {"provider": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "medium"},
             )
             manifest = self.read(run_dir / "routing/manifest.json")
@@ -109,6 +116,9 @@ class AuditRunTests(unittest.TestCase):
                 str(details_path),
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            report_command = json.loads(result.stdout)
+            self.assertEqual(report_command["progress"]["step"], 7)
+            self.assertEqual(report_command["progress"]["label"], "REPORT")
             report = (run_dir / "AUDIT-REPORT.md").read_text(encoding="utf-8")
             self.assertIn("COMPLETE_CLEAN", report)
             self.assertTrue((run_dir / "issue-candidates.json").exists())
@@ -155,8 +165,12 @@ class AuditRunTests(unittest.TestCase):
 
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertIn("DEEP_REVIEW", result.stdout)
+            deep_payload = json.loads(result.stdout)
+            self.assertEqual(deep_payload["progress"]["step"], 5)
+            self.assertEqual(deep_payload["progress"]["label"], "DEEP REVIEW")
+            self.assertIn("Deep Review candidates remain", deep_payload["progress"]["summary"])
             self.assertEqual(
-                json.loads(result.stdout)["recommended_execution"],
+                deep_payload["recommended_execution"],
                 {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "high"},
             )
             manifest = self.read(run_dir / "routing/manifest.json")
@@ -295,8 +309,12 @@ contract RetainedPoC {
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("PROOF", result.stdout)
             self.assertIn(candidate["canonical_id"], result.stdout)
+            proof_payload = json.loads(result.stdout)
+            self.assertEqual(proof_payload["progress"]["step"], 6)
+            self.assertEqual(proof_payload["progress"]["label"], "PROOF")
+            self.assertIn("suspicious findings require Proof", proof_payload["progress"]["summary"])
             self.assertEqual(
-                json.loads(result.stdout)["recommended_execution"],
+                proof_payload["recommended_execution"],
                 {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "max"},
             )
             resolved = {
@@ -322,6 +340,9 @@ contract RetainedPoC {
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("REPORT", result.stdout)
             self.assertIn("COMPLETE_CLEAN", result.stdout)
+            report_payload = json.loads(result.stdout)
+            self.assertEqual(report_payload["progress"]["step"], 7)
+            self.assertEqual(report_payload["progress"]["label"], "REPORT")
             for _ in range(2):
                 result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
                 self.assertEqual(result.returncode, 0, result.stderr)

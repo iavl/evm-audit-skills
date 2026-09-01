@@ -72,6 +72,16 @@ except ImportError:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parents[1]
 TOTAL_STAGES = 7
+STAGE_PROGRESS: dict[str, dict[str, Any]] = {
+    "RECON": {"step": 1, "label": "RECON"},
+    "ROUTING": {"step": 2, "label": "ROUTING"},
+    "DOMAIN_RESOLUTION": {"step": 3, "label": "DOMAIN RESOLUTION"},
+    "DOMAIN_CONTEXT": {"step": 3, "label": "DOMAIN CONTEXT"},
+    "SCREEN": {"step": 4, "label": "SCREEN"},
+    "DEEP_REVIEW": {"step": 5, "label": "DEEP REVIEW"},
+    "PROOF": {"step": 6, "label": "PROOF"},
+    "REPORT": {"step": 7, "label": "REPORT"},
+}
 VERBOSE_CHILD_SCRIPTS = {"select_checks.py", "render_runtime.py"}
 REPORTING_DIMENSIONS = (
     "impact", "exploitability", "privileges", "capital_required",
@@ -144,8 +154,26 @@ def _render_screen(root: Path, values: dict[str, Path], *extra: str, verbose: bo
     )
 
 
+def progress_metadata(stage_name: str, *, summary: str | None = None) -> dict[str, Any]:
+    try:
+        metadata = STAGE_PROGRESS[stage_name]
+    except KeyError as exc:
+        raise ValueError(f"unknown audit stage: {stage_name}") from exc
+    return {
+        "step": metadata["step"],
+        "total": TOTAL_STAGES,
+        "label": metadata["label"],
+        "summary": summary or f"{metadata['label']} stage",
+    }
+
+
+def _emit_stage(stage_name: str, detail: str) -> None:
+    progress = progress_metadata(stage_name)
+    stage(progress["label"], step=progress["step"], total=progress["total"], detail=detail)
+
+
 def _display_stage(name: str) -> str:
-    return name.replace("_", " ")
+    return progress_metadata(name)["label"] if name in STAGE_PROGRESS else name.replace("_", " ")
 
 
 def _effective_model_profile(run_dir: Path) -> dict[str, Any]:
@@ -167,10 +195,17 @@ def _log_model_guidance(run_dir: Path | None, stage_name: str) -> None:
     info("Handoff: controller does not switch the active Codex model")
 
 
-def _stage_result(run_dir: Path, stage_name: str, **values: Any) -> dict[str, Any]:
+def _stage_result(
+    run_dir: Path,
+    stage_name: str,
+    *,
+    summary: str | None = None,
+    **values: Any,
+) -> dict[str, Any]:
     return {
         "stage": stage_name,
         **values,
+        "progress": progress_metadata(stage_name, summary=summary),
         "recommended_execution": recommended_execution(run_dir, stage_name),
     }
 
@@ -257,7 +292,7 @@ def _log_routing(manifest: dict[str, Any], *, run_dir: Path | None = None) -> No
 def _log_domain_resolution(
     manifest: dict[str, Any], unresolved: set[str] | None = None, *, run_dir: Path | None = None
 ) -> None:
-    stage("DOMAIN RESOLUTION", step=3, total=TOTAL_STAGES, detail="Resolving Deferred Domains")
+    _emit_stage("DOMAIN_RESOLUTION", "Resolving Deferred Domains")
     _log_model_guidance(run_dir, "DOMAIN_RESOLUTION")
     total = len(manifest["deferred_domains"])
     remaining = unresolved if unresolved is not None else {entry["domain"] for entry in manifest["deferred_domains"]}
@@ -276,10 +311,89 @@ def _context_requirement_count(manifest: dict[str, Any]) -> int:
     )
 
 
+def _domain_resolution_summary(
+    manifest: dict[str, Any], unresolved: set[str] | None = None
+) -> str:
+    remaining = (
+        unresolved
+        if unresolved is not None
+        else {entry["domain"] for entry in manifest.get("deferred_domains", [])}
+    )
+    if remaining:
+        suffix = "remain unresolved" if unresolved is not None else "require resolution"
+        return f"{len(remaining)} Deferred Domains {suffix}"
+    return "All Deferred Domains resolved"
+
+
+def _domain_context_summary(
+    manifest: dict[str, Any], unresolved: set[str] | None = None
+) -> str:
+    if unresolved is None:
+        remaining = {
+            f"{domain}.{key}"
+            for domain, requirements in manifest.get("required_context_requirements", {}).items()
+            if isinstance(requirements, dict)
+            for key in requirements
+        }
+        suffix = "need resolution"
+    else:
+        remaining = unresolved
+        suffix = "remain unresolved"
+    if remaining:
+        return f"{len(remaining)} required context fields {suffix}"
+    return "All required Domain context resolved"
+
+
+def _screen_summary(
+    manifest: dict[str, Any],
+    *,
+    resolution: dict[str, Any] | None = None,
+    coverage: dict[str, Any] | None = None,
+) -> str:
+    selected = (
+        set(coverage.get("selected", []))
+        if isinstance(coverage, dict) and isinstance(coverage.get("selected"), list)
+        else {entry["canonical_id"] for entry in selected_entries(manifest, domain_resolution=resolution)}
+    )
+    if isinstance(coverage, dict):
+        classified = set(coverage.get("screen_not_applicable", [])) | set(coverage.get("deep_candidates", []))
+        remaining = selected - classified
+    else:
+        remaining = selected
+    return f"{len(remaining)} checks require Screen classification"
+
+
+def _state_progress_summary(
+    stage_name: str,
+    state: dict[str, Any],
+    manifest: dict[str, Any],
+    resolution: dict[str, Any] | None,
+    domain_context: dict[str, Any] | None,
+) -> str:
+    coverage = state.get("coverage", {})
+    if stage_name == "DOMAIN_RESOLUTION":
+        return _domain_resolution_summary(manifest, _unknown_domains(resolution))
+    if stage_name == "DOMAIN_CONTEXT":
+        return _domain_context_summary(manifest, _unknown_context(domain_context))
+    if stage_name == "SCREEN":
+        return _screen_summary(manifest, resolution=resolution, coverage=coverage)
+    if stage_name == "DEEP_REVIEW":
+        candidates = coverage.get("deep_candidates", []) if isinstance(coverage, dict) else []
+        reviewed = coverage.get("deep_reviewed", []) if isinstance(coverage, dict) else []
+        pending = set(candidates) - set(reviewed) if isinstance(candidates, list) and isinstance(reviewed, list) else set()
+        return f"{len(pending)} Deep Review candidates remain"
+    if stage_name == "PROOF":
+        suspicious = coverage.get("suspicious", []) if isinstance(coverage, dict) else []
+        return f"{len(suspicious) if isinstance(suspicious, list) else 0} suspicious findings require Proof"
+    if stage_name == "REPORT":
+        return f"Audit state: {state.get('status', 'UNKNOWN')}"
+    return progress_metadata(stage_name)["summary"]
+
+
 def _log_domain_context(
     manifest: dict[str, Any], unresolved: set[str] | None = None, *, run_dir: Path | None = None
 ) -> None:
-    stage("DOMAIN CONTEXT", step=3, total=TOTAL_STAGES, detail="Resolving required Domain context")
+    _emit_stage("DOMAIN_CONTEXT", "Resolving required Domain context")
     _log_model_guidance(run_dir, "DOMAIN_CONTEXT")
     total = _context_requirement_count(manifest)
     if unresolved is None:
@@ -301,7 +415,7 @@ def _log_domain_context(
 def _log_screen(screen: dict[str, Any], candidates: set[str], *, run_dir: Path | None = None) -> None:
     results = screen.get("results", [])
     total = len(results) if isinstance(results, list) else 0
-    stage("SCREEN", step=4, total=TOTAL_STAGES, detail="Screening routed checks")
+    _emit_stage("SCREEN", "Screening routed checks")
     _log_model_guidance(run_dir, "SCREEN")
     info(f"Screen checks: {total}")
     info(f"Deep candidates: {len(candidates)}")
@@ -322,7 +436,7 @@ def _log_report(state: dict[str, Any], *, finished: bool, run_dir: Path | None =
     coverage = state.get("coverage", {})
     confirmed = coverage.get("confirmed", []) if isinstance(coverage, dict) else []
     suspicious = coverage.get("suspicious", []) if isinstance(coverage, dict) else []
-    stage("REPORT", step=7, total=TOTAL_STAGES, detail="Deriving final audit state")
+    _emit_stage("REPORT", "Deriving final audit state")
     _log_model_guidance(run_dir, "REPORT")
     info(f"Status: {state.get('status', 'UNKNOWN')}")
     info(f"Complete: {'yes' if state.get('complete') else 'no'}")
@@ -373,7 +487,7 @@ def _log_current_state(
         if unresolved_context:
             _log_domain_context(manifest, unresolved_context, run_dir=run_dir)
             return
-        stage("SCREEN", step=4, total=TOTAL_STAGES, detail="Screening routed checks")
+        _emit_stage("SCREEN", "Screening routed checks")
         _log_model_guidance(run_dir, "SCREEN")
         selected = coverage.get("selected", []) if isinstance(coverage, dict) else []
         candidates = coverage.get("deep_candidates", []) if isinstance(coverage, dict) else []
@@ -389,16 +503,16 @@ def _log_current_state(
         reviewed = coverage.get("deep_reviewed", []) if isinstance(coverage, dict) else []
         pending = set(candidates) - set(reviewed) if isinstance(candidates, list) and isinstance(reviewed, list) else set()
         if pending:
-            stage("DEEP REVIEW", step=5, total=TOTAL_STAGES, detail="Reviewing Deep candidates")
+            _emit_stage("DEEP_REVIEW", "Reviewing Deep candidates")
             _log_model_guidance(run_dir, "DEEP_REVIEW")
             info(f"Reviewed: {len(reviewed) if isinstance(reviewed, list) else 0} / {len(candidates) if isinstance(candidates, list) else 0}")
             info(f"Remaining: {len(pending)}")
         elif suspicious:
-            stage("PROOF", step=6, total=TOTAL_STAGES, detail="Resolving suspicious findings")
+            _emit_stage("PROOF", "Resolving suspicious findings")
             _log_model_guidance(run_dir, "PROOF")
             info(f"Remaining proof items: {len(suspicious)}")
         else:
-            stage("DEEP REVIEW", step=5, total=TOTAL_STAGES, detail="Reviewing Deep candidates")
+            _emit_stage("DEEP_REVIEW", "Reviewing Deep candidates")
             _log_model_guidance(run_dir, "DEEP_REVIEW")
             info(f"Reviewed: {len(reviewed) if isinstance(reviewed, list) else 0} / {len(candidates) if isinstance(candidates, list) else 0}")
             info(f"Remaining: {len(candidates) - len(reviewed) if isinstance(candidates, list) and isinstance(reviewed, list) else 0}")
@@ -442,7 +556,7 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         recon_args.extend(["--dependency-root", dependency_root])
     if args.present_only:
         recon_args.append("--present-only")
-    stage("RECON", step=1, total=TOTAL_STAGES, detail="Building scope-bound Feature Map")
+    _emit_stage("RECON", "Building scope-bound Feature Map")
     try:
         _run(root, "recon.py", recon_args, verbose=args.verbose)
         feature_map = load_json(values["feature_map"])
@@ -475,7 +589,7 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         selector_args.append("--require-complete-compilation")
     if args.environment_context:
         selector_args.extend(["--environment-context", str(args.environment_context.resolve())])
-    stage("ROUTING", step=2, total=TOTAL_STAGES, detail="Building immutable routing snapshot")
+    _emit_stage("ROUTING", "Building immutable routing snapshot")
     try:
         _run(root, "select_checks.py", selector_args, verbose=args.verbose)
         manifest = load_json(values["manifest"])
@@ -678,7 +792,17 @@ def status_run(
     stage_name = _state_stage(state, manifest, resolution, domain_context)
     if stage_name is None:
         return state
-    return {**state, "recommended_execution": recommended_execution(run_dir, stage_name)}
+    return {
+        **state,
+        "stage": stage_name,
+        "progress": progress_metadata(
+            stage_name,
+            summary=_state_progress_summary(
+                stage_name, state, manifest, resolution, domain_context
+            ),
+        ),
+        "recommended_execution": recommended_execution(run_dir, stage_name),
+    }
 
 
 def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = True) -> dict[str, Any]:
@@ -697,17 +821,27 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             )
             if emit:
                 info(f"Resolution template required: {values['resolution']}")
-            return _stage_result(run_dir, "DOMAIN_RESOLUTION", template=str(values["resolution"]))
+            return _stage_result(
+                run_dir,
+                "DOMAIN_RESOLUTION",
+                summary=_domain_resolution_summary(manifest),
+                template=str(values["resolution"]),
+            )
         resolution = load_json(values["resolution"])
         unresolved = validate_domain_resolution(root, manifest, resolution)
         if emit:
             _log_domain_resolution(manifest, unresolved, run_dir=run_dir)
         if unresolved:
-            return _stage_result(run_dir, "DOMAIN_RESOLUTION", unresolved_domains=sorted(unresolved))
+            return _stage_result(
+                run_dir,
+                "DOMAIN_RESOLUTION",
+                summary=_domain_resolution_summary(manifest, unresolved),
+                unresolved_domains=sorted(unresolved),
+            )
 
     if not values["domain_context"].exists():
         if emit:
-            stage("DOMAIN CONTEXT", step=3, total=TOTAL_STAGES, detail="Resolving required Domain context")
+            _emit_stage("DOMAIN_CONTEXT", "Resolving required Domain context")
             _log_model_guidance(run_dir, "DOMAIN_CONTEXT")
             info(f"Resolved: 0 / {_context_requirement_count(manifest)}")
             warning("Domain Context template required")
@@ -724,17 +858,27 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         )
         if emit:
             info(f"Domain Context template required: {values['domain_context']}")
-        return _stage_result(run_dir, "DOMAIN_CONTEXT", template=str(values["domain_context"]))
+        return _stage_result(
+            run_dir,
+            "DOMAIN_CONTEXT",
+            summary=_domain_context_summary(manifest),
+            template=str(values["domain_context"]),
+        )
     domain_context = load_json(values["domain_context"])
     unresolved_context = validate_domain_context(root, manifest, domain_context, resolution)
     if emit:
         _log_domain_context(manifest, unresolved_context, run_dir=run_dir)
     if unresolved_context:
-        return _stage_result(run_dir, "DOMAIN_CONTEXT", unresolved_context=sorted(unresolved_context))
+        return _stage_result(
+            run_dir,
+            "DOMAIN_CONTEXT",
+            summary=_domain_context_summary(manifest, unresolved_context),
+            unresolved_context=sorted(unresolved_context),
+        )
 
     if not values["screen_results"].exists():
         if emit:
-            stage("SCREEN", step=4, total=TOTAL_STAGES, detail="Screening routed checks")
+            _emit_stage("SCREEN", "Screening routed checks")
             _log_model_guidance(run_dir, "SCREEN")
             info(f"Screen checks: {len(selected_entries(manifest, domain_resolution=resolution))}")
         extra = ["--domain-context", str(values["domain_context"]), "--screen-results-out", str(values["screen_results"])]
@@ -743,7 +887,12 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         _render_screen(root, values, *extra, verbose=verbose)
         if emit:
             info(f"Screen result template required: {values['screen_results']}")
-        return _stage_result(run_dir, "SCREEN", template=str(values["screen_results"]))
+        return _stage_result(
+            run_dir,
+            "SCREEN",
+            summary=_screen_summary(manifest, resolution=resolution),
+            template=str(values["screen_results"]),
+        )
     screen = load_json(values["screen_results"])
     candidates = validate_screen_results(root, manifest, screen, resolution)
     if emit:
@@ -753,7 +902,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
     )
     if candidates:
         if emit:
-            stage("DEEP REVIEW", step=5, total=TOTAL_STAGES, detail="Reviewing Deep candidates")
+            _emit_stage("DEEP_REVIEW", "Reviewing Deep candidates")
             _log_model_guidance(run_dir, "DEEP_REVIEW")
         for stale_view in (run_dir / "runtime").glob("deep-*.md"):
             stale_view.unlink()
@@ -782,7 +931,12 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         if emit:
             _log_deep(candidates, records, pending)
         if pending:
-            return _stage_result(run_dir, "DEEP_REVIEW", pending=sorted(pending))
+            return _stage_result(
+                run_dir,
+                "DEEP_REVIEW",
+                summary=f"{len(pending)} Deep Review candidates remain",
+                pending=sorted(pending),
+            )
         suspicious = {
             canonical_id
             for canonical_id, record in records.items()
@@ -791,10 +945,15 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         if suspicious:
             if emit:
                 success("Deep review complete")
-                stage("PROOF", step=6, total=TOTAL_STAGES, detail="Resolving suspicious findings")
+                _emit_stage("PROOF", "Resolving suspicious findings")
                 _log_model_guidance(run_dir, "PROOF")
                 info(f"Remaining proof items: {len(suspicious)}")
-            return _stage_result(run_dir, "PROOF", pending=sorted(suspicious))
+            return _stage_result(
+                run_dir,
+                "PROOF",
+                summary=f"{len(suspicious)} suspicious findings require Proof",
+                pending=sorted(suspicious),
+            )
         if emit:
             success("Deep review complete")
 
@@ -807,6 +966,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
     result: dict[str, Any] = _stage_result(
         run_dir,
         "REPORT",
+        summary=f"Audit state: {state['status']}",
         status=state["status"],
         audit_state=str(values["audit_state"]),
     )
@@ -899,14 +1059,15 @@ def report_run(
         success("Audit complete")
     else:
         warning("Audit remains incomplete")
-    return {
-        "stage": "REPORT",
-        "status": state["status"],
-        "complete": state["complete"],
-        "recommended_execution": recommended_execution(run_dir, "REPORT"),
-        "report": str(values["report"]),
-        "issue_candidates": str(values["issue_candidates"]),
-    }
+    return _stage_result(
+        run_dir,
+        "REPORT",
+        summary=f"Audit state: {state['status']}",
+        status=state["status"],
+        complete=state["complete"],
+        report=str(values["report"]),
+        issue_candidates=str(values["issue_candidates"]),
+    )
 
 
 def _add_logging_flags(parser: argparse.ArgumentParser) -> None:

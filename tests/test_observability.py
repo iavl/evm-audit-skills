@@ -13,7 +13,13 @@ from contextlib import redirect_stderr
 from pathlib import Path
 
 from helpers import EMPTY_TARGET, ROOT
-from scripts.audit_run import _log_current_state, _run
+from scripts.audit_run import (
+    STAGE_PROGRESS,
+    _log_current_state,
+    _run,
+    _stage_result,
+    progress_metadata,
+)
 from scripts.runtime_log import configure
 
 
@@ -46,6 +52,15 @@ class ObservabilityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["next"]["stage"], "DOMAIN_CONTEXT")
+        self.assertEqual(
+            payload["next"]["progress"],
+            {
+                "step": 3,
+                "total": 7,
+                "label": "DOMAIN CONTEXT",
+                "summary": "4 required context fields need resolution",
+            },
+        )
         self.assertIn("EVM AUDIT :: RECON", result.stderr)
         self.assertIn("EVM AUDIT :: ROUTING", result.stderr)
         self.assertIn("Next required stage: DOMAIN CONTEXT", result.stderr)
@@ -62,6 +77,7 @@ class ObservabilityTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertIsInstance(payload, dict)
+            self.assertEqual(payload["next"]["progress"]["label"], "DOMAIN CONTEXT")
             self.assertEqual(payload["next"]["recommended_execution"]["model"], "gpt-5.6-terra")
             self.assertEqual(result.stderr, "")
 
@@ -120,6 +136,72 @@ class ObservabilityTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "child.py failed: incomplete compilation coverage"):
                 _run(root, "child.py", [])
+
+    def test_stage_results_use_one_canonical_progress_mapping(self) -> None:
+        expected = {
+            "RECON": (1, "RECON"),
+            "ROUTING": (2, "ROUTING"),
+            "DOMAIN_RESOLUTION": (3, "DOMAIN RESOLUTION"),
+            "DOMAIN_CONTEXT": (3, "DOMAIN CONTEXT"),
+            "SCREEN": (4, "SCREEN"),
+            "DEEP_REVIEW": (5, "DEEP REVIEW"),
+            "PROOF": (6, "PROOF"),
+            "REPORT": (7, "REPORT"),
+        }
+        self.assertEqual(
+            {
+                stage: (metadata["step"], metadata["label"])
+                for stage, metadata in STAGE_PROGRESS.items()
+            },
+            expected,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            for stage_name, (step, label) in expected.items():
+                result = _stage_result(run_dir, stage_name, summary=f"{label} summary")
+                self.assertEqual(
+                    result["progress"],
+                    {"step": step, "total": 7, "label": label, "summary": f"{label} summary"},
+                )
+                self.assertEqual(result["stage"], stage_name)
+            self.assertEqual(
+                _stage_result(run_dir, "DEEP_REVIEW")["recommended_execution"],
+                {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "high"},
+            )
+            self.assertEqual(
+                _stage_result(run_dir, "PROOF")["recommended_execution"],
+                {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "max"},
+            )
+
+        self.assertEqual(
+            progress_metadata("PROOF"),
+            {"step": 6, "total": 7, "label": "PROOF", "summary": "PROOF stage"},
+        )
+
+    def test_init_next_status_and_report_keep_quiet_stdout_as_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            init = self.init_run(run_dir, "--quiet")
+            next_result = self.run_cli(
+                "scripts/audit_run.py", "next", "--run-dir", str(run_dir), "--quiet"
+            )
+            status = self.run_cli(
+                "scripts/audit_run.py", "status", "--run-dir", str(run_dir), "--quiet"
+            )
+            report = self.run_cli(
+                "scripts/audit_run.py", "report", "--run-dir", str(run_dir), "--quiet"
+            )
+
+        self.assertEqual(init.returncode, 0, init.stderr)
+        self.assertEqual(next_result.returncode, 0, next_result.stderr)
+        self.assertNotEqual(report.returncode, 0)
+        for result in (init, next_result, status):
+            self.assertEqual(result.stderr, "")
+            self.assertIsInstance(json.loads(result.stdout), dict)
+        self.assertEqual(json.loads(next_result.stdout)["progress"]["label"], "DOMAIN CONTEXT")
+        self.assertEqual(json.loads(status.stdout)["progress"]["label"], "DOMAIN CONTEXT")
+        self.assertEqual(report.stdout, "")
+        self.assertIn("ERROR:", report.stderr)
 
     def test_state_logging_matches_current_stage_without_false_completion(self) -> None:
         manifest = {
