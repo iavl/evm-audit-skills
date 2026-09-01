@@ -280,23 +280,20 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(shared[0]["owner_domain"], "evm-audit-precision-math")
 
     def test_routing_manifest_rejects_invalid_shape(self) -> None:
-        with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8") as manifest_file:
-            json.dump(
-                {
-                    "schema_version": 1,
-                    "stage": "FAST_FILTER",
-                    "scope": {"domains": ["evm-audit-precision-math"], "candidate_count": 1},
-                    "feature_map": {"schema_version": 99, "features": {}},
-                    "selected_count": 0,
-                    "filtered_count": 0,
-                    "selected": [],
-                    "filtered": [],
-                },
-                manifest_file,
-            )
-            manifest_file.flush()
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "manifest.json"
+            manifest_path.write_text(json.dumps({
+                "schema_version": 1,
+                "stage": "FAST_FILTER",
+                "scope": {"domains": ["evm-audit-precision-math"], "candidate_count": 1},
+                "feature_map": {"schema_version": 99, "features": {}},
+                "selected_count": 0,
+                "filtered_count": 0,
+                "selected": [],
+                "filtered": [],
+            }), encoding="utf-8")
             with self.assertRaises(ValueError):
-                validate_manifest(ROOT, load_json(Path(manifest_file.name)), self.registry)
+                validate_manifest(ROOT, load_json(manifest_path), self.registry)
 
     def test_context_exactly_matches_routing_snapshot(self) -> None:
         _, _, _, manifest = build_manifest()

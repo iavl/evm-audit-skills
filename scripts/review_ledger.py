@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from evm_audit_runtime.versions import REVIEW_RECORD_VERSION
+from evm_audit_runtime.state import review_lifecycle_errors
 
 try:
     import fcntl
@@ -150,22 +151,6 @@ def _manifest_routes(
             *manifest.get("filtered", []),
         ]
     }
-
-
-def _transition_errors(previous: dict[str, Any], current: dict[str, Any]) -> list[str]:
-    if previous.get("status") != "SUSPICIOUS":
-        return [
-            f"{current.get('canonical_id')}: revision {current.get('revision')} cannot follow "
-            f"{previous.get('status')}"
-        ]
-    errors: list[str] = []
-    if current.get("review_stage") != "PROOF":
-        errors.append(f"{current.get('canonical_id')}: follow-up review must use review_stage=PROOF")
-    if current.get("status") not in {"REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}:
-        errors.append(
-            f"{current.get('canonical_id')}: follow-up status {current.get('status')} is not a valid proof resolution"
-        )
-    return errors
 
 
 def _nonempty(record: dict[str, Any], fields: Iterable[str]) -> list[str]:
@@ -315,8 +300,7 @@ def validate_records(
             errors.append(
                 f"{canonical_id}: revision must be {previous.get('revision', 0) + 1}, got {revision}"
             )
-        elif not record_errors:
-            errors.extend(_transition_errors(previous, record))
+        errors.extend(review_lifecycle_errors(previous, record))
         latest[record_key] = record
     return errors
 
@@ -453,10 +437,9 @@ def append(
         )
         if errors:
             raise ValueError("; ".join(errors))
-        if records:
-            transition_errors = _transition_errors(history[-1], record) if history else []
-            if transition_errors:
-                raise ValueError("; ".join(transition_errors))
+        lifecycle_errors = review_lifecycle_errors(history[-1] if history else None, record)
+        if lifecycle_errors:
+            raise ValueError("; ".join(lifecycle_errors))
         lines = []
         if not records:
             lines.append(json.dumps(identity, ensure_ascii=False, sort_keys=True) + "\n")

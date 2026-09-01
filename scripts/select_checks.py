@@ -268,7 +268,7 @@ def validate_recon_context(
         "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest",
         "compilation_complete", "recon_quality", "slither_version", "solc_version",
     }
-    optional = {"compilation_files", "compiler_versions"}
+    optional = {"compilation_files", "compiler_versions", "navigation_artifacts"}
     if set(raw) - required - optional or not required <= set(raw):
         raise SelectionInputError(f"recon_context fields must include {sorted(required)}")
     analyzed = set(_string_list(raw["files_analyzed"], "recon_context.files_analyzed"))
@@ -335,6 +335,19 @@ def validate_recon_context(
             raise SelectionInputError("recon_context.solc_version cannot collapse multiple compiler versions")
         if raw["solc_version"] is not None and raw["solc_version"] not in compiler_values:
             raise SelectionInputError("recon_context.solc_version is not in compiler_versions")
+    navigation = raw.get("navigation_artifacts")
+    if navigation is not None:
+        binding = navigation.get("code_index") if isinstance(navigation, dict) else None
+        if not isinstance(navigation, dict) or set(navigation) != {"code_index"}:
+            raise SelectionInputError("recon_context.navigation_artifacts has an invalid shape")
+        if binding is not None and (
+            not isinstance(binding, dict)
+            or set(binding) != {"schema_version", "sha256"}
+            or binding.get("schema_version") != 2
+            or not isinstance(binding.get("sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", binding["sha256"])
+        ):
+            raise SelectionInputError("recon_context.navigation_artifacts.code_index has an invalid shape")
     if target_root is None:
         raise SelectionInputError("Feature Map v4 selection requires --target-root")
     resolved = resolve_scope_root(target_root)

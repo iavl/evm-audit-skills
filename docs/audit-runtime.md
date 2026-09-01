@@ -35,24 +35,28 @@ audit artifacts.
 
 ### Artifact authority
 
-| Artifact | Authoritative? | Snapshot bound? | Can affect clean completion? | Regenerable? |
-|---|---:|---:|---:|---:|
-| feature-map | yes | source/compilation | yes | yes |
-| routing manifest | yes | routing snapshot | yes | yes |
-| code-index | no, navigation hint | source/compilation | no | yes |
-| domain-resolution | yes | routing | yes | yes |
-| domain-context | yes | routing | yes | yes |
-| screen-results | yes | routing | yes | yes |
-| review JSONL | yes | review snapshot | yes | append-only |
-| runtime Markdown | no, generated view | body hash + snapshot | no direct state authority | yes |
-| severity/finding details | reporting input | review-state digest | report only | yes |
-| final report | deliverable | review/report lineage | n/a | yes |
+| Artifact | Authoritative? | Integrity binding | Failure behavior |
+|---|---:|---|---|
+| Feature Map | yes for Recon snapshot | source/compilation lineage | fail closed |
+| Routing manifest | yes | `routing_snapshot_id` | invalid snapshot |
+| Domain resolution/context | yes | routing/review snapshot | block downstream |
+| Screen results | yes | review inputs | block downstream |
+| Review JSONL | yes | checkpoint + review snapshot/state digest | block completion |
+| runtime Markdown | no, generated view | sidecar identity + body SHA-256 | regenerate |
+| code-index | no, navigation hint | Recon `navigation_artifacts.code_index.sha256` | disable navigation |
+| severity/finding details | reporting input | review-state digest | report admission error |
+| final report + issue candidates | derived outputs | report-bundle marker + both body hashes | stale/incomplete |
 
 The machine-readable JSON/JSONL artifacts are authoritative. Runtime Markdown
 is paired with a schema-validated `.meta.json` sidecar containing
 `runtime_sha256`; cache reuse hashes the exact Markdown bytes and rejects any
-body, sidecar, or identity mismatch. An invalid code index is reported as an
-unavailable navigation hint and never changes authoritative audit state.
+body, sidecar, or identity mismatch. The non-authoritative code index is still
+integrity-bound: Recon records its exact serialized body hash, and a changed or
+unbound index is reported as unavailable without changing authoritative audit
+state. `report-bundle.json` is written after both final bodies and is current
+only when its identity and both body hashes match the current state.
+
+`non-authoritative != integrity-unchecked`.
 
 ### Codex model policy
 

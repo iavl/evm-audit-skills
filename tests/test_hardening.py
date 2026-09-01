@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from scripts.audit_artifacts import canonical_sha256, check_body_hash, derive_review_snapshot_id
-from scripts.audit_run import _ensure_reporting_templates, _runtime_view_current
+from scripts.audit_run import _ensure_reporting_templates, _report_bundle_status, _runtime_view_current, paths as audit_paths
 from scripts.render_runtime import domain_context_template, domain_resolution_template, render, runtime_identity, runtime_metadata, screen_results_template
 from scripts.review_ledger import append
 from scripts.scope_context import compilation_digests, resolve_build_root, scope_inventory
@@ -70,6 +70,22 @@ class HardeningTests(unittest.TestCase):
         if not confirmed:
             value["preserved_invariant"] = "fixture invariant holds"
         return value
+
+    def append_confirmed_record(
+        self, ledger: Path, registry: dict, manifest: dict, candidate_id: str,
+        domain_context: dict, screen: dict,
+    ) -> None:
+        deep = self.review_record(registry, manifest, candidate_id)
+        deep.update(
+            review_stage="DEEP_REVIEW",
+            status="SUSPICIOUS",
+            unresolved_reason="proof is pending",
+            evidence=[{"kind": "manual", "location": "fixture", "reason": "deep review concern"}],
+        )
+        append(ledger, manifest, deep, registry, {candidate_id}, domain_context=domain_context, screen_results=screen)
+        proof = self.review_record(registry, manifest, candidate_id, confirmed=True)
+        proof["revision"] = 2
+        append(ledger, manifest, proof, registry, {candidate_id}, domain_context=domain_context, screen_results=screen)
 
     @staticmethod
     def context_artifact(manifest: dict) -> dict:
@@ -423,15 +439,7 @@ class HardeningTests(unittest.TestCase):
         context = self.context_artifact(manifest)
         with tempfile.TemporaryDirectory() as directory:
             ledger = Path(directory) / "review.jsonl"
-            append(
-                ledger,
-                manifest,
-                self.review_record(registry, manifest, candidate_id, confirmed=True),
-                registry,
-                {candidate_id},
-                domain_context=domain_context,
-                screen_results=screen,
-            )
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
             state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
             digest = state["review_state_digest"]
             identity = {
@@ -496,15 +504,7 @@ class HardeningTests(unittest.TestCase):
             report_path, issues_path = root / "AUDIT-REPORT.md", root / "issue-candidates.json"
             for path, value in ((manifest_path, manifest), (context_path, context), (domain_context_path, domain_context), (screen_path, screen)):
                 write_json(path, value)
-            append(
-                ledger,
-                manifest,
-                self.review_record(registry, manifest, candidate_id, confirmed=True),
-                registry,
-                {candidate_id},
-                domain_context=domain_context,
-                screen_results=screen,
-            )
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
             state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
             write_json(state_path, state)
             identity = {
@@ -536,6 +536,41 @@ class HardeningTests(unittest.TestCase):
             report = report_path.read_text(encoding="utf-8")
             self.assertIn("**Severity:** Medium", report)
             self.assertIn("updated description", report)
+
+    def test_report_bundle_rejects_tampered_bodies_and_stale_digest(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        domain_context = self.context(manifest)
+        screen, _ = self.screen(manifest, candidate=False)
+        context = self.context_artifact(manifest)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_path, context_path = root / "manifest.json", root / "context.json"
+            domain_context_path, screen_path = root / "domain-context.json", root / "screen-results.json"
+            state_path = root / "audit-state.json"
+            report_path, issues_path = root / "AUDIT-REPORT.md", root / "issue-candidates.json"
+            for path, value in ((manifest_path, manifest), (context_path, context), (domain_context_path, domain_context), (screen_path, screen)):
+                write_json(path, value)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [])
+            write_json(state_path, state)
+            command = [
+                "--manifest", str(manifest_path), "--audit-state", str(state_path), "--context", str(context_path),
+                "--domain-context", str(domain_context_path), "--screen-results", str(screen_path),
+                "--output", str(report_path), "--issue-candidates-out", str(issues_path),
+            ]
+            self.assertEqual(synthesize_main(command), 0)
+            values = audit_paths(root)
+            self.assertTrue(_report_bundle_status(ROOT, values, manifest, state)["current"])
+
+            report = report_path.read_text(encoding="utf-8")
+            report_path.write_text(report + "tampered\n", encoding="utf-8")
+            self.assertEqual(_report_bundle_status(ROOT, values, manifest, state)["status"], "STALE")
+            self.assertEqual(synthesize_main(command), 0)
+
+            issues = json.loads(issues_path.read_text(encoding="utf-8"))
+            issues_path.write_text(json.dumps(issues, separators=(",", ":")) + "\n", encoding="utf-8")
+            self.assertEqual(_report_bundle_status(ROOT, values, manifest, state)["status"], "STALE")
+            stale_state = {**state, "review_state_digest": "0" * 64}
+            self.assertEqual(_report_bundle_status(ROOT, values, manifest, stale_state)["status"], "STALE")
 
     def test_failed_direct_synthesis_preserves_previous_final_outputs(self) -> None:
         registry, _, _, manifest = build_manifest()
@@ -569,15 +604,7 @@ class HardeningTests(unittest.TestCase):
             screen, candidate_id = self.screen(manifest, candidate=True)
             write_json(screen_path, screen)
             ledger = root / "review.jsonl"
-            append(
-                ledger,
-                manifest,
-                self.review_record(registry, manifest, candidate_id, confirmed=True),
-                registry,
-                {candidate_id},
-                domain_context=domain_context,
-                screen_results=screen,
-            )
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
             self.assertEqual(
                 synthesize_main([
                     "--manifest", str(manifest_path), "--audit-state", str(state_path), "--context", str(context_path),

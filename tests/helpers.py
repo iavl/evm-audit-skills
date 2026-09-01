@@ -75,6 +75,7 @@ def synthetic_feature_map(
             },
             "slither_version": "synthetic",
             "solc_version": "0.8.24",
+            "navigation_artifacts": {"code_index": None},
         },
         "features": features,
     }

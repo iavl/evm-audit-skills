@@ -9,8 +9,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from helpers import EMPTY_TARGET, ROOT
+import scripts.audit_run as audit_controller
 from scripts.review_ledger import append
 
 
@@ -26,6 +28,126 @@ class AuditRunTests(unittest.TestCase):
     @staticmethod
     def read(path: Path) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def prepare_clean_run(self, run_dir: Path) -> None:
+        result = self.run_cli(
+            "scripts/audit_run.py", "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
+            "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context_path = run_dir / "reviews/domain-context.json"
+        context = self.read(context_path)
+        for requirements in context["domains"].values():
+            for item in requirements.values():
+                item.update(
+                    status="KNOWN",
+                    value="fixture",
+                    evidence=[{"kind": "scope", "location": "fixture", "reason": "known context"}],
+                )
+        context_path.write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
+        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        screen_path = run_dir / "reviews/screen-results.json"
+        screen = self.read(screen_path)
+        for item in screen["results"]:
+            item.update(
+                result="NOT_APPLICABLE_CONFIRMED",
+                scope_complete=True,
+                evidence=[
+                    {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                    {"kind": "inheritance", "location": "fixture", "reason": "trigger absent"},
+                ],
+            )
+        screen_path.write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
+        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_report_bundle_write_failures_never_commit_mixed_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            values = audit_controller.paths(run_dir)
+            manifest = self.read(values["manifest"])
+            state = self.read(values["audit_state"])
+            self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+            original_report = values["report"].read_text(encoding="utf-8")
+            original_issues = values["issue_candidates"].read_text(encoding="utf-8")
+            original_bundle = values["report_bundle"].read_text(encoding="utf-8")
+
+            original_synthesize = audit_controller.synthesize
+            original_atomic_text = audit_controller.atomic_write_text
+            original_atomic_json = audit_controller.atomic_write_json
+
+            def changed_report(*args, **kwargs):
+                report, issues = original_synthesize(*args, **kwargs)
+                return report + "changed\n", issues
+
+            def fail_report(path: Path, content: str) -> None:
+                if path.name == "AUDIT-REPORT.md":
+                    raise OSError("report write failure")
+                original_atomic_text(path, content)
+
+            with patch.object(audit_controller, "synthesize", side_effect=changed_report), patch.object(audit_controller, "atomic_write_text", side_effect=fail_report):
+                with self.assertRaisesRegex(OSError, "report write failure"):
+                    audit_controller.report_run(ROOT, run_dir)
+            self.assertEqual(values["report"].read_text(encoding="utf-8"), original_report)
+            self.assertEqual(values["issue_candidates"].read_text(encoding="utf-8"), original_issues)
+            self.assertEqual(values["report_bundle"].read_text(encoding="utf-8"), original_bundle)
+
+            def fail_issue(path: Path, value: dict) -> None:
+                if path.name == "issue-candidates.json":
+                    raise OSError("issue-candidates write failure")
+                original_atomic_json(path, value)
+
+            with patch.object(audit_controller, "synthesize", side_effect=changed_report), patch.object(audit_controller, "atomic_write_json", side_effect=fail_issue):
+                with self.assertRaisesRegex(OSError, "issue-candidates write failure"):
+                    audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+
+            audit_controller.report_run(ROOT, run_dir)
+
+            def fail_bundle(path: Path, value: dict) -> None:
+                if path.name == "report-bundle.json":
+                    raise OSError("metadata write failure")
+                original_atomic_json(path, value)
+
+            with patch.object(audit_controller, "synthesize", side_effect=changed_report), patch.object(audit_controller, "atomic_write_json", side_effect=fail_bundle):
+                with self.assertRaisesRegex(OSError, "metadata write failure"):
+                    audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+
+    def test_init_failures_leave_no_partial_run_and_allow_safe_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            for failure_args in (
+                ["--solc", str(parent / "missing-solc")],
+                ["--domain", "evm-audit-does-not-exist"],
+            ):
+                run_dir = parent / ("run-" + str(len(list(parent.iterdir()))))
+                result = self.run_cli(
+                    "scripts/audit_run.py", "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
+                    "--audit-root", str(EMPTY_TARGET), *failure_args,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(run_dir.exists())
+                result = self.run_cli(
+                    "scripts/audit_run.py", "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
+                    "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general",
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+            existing = parent / "existing"
+            existing.mkdir()
+            keep = existing / "keep.txt"
+            keep.write_text("user content", encoding="utf-8")
+            result = self.run_cli(
+                "scripts/audit_run.py", "init", str(EMPTY_TARGET), "--run-dir", str(existing),
+                "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general",
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(keep.read_text(encoding="utf-8"), "user content")
 
     def test_controller_advances_templates_and_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -169,15 +291,27 @@ class AuditRunTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             code_index = run_dir / "recon/code-index.json"
             original = code_index.read_text(encoding="utf-8")
+            result = self.run_cli("scripts/audit_run.py", "status", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            current = json.loads(result.stdout)
+            self.assertEqual(current["navigation"]["status"], "CURRENT")
+            authoritative_status = current["status"]
             for invalid in ({"broken": True}, {**json.loads(original), "source_digest": "0" * 64}):
                 code_index.write_text(json.dumps(invalid) + "\n", encoding="utf-8")
                 result = self.run_cli("scripts/audit_run.py", "status", "--run-dir", str(run_dir))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 payload = json.loads(result.stdout)
-                self.assertEqual(payload["navigation"]["status"], "UNAVAILABLE")
+                self.assertEqual(payload["navigation"]["status"], "TAMPERED")
                 self.assertFalse(payload["navigation"]["available"])
+                self.assertEqual(payload["status"], authoritative_status)
                 self.assertNotEqual(payload["status"], "INVALID_SNAPSHOT")
             code_index.write_text(original, encoding="utf-8")
+            result = self.run_cli("scripts/audit_run.py", "status", "--run-dir", str(run_dir))
+            self.assertEqual(json.loads(result.stdout)["navigation"]["status"], "CURRENT")
+            code_index.unlink()
+            result = self.run_cli("scripts/audit_run.py", "status", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["navigation"]["status"], "ABSENT")
 
     def test_report_rederives_state_after_current_ledger_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

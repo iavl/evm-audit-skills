@@ -195,22 +195,32 @@ class LifecycleTests(unittest.TestCase):
         if status == "REVIEWED_SAFE":
             record["preserved_invariant"] = "fixture invariant holds"
         record_path = paths["manifest"].parent / "record.json"
-        self.write(record_path, record)
         ledger = paths["manifest"].parent / "review-evm-audit-general.jsonl"
-        result = self.run_cli(
-            "scripts/review_ledger.py",
-            "--manifest",
-            str(paths["manifest"]),
-            "--screen-results",
-            str(paths["screen_results"]),
-            "--domain-context",
-            str(paths["domain_context"]),
-            "--ledger",
-            str(ledger),
-            "--append-record",
-            str(record_path),
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        records = [record]
+        if status == "CONFIRMED":
+            record.update(
+                review_stage="DEEP_REVIEW",
+                status="SUSPICIOUS",
+                unresolved_reason="proof is pending",
+            )
+            proof = {**record, "revision": 2, "review_stage": "PROOF", "status": "CONFIRMED"}
+            records.append(proof)
+        for value in records:
+            self.write(record_path, value)
+            result = self.run_cli(
+                "scripts/review_ledger.py",
+                "--manifest",
+                str(paths["manifest"]),
+                "--screen-results",
+                str(paths["screen_results"]),
+                "--domain-context",
+                str(paths["domain_context"]),
+                "--ledger",
+                str(ledger),
+                "--append-record",
+                str(record_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
         result = self.run_cli(
             "scripts/render_runtime.py",
             "--manifest",

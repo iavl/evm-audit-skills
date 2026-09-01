@@ -146,11 +146,12 @@ def _assert_fixture(fixture: dict[str, object], normalized: dict[str, dict[str, 
     required = set(fixture.get("must_select_domains", []))
     if not required <= selected_domains:
         raise ValueError(f"{name}: selected Domains missing: {sorted(required - selected_domains)}")
-    forbidden = set(fixture.get("must_not_filter_domains", [])) | set(fixture.get("must_not_select_domains", []))
-    if forbidden & filtered_domains:
-        raise ValueError(f"{name}: forbidden Domains were filtered: {sorted(forbidden & filtered_domains)}")
-    if forbidden & selected_domains:
-        raise ValueError(f"{name}: forbidden Domains were selected: {sorted(forbidden & selected_domains)}")
+    must_not_filter_domains = set(fixture.get("must_not_filter_domains", []))
+    if must_not_filter_domains & filtered_domains:
+        raise ValueError(f"{name}: must-not-filter Domains were filtered: {sorted(must_not_filter_domains & filtered_domains)}")
+    must_not_select_domains = set(fixture.get("must_not_select_domains", []))
+    if must_not_select_domains & selected_domains:
+        raise ValueError(f"{name}: must-not-select Domains were selected: {sorted(must_not_select_domains & selected_domains)}")
 
 
 def _routing_recall(fixture: dict[str, object], selected_ids: set[str]) -> tuple[float, int]:

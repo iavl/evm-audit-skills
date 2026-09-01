@@ -23,6 +23,7 @@
     "origin": {"enum": ["AUDIT_SCOPE", "DEPENDENCY", "UNKNOWN"]},
     "range": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["file", "start_line", "end_line"],
       "properties": {
         "file": {"type": "string", "minLength": 1},
@@ -31,17 +32,16 @@
       }
     },
     "contract": {
-      "allOf": [
-        {"$ref": "#/$defs/range"},
-        {
-          "type": "object",
-          "properties": {
-            "bases": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
-            "scope_origin": {"$ref": "#/$defs/origin"}
-          },
-          "required": ["bases", "scope_origin"]
-        }
-      ]
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "start_line", "end_line", "bases", "scope_origin"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "bases": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "scope_origin": {"$ref": "#/$defs/origin"}
+      }
     },
     "function": {
       "type": "object",

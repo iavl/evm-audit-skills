@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 from scripts.audit_artifacts import validate_schema, validate_target_snapshot
-from scripts.benchmark_routing import fixture_paths, run_profile, validate_fixture
+from scripts.benchmark_routing import _assert_fixture, fixture_paths, run_profile, validate_fixture
 from scripts.generate_checklists import load_domains
 from scripts.select_checks import (
     audit_context,
@@ -484,6 +484,45 @@ class RoutingTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "must-not-filter"):
             run_profile(ROOT, fixture)
+
+    def test_must_not_filter_domain_may_be_selected(self) -> None:
+        run_profile(ROOT, {
+            "schema_version": 1,
+            "name": "must-not-filter-domain",
+            "present_features": ["uses-erc20"],
+            "absent_features": [],
+            "must_not_filter_domains": ["evm-audit-erc20"],
+        })
+
+    def test_must_not_select_domain_may_be_filtered(self) -> None:
+        run_profile(ROOT, {
+            "schema_version": 1,
+            "name": "must-not-select-domain",
+            "present_features": [],
+            "absent_features": ["uses-erc20"],
+            "must_not_select_domains": ["evm-audit-erc20"],
+        })
+
+    def test_deferred_only_expectation_is_explicit(self) -> None:
+        fixture = {
+            "name": "deferred-domain",
+            "must_not_filter_domains": ["evm-audit-erc20"],
+            "must_not_select_domains": ["evm-audit-erc20"],
+        }
+        manifest = {
+            "selected_domains": [],
+            "deferred_domains": [{"domain": "evm-audit-erc20"}],
+            "filtered_domains": [],
+            "selected": [],
+            "filtered": [],
+        }
+        _assert_fixture(fixture, {}, manifest)
+        with self.assertRaisesRegex(ValueError, "expected_deferred_domains"):
+            _assert_fixture(
+                {**fixture, "expected_deferred_domains": ["evm-audit-erc20"]},
+                {},
+                {**manifest, "selected_domains": [{"domain": "evm-audit-erc20"}], "deferred_domains": []},
+            )
 
     def test_benchmark_runner_rejects_runtime_budget_violation(self) -> None:
         with self.assertRaisesRegex(ValueError, "exceeds hard budget"):

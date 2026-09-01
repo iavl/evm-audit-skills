@@ -16,6 +16,7 @@ _SUITE_ROOT = str(Path(__file__).resolve().parents[1])
 if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
 from evm_audit_runtime.routing import effective_owner_domain, resolved_routes
+from evm_audit_runtime.versions import REPORT_BUNDLE_VERSION
 
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -43,6 +44,46 @@ def load_json(path: Path) -> dict[str, Any]:
 def canonical_sha256(value: Any) -> str:
     encoded = json.dumps(canonicalize_json(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def json_text(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+
+
+def report_bundle_metadata(
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+    report: str | bytes,
+    issue_candidates: dict[str, Any],
+    *,
+    issue_candidates_bytes: bytes | None = None,
+) -> dict[str, Any]:
+    audit = manifest["audit_context"]
+    if any(
+        issue_candidates.get(key) != state.get(key)
+        for key in ("review_snapshot_id", "review_state_digest")
+    ):
+        raise ValueError("report bundle inputs do not match current audit state")
+    return {
+        "artifact_type": "report-bundle",
+        "schema_version": REPORT_BUNDLE_VERSION,
+        "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "review_snapshot_id": state.get("review_snapshot_id"),
+        "review_state_digest": state.get("review_state_digest"),
+        "registry_sha256": audit["registry_sha256"],
+        "source_digest": audit["source_digest"],
+        "compilation_input_digest": audit["compilation_input_digest"],
+        "report_sha256": sha256_bytes(report if isinstance(report, bytes) else report.encode("utf-8")),
+        "issue_candidates_sha256": sha256_bytes(
+            issue_candidates_bytes
+            if issue_candidates_bytes is not None
+            else json_text(issue_candidates).encode("utf-8")
+        ),
+    }
 
 
 def canonicalize_json(value: Any) -> Any:
@@ -179,7 +220,7 @@ def atomic_write_text(path: Path, content: str) -> None:
     temporary: str | None = None
     try:
         descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as output:
             output.write(content)
             output.flush()
             os.fsync(output.fileno())
@@ -202,7 +243,7 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 
 def atomic_write_json(path: Path, value: Any) -> None:
-    atomic_write_text(path, json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+    atomic_write_text(path, json_text(value))
 
 
 def invalidate_final_outputs(*paths: Path) -> None:

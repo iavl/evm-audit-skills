@@ -179,13 +179,25 @@ def _compilation_digest(
 
 
 def _submodule_commits(root: Path, dependency_roots: Iterable[str]) -> str:
+    probe = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probe.returncode != 0 or probe.stdout.strip().lower() != "true":
+        return "NO_GIT_WORKTREE"
     result = subprocess.run(
         ["git", "-C", str(root), "ls-files", "-s", "--", *sorted(dependency_roots)],
         capture_output=True,
         text=True,
         check=False,
     )
-    return "\n".join(line.strip() for line in result.stdout.splitlines() if line.startswith("160000 "))
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip() or f"exit={result.returncode}"
+        raise ValueError(f"cannot inspect Git submodule entries under build root {root}: {detail}")
+    gitlinks = sorted(line.strip() for line in result.stdout.splitlines() if line.startswith("160000 "))
+    return "\n".join(gitlinks) if gitlinks else "NO_GITLINKS"
 
 
 def resolve_build_root(target: Path, build_root: Path | None = None) -> Path:

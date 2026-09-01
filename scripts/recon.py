@@ -26,9 +26,9 @@ except ImportError:  # pragma: no cover - supports importing from another cwd
     from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 
 try:
-    from audit_artifacts import atomic_write_text, validate_schema
+    from audit_artifacts import atomic_write_text, sha256_bytes, validate_schema
 except ImportError:  # pragma: no cover - supports importing from another cwd
-    from scripts.audit_artifacts import atomic_write_text, validate_schema
+    from scripts.audit_artifacts import atomic_write_text, sha256_bytes, validate_schema
 
 try:
     from code_context import build_code_index
@@ -419,6 +419,7 @@ def build_feature_map(
         "solc_version": solc_version,
         "compiler_versions": compiler_versions,
     }
+    navigation_binding: dict[str, Any] | None = None
     if closure_files is not None:
         recon_context["compilation_files"] = closure_files
     if code_index_out is not None:
@@ -431,7 +432,13 @@ def build_feature_map(
             recon_context["compilation_input_digest"],
         )
         validate_schema(root, "code-index.schema.json", code_index)
-        atomic_write_text(code_index_out, json.dumps(code_index, ensure_ascii=False, indent=2) + "\n")
+        serialized = json.dumps(code_index, ensure_ascii=False, indent=2) + "\n"
+        atomic_write_text(code_index_out, serialized)
+        navigation_binding = {
+            "schema_version": code_index["schema_version"],
+            "sha256": sha256_bytes(serialized.encode("utf-8")),
+        }
+    recon_context["navigation_artifacts"] = {"code_index": navigation_binding}
     return {
         "schema_version": FEATURE_MAP_VERSION,
         "recon_context": recon_context,

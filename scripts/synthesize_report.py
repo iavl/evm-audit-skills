@@ -22,6 +22,7 @@ try:
         atomic_write_text,
         load_json,
         has_unresolved_marker,
+        report_bundle_metadata,
         review_state_digest,
         validate_artifact_identity,
         validate_domain_resolution,
@@ -37,6 +38,7 @@ except ImportError:  # pragma: no cover
         atomic_write_text,
         load_json,
         has_unresolved_marker,
+        report_bundle_metadata,
         review_state_digest,
         validate_artifact_identity,
         validate_domain_resolution,
@@ -368,6 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--finding-details", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--issue-candidates-out", type=Path)
+    parser.add_argument("--bundle-metadata-out", type=Path)
     parser.add_argument("--allow-incomplete", action="store_true", help="write an explicitly incomplete artifact")
     parser.add_argument("--quiet", action="store_true", help="suppress progress output")
     args = parser.parse_args(argv)
@@ -396,12 +399,21 @@ def main(argv: list[str] | None = None) -> int:
             domain_context=domain_context,
             context=context,
         )
+        bundle_path = args.bundle_metadata_out or (args.output.with_name("report-bundle.json") if args.output and args.issue_candidates_out else None)
+        bundle = None
+        if bundle_path is not None:
+            if not args.output or not args.issue_candidates_out:
+                raise ValueError("report bundle requires --output and --issue-candidates-out")
+            bundle = report_bundle_metadata(manifest, state, report, issues)
+            validate_schema(ROOT, "report-bundle.schema.json", bundle)
         if args.output:
             atomic_write_text(args.output, report)
         else:
             print(report, end="")
         if args.issue_candidates_out:
             atomic_write_json(args.issue_candidates_out, issues)
+        if bundle is not None:
+            atomic_write_json(bundle_path, bundle)
         success("Confirmed-only report synthesized")
         return 0
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:

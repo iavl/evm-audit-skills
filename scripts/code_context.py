@@ -25,6 +25,15 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
+UNRESOLVED_TARGET_PREFIXES = (
+    "internal-unresolved:",
+    "high-level-getter:",
+    "high-level-unresolved:",
+    "library-unresolved:",
+    "low-level:",
+    "solidity:",
+    "unresolved:",
+)
 
 
 def _slither_api() -> dict[str, Any]:
@@ -209,7 +218,7 @@ def _resolved_function_id(
     known = function_ids.get(id(function))
     if known:
         return known
-    contract = getattr(function, "contract", None) or getattr(function, "contract_declarer", None)
+    contract = getattr(function, "contract_declarer", None) or getattr(function, "contract", None)
     if contract is None:
         return None
     return _function_id(function, contract, scope_root, build_root, audit_files)
@@ -507,11 +516,77 @@ def validate_code_index(
         raise ValueError("code index source_digest does not match Recon")
     if compilation_input_digest is not None and value["compilation_input_digest"] != compilation_input_digest:
         raise ValueError("code index compilation_input_digest does not match Recon")
-    for key, function in value["functions"].items():
-        if function["function_id"] != key:
-            raise ValueError(f"code index function_id does not match key: {key}")
-        if function["contract_id"] not in value["contracts"]:
-            raise ValueError(f"code index function references missing contract: {key}")
+    functions = value["functions"]
+    contracts = value["contracts"]
+    source_ranges = value["source_ranges"]
+    modifiers = value["modifiers"]
+    inheritance = value["inheritance"]
+    if set(functions) != set(source_ranges):
+        raise ValueError("code index functions and source_ranges must have the same keys")
+    if set(functions) != set(modifiers):
+        raise ValueError("code index functions and modifiers must have the same keys")
+    if set(contracts) != set(inheritance):
+        raise ValueError("code index contracts and inheritance must have the same keys")
+
+    for contract_id, contract in contracts.items():
+        if contract["start_line"] > contract["end_line"]:
+            raise ValueError(f"code index contract range is inverted: {contract_id}")
+        if contract["bases"] != inheritance[contract_id]:
+            raise ValueError(f"code index inheritance does not match contract bases: {contract_id}")
+        for base_id in inheritance[contract_id]:
+            if base_id not in contracts:
+                raise ValueError(f"code index inheritance references missing contract: {base_id}")
+
+    for function_id, function in functions.items():
+        if function["function_id"] != function_id:
+            raise ValueError(f"code index function_id does not match key: {function_id}")
+        contract_id = function["contract_id"]
+        if contract_id not in contracts:
+            raise ValueError(f"code index function references missing contract: {function_id}")
+        if function["start_line"] > function["end_line"]:
+            raise ValueError(f"code index function range is inverted: {function_id}")
+        expected_range = {
+            "file": function["file"],
+            "start_line": function["start_line"],
+            "end_line": function["end_line"],
+        }
+        if source_ranges[function_id] != expected_range:
+            raise ValueError(f"code index source range does not match function: {function_id}")
+        if function["modifiers"] != modifiers[function_id]:
+            raise ValueError(f"code index modifiers do not match function: {function_id}")
+        for target in function["internal_calls"]:
+            if target not in functions:
+                raise ValueError(f"code index internal call references missing function: {target}")
+        for target in function["external_calls"]:
+            if target not in functions and not _is_unresolved_target(target):
+                raise ValueError(f"code index external call references unknown concrete function: {target}")
+
+    events_by_caller: dict[str, list[dict[str, Any]]] = {function_id: [] for function_id in functions}
+    for event in value["external_calls"]:
+        caller = event["caller"]
+        if caller not in functions:
+            raise ValueError(f"code index call event references missing caller: {caller}")
+        target = event["target"]
+        if target not in functions and not _is_unresolved_target(target):
+            raise ValueError(f"code index call event references unknown concrete function: {target}")
+        events_by_caller[caller].append(event)
+
+    for function_id, function in functions.items():
+        events = events_by_caller[function_id]
+        internal_targets = {event["target"] for event in events if event["kind"] == "internal" and event["target"] in functions}
+        external_targets = {event["target"] for event in events if event["kind"] != "internal"}
+        if set(function["internal_calls"]) != internal_targets:
+            raise ValueError(f"code index internal call list is inconsistent with call events: {function_id}")
+        if set(function["external_calls"]) != external_targets:
+            raise ValueError(f"code index external call list is inconsistent with call events: {function_id}")
+
+    for write in value["storage_writes"]:
+        if write["function"] not in functions:
+            raise ValueError(f"code index storage write references missing function: {write['function']}")
+
+
+def _is_unresolved_target(target: str) -> bool:
+    return target.startswith(UNRESOLVED_TARGET_PREFIXES)
 
 
 def main(argv: list[str] | None = None) -> int:

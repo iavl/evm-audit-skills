@@ -1,17 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:code-context-query:v1",
+  "$id": "urn:evm-audit-skills:code-context-query:v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "source_digest", "compilation_input_digest", "functions", "source_ranges", "caller_edges", "callee_edges", "unresolved_edges", "depth", "max_nodes", "truncated"],
+  "required": ["schema_version", "source_digest", "compilation_input_digest", "functions", "source_ranges", "caller_edges", "callee_edges", "boundary_edges", "unresolved_edges", "depth", "max_nodes", "truncated"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "source_digest": {"$ref": "#/$defs/hash"},
     "compilation_input_digest": {"$ref": "#/$defs/hash"},
     "functions": {"type": "object", "additionalProperties": {"$ref": "#/$defs/function"}},
     "source_ranges": {"type": "object", "additionalProperties": {"$ref": "#/$defs/range"}},
     "caller_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
     "callee_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "boundary_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
     "unresolved_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
     "depth": {"type": "integer", "minimum": 0},
     "max_nodes": {"type": "integer", "minimum": 1},
@@ -21,6 +22,7 @@
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "range": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["file", "start_line", "end_line"],
       "properties": {
         "file": {"type": "string", "minLength": 1},

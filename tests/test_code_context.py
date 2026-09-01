@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ from pathlib import Path
 from slither import Slither
 
 from helpers import ROOT
-from scripts.audit_artifacts import validate_schema
+from scripts.audit_artifacts import sha256_bytes, validate_schema
 from scripts.code_context import _concrete_function, _slither_api, build_code_index, lookup, validate_code_index
 from scripts.scope_context import scope_inventory
 
@@ -20,6 +21,17 @@ FIXTURE = ROOT / "tests/fixtures/code_context"
 
 
 class CodeContextIntegrationTests(unittest.TestCase):
+    def test_code_index_query_shapes_stay_strict_and_aligned(self) -> None:
+        index_schema = json.loads((ROOT / "schemas/code-index.schema.json").read_text(encoding="utf-8"))
+        query_schema = json.loads((ROOT / "schemas/code-context-query.schema.json").read_text(encoding="utf-8"))
+        for index_name, query_name in (("range", "range"), ("function", "function"), ("call", "edge")):
+            with self.subTest(shape=query_name):
+                index_shape = index_schema["$defs"][index_name]
+                query_shape = query_schema["$defs"][query_name]
+                self.assertEqual(index_shape.get("additionalProperties"), query_shape.get("additionalProperties"))
+                self.assertEqual(set(index_shape.get("required", [])), set(query_shape.get("required", [])))
+                self.assertEqual(set(index_shape.get("properties", [])), set(query_shape.get("properties", [])))
+
     def test_unsupported_slither_shape_names_pinned_version(self) -> None:
         api = _slither_api()
         with self.assertRaisesRegex(ValueError, rf"unsupported Slither callee shape.*{api['version']}"):
@@ -40,6 +52,18 @@ class CodeContextIntegrationTests(unittest.TestCase):
             "b" * 64,
         )
         validate_code_index(ROOT, index)
+        serialized = (json.dumps(index, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        repeat = build_code_index(
+            slither,
+            FIXTURE,
+            FIXTURE,
+            set(files),
+            "a" * 64,
+            "b" * 64,
+        )
+        repeat_serialized = (json.dumps(repeat, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        self.assertEqual(serialized, repeat_serialized)
+        self.assertEqual(sha256_bytes(serialized), sha256_bytes(repeat_serialized))
 
         entry = next(key for key in index["functions"] if key.endswith("::Main.entry(uint256)"))
         helper = next(key for key in index["functions"] if key.endswith("::Main._helper(uint256)"))

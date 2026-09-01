@@ -105,8 +105,20 @@ def lookup(
         "compilation_input_digest": index["compilation_input_digest"],
         "functions": {key: functions[key] for key in sorted(selected)},
         "source_ranges": {key: index.get("source_ranges", {}).get(key) for key in sorted(selected)},
-        "caller_edges": [edge for edge in edges if edge.get("target") in selected and edge.get("caller") in functions],
-        "callee_edges": [edge for edge in edges if edge.get("caller") in selected and edge.get("target") in functions],
+        "caller_edges": [
+            edge for edge in edges
+            if include_callers and edge.get("target") in selected and edge.get("caller") in selected
+        ],
+        "callee_edges": [
+            edge for edge in edges
+            if include_callees and edge.get("caller") in selected and edge.get("target") in selected
+        ],
+        "boundary_edges": [
+            edge for edge in edges
+            if (edge.get("caller") in selected) != (edge.get("target") in selected)
+            and edge.get("caller") in functions
+            and edge.get("target") in functions
+        ],
         "unresolved_edges": [
             edge for edge in edges
             if edge.get("caller") in selected and edge.get("target") not in functions

@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +49,8 @@ try:
         atomic_write_text,
         derive_review_snapshot_id,
         load_json,
+        report_bundle_metadata,
+        sha256_bytes,
         validate_domain_context,
         validate_domain_resolution,
         validate_schema,
@@ -63,6 +67,8 @@ except ImportError:  # pragma: no cover
         atomic_write_text,
         derive_review_snapshot_id,
         load_json,
+        report_bundle_metadata,
+        sha256_bytes,
         validate_domain_context,
         validate_domain_resolution,
         validate_schema,
@@ -102,6 +108,7 @@ def paths(run_dir: Path) -> dict[str, Any]:
         "audit_state": run_dir / "audit-state.json",
         "report": run_dir / "AUDIT-REPORT.md",
         "issue_candidates": run_dir / "issue-candidates.json",
+        "report_bundle": run_dir / "report-bundle.json",
         "model_profile": run_dir / "config/codex-model-profile.json",
     }
 
@@ -545,105 +552,135 @@ def _init_model_profile(args: argparse.Namespace, run_dir: Path) -> None:
     write_profile(paths(run_dir)["model_profile"], profile)
 
 
+def _relocate_paths(value: Any, source: Path, target: Path) -> Any:
+    if isinstance(value, str):
+        prefix = str(source)
+        return str(target) + value[len(prefix):] if value.startswith(prefix) else value
+    if isinstance(value, list):
+        return [_relocate_paths(item, source, target) for item in value]
+    if isinstance(value, dict):
+        return {key: _relocate_paths(item, source, target) for key, item in value.items()}
+    return value
+
+
 def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     run_dir = args.run_dir.resolve()
-    if run_dir.exists() and any(run_dir.iterdir()):
-        raise ValueError(f"refusing to initialize non-empty run directory: {run_dir}")
-    _init_model_profile(args, run_dir)
-    values = paths(run_dir)
-    values["feature_map"].parent.mkdir(parents=True, exist_ok=True)
-    values["manifest"].parent.mkdir(parents=True, exist_ok=True)
-    target = args.target.resolve()
-    audit_root = (args.audit_root or target).resolve()
-    recon_args = [str(target), "--root", str(root), "--output", str(values["feature_map"])]
-    if args.solc:
-        recon_args.extend(["--solc", args.solc])
-    recon_args.extend(["--code-index-out", str(values["code_index"])])
-    if args.audit_root:
-        recon_args.extend(["--audit-root", str(audit_root)])
-    if args.build_root:
-        recon_args.extend(["--build-root", str(args.build_root.resolve())])
-    for exclusion in args.exclude:
-        recon_args.extend(["--exclude", exclusion])
-    for include in args.include:
-        recon_args.extend(["--include", include])
-    for dependency_root in args.dependency_root or []:
-        recon_args.extend(["--dependency-root", dependency_root])
-    if args.present_only:
-        recon_args.append("--present-only")
-    _emit_stage("RECON", "Building scope-bound Feature Map")
+    if run_dir.exists():
+        if not run_dir.is_dir() or any(run_dir.iterdir()):
+            raise ValueError(f"refusing to initialize non-empty run directory: {run_dir}")
+    run_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{run_dir.name}.init-", dir=run_dir.parent))
     try:
-        _run(root, "recon.py", recon_args, verbose=args.verbose)
-        feature_map = load_json(values["feature_map"])
-    except (OSError, ValueError, KeyError, json.JSONDecodeError):
-        warning("Recon failed")
-        raise
-    _log_recon(feature_map, audit_root, args.require_complete_compilation, run_dir=run_dir)
+        assert staging is not None
+        _init_model_profile(args, staging)
+        values = paths(staging)
+        values["feature_map"].parent.mkdir(parents=True, exist_ok=True)
+        values["manifest"].parent.mkdir(parents=True, exist_ok=True)
+        target = args.target.resolve()
+        audit_root = (args.audit_root or target).resolve()
+        recon_args = [str(target), "--root", str(root), "--output", str(values["feature_map"])]
+        if args.solc:
+            recon_args.extend(["--solc", args.solc])
+        recon_args.extend(["--code-index-out", str(values["code_index"])])
+        if args.audit_root:
+            recon_args.extend(["--audit-root", str(audit_root)])
+        if args.build_root:
+            recon_args.extend(["--build-root", str(args.build_root.resolve())])
+        for exclusion in args.exclude:
+            recon_args.extend(["--exclude", exclusion])
+        for include in args.include:
+            recon_args.extend(["--include", include])
+        for dependency_root in args.dependency_root or []:
+            recon_args.extend(["--dependency-root", dependency_root])
+        if args.present_only:
+            recon_args.append("--present-only")
+        _emit_stage("RECON", "Building scope-bound Feature Map")
+        try:
+            _run(root, "recon.py", recon_args, verbose=args.verbose)
+            feature_map = load_json(values["feature_map"])
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            warning("Recon failed")
+            raise
+        _log_recon(feature_map, audit_root, args.require_complete_compilation, run_dir=staging)
 
-    selector_args = [
-        "--root", str(root),
-        "--feature-map", str(values["feature_map"]),
-        "--target-root", str(audit_root),
-        "--manifest-out", str(values["manifest"]),
-        "--context-out", str(values["context"]),
-        "--environment-out", str(values["environment"]),
-    ]
-    for exclusion in args.exclude:
-        selector_args.extend(["--exclude", exclusion])
-    if args.build_root:
-        selector_args.extend(["--build-root", str(args.build_root.resolve())])
-    for include in args.include:
-        selector_args.extend(["--include", include])
-    for dependency_root in args.dependency_root or []:
-        selector_args.extend(["--dependency-root", dependency_root])
-    for option in ("domain", "domains", "target_commit", "chain_id", "chain_family", "execution_environment", "fork_block", "compiler_version", "evm_fork", "protocol_version", "audit_timestamp"):
-        value = getattr(args, option, None)
-        if value is not None:
-            selector_args.extend([f"--{option.replace('_', '-')}", str(value)])
-    if args.require_complete_compilation:
-        selector_args.append("--require-complete-compilation")
-    if args.environment_context:
-        selector_args.extend(["--environment-context", str(args.environment_context.resolve())])
-    _emit_stage("ROUTING", "Building immutable routing snapshot")
-    try:
-        _run(root, "select_checks.py", selector_args, verbose=args.verbose)
-        manifest = load_json(values["manifest"])
-    except (OSError, ValueError, KeyError, json.JSONDecodeError):
-        warning("Routing failed")
-        raise
-    _log_routing(manifest, run_dir=run_dir)
-    next_result = next_step(root, run_dir, verbose=args.verbose, emit=False)
-    info(f"Next required stage: {_display_stage(next_result['stage'])}")
-    _log_model_guidance(run_dir, next_result["stage"])
-    progress_history = [
-        _progress_history_entry(
-            run_dir,
-            "RECON",
-            "COMPLETED",
-            summary=_recon_progress_summary(feature_map),
-        ),
-        _progress_history_entry(
-            run_dir,
-            "ROUTING",
-            "COMPLETED",
-            summary=_routing_progress_summary(manifest),
-        ),
-        {
-            "stage": next_result["stage"],
-            "state": "CURRENT",
-            "progress": next_result["progress"],
+        selector_args = [
+            "--root", str(root),
+            "--feature-map", str(values["feature_map"]),
+            "--target-root", str(audit_root),
+            "--manifest-out", str(values["manifest"]),
+            "--context-out", str(values["context"]),
+            "--environment-out", str(values["environment"]),
+        ]
+        for exclusion in args.exclude:
+            selector_args.extend(["--exclude", exclusion])
+        if args.build_root:
+            selector_args.extend(["--build-root", str(args.build_root.resolve())])
+        for include in args.include:
+            selector_args.extend(["--include", include])
+        for dependency_root in args.dependency_root or []:
+            selector_args.extend(["--dependency-root", dependency_root])
+        for option in ("domain", "domains", "target_commit", "chain_id", "chain_family", "execution_environment", "fork_block", "compiler_version", "evm_fork", "protocol_version", "audit_timestamp"):
+            value = getattr(args, option, None)
+            if value is not None:
+                selector_args.extend([f"--{option.replace('_', '-')}", str(value)])
+        if args.require_complete_compilation:
+            selector_args.append("--require-complete-compilation")
+        if args.environment_context:
+            selector_args.extend(["--environment-context", str(args.environment_context.resolve())])
+        _emit_stage("ROUTING", "Building immutable routing snapshot")
+        try:
+            _run(root, "select_checks.py", selector_args, verbose=args.verbose)
+            manifest = load_json(values["manifest"])
+        except (OSError, ValueError, KeyError, json.JSONDecodeError):
+            warning("Routing failed")
+            raise
+        _log_routing(manifest, run_dir=staging)
+        next_result = next_step(root, staging, verbose=args.verbose, emit=False)
+        _load_run(root, staging)
+
+        staged_run = staging
+        if run_dir.exists():
+            if not run_dir.is_dir() or any(run_dir.iterdir()):
+                raise ValueError(f"run directory changed during initialization: {run_dir}")
+            run_dir.rmdir()
+        staged_run.replace(run_dir)
+        staging = None
+        next_result = _relocate_paths(next_result, staged_run, run_dir)
+        info(f"Next required stage: {_display_stage(next_result['stage'])}")
+        _log_model_guidance(run_dir, next_result["stage"])
+        values = paths(run_dir)
+        progress_history = [
+            _progress_history_entry(
+                run_dir,
+                "RECON",
+                "COMPLETED",
+                summary=_recon_progress_summary(feature_map),
+            ),
+            _progress_history_entry(
+                run_dir,
+                "ROUTING",
+                "COMPLETED",
+                summary=_routing_progress_summary(manifest),
+            ),
+            {
+                "stage": next_result["stage"],
+                "state": "CURRENT",
+                "progress": next_result["progress"],
+                "recommended_execution": next_result["recommended_execution"],
+            },
+        ]
+        return {
+            "stage": "INITIALIZED",
+            "run_dir": str(run_dir),
+            "manifest": str(values["manifest"]),
+            "code_index": str(values["code_index"]),
+            "progress_history": progress_history,
+            "next": next_result,
             "recommended_execution": next_result["recommended_execution"],
-        },
-    ]
-    return {
-        "stage": "INITIALIZED",
-        "run_dir": str(run_dir),
-        "manifest": str(values["manifest"]),
-        "code_index": str(values["code_index"]),
-        "progress_history": progress_history,
-        "next": next_result,
-        "recommended_execution": next_result["recommended_execution"],
-    }
+        }
+    finally:
+        if staging is not None and staging.exists():
+            shutil.rmtree(staging)
 
 
 def _optional_code_index_status(
@@ -655,8 +692,20 @@ def _optional_code_index_status(
     if not path.exists():
         return {"available": False, "status": "ABSENT", "message": "code-index navigation was not generated"}
     try:
+        binding = manifest.get("feature_map", {}).get("recon_context", {}).get("navigation_artifacts", {}).get("code_index")
+        if not isinstance(binding, dict):
+            raise ValueError("code-index has no authoritative Recon digest")
+        actual_digest = sha256_bytes(path.read_bytes())
+        if actual_digest != binding.get("sha256"):
+            return {
+                "available": False,
+                "status": "TAMPERED",
+                "message": "code-index navigation unavailable: body digest does not match authoritative Recon",
+            }
         index = load_json(path)
         audit = manifest["audit_context"]
+        if index.get("schema_version") != binding.get("schema_version"):
+            raise ValueError("code-index schema_version does not match authoritative Recon")
         validate_code_index(
             root,
             index,
@@ -672,6 +721,32 @@ def _optional_code_index_status(
     return {"available": True, "status": "CURRENT", "message": "code-index navigation is current"}
 
 
+def _report_bundle_status(
+    root: Path,
+    values: dict[str, Any],
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    marker = values["report_bundle"]
+    if not marker.exists():
+        return {"status": "ABSENT", "current": False, "message": "report bundle has not been committed"}
+    try:
+        metadata = load_json(marker)
+        validate_schema(root, "report-bundle.schema.json", metadata)
+        expected = report_bundle_metadata(
+            manifest,
+            state,
+            values["report"].read_bytes(),
+            load_json(values["issue_candidates"]),
+            issue_candidates_bytes=values["issue_candidates"].read_bytes(),
+        )
+        if metadata != expected:
+            raise ValueError("report bundle marker or body hashes do not match current audit state")
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+        return {"status": "STALE", "current": False, "message": f"report bundle is not current: {error}"}
+    return {"status": "CURRENT", "current": True, "message": "report bundle matches current audit state"}
+
+
 def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     values = paths(run_dir.resolve())
     if not values["manifest"].exists():
@@ -681,7 +756,7 @@ def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Any], dict[str, Any]
     validate_manifest(root, manifest, registry)
     validate_target_snapshot(manifest)
     values["code_index_status"] = _optional_code_index_status(root, values, manifest)
-    if values["code_index_status"]["status"] == "UNAVAILABLE":
+    if values["code_index_status"]["status"] not in {"ABSENT", "CURRENT"}:
         warning(values["code_index_status"]["message"])
     return values, manifest, registry
 
@@ -915,6 +990,7 @@ def status_run(
     atomic_write_json(values["audit_state"], state)
     if emit:
         _log_current_state(state, manifest, resolution, domain_context, run_dir=run_dir)
+    bundle_status = _report_bundle_status(root, values, manifest, state)
     if not include_execution:
         return state
     stage_name = _state_stage(state, manifest, resolution, domain_context)
@@ -931,6 +1007,7 @@ def status_run(
         ),
         "recommended_execution": recommended_execution(run_dir, stage_name),
         "navigation": values["code_index_status"],
+        "report_bundle": bundle_status,
     }
 
 
@@ -1202,8 +1279,11 @@ def report_run(
         domain_context=domain_context,
         context=context,
     )
+    bundle = report_bundle_metadata(manifest, state, report, issues)
+    validate_schema(root, "report-bundle.schema.json", bundle)
     atomic_write_text(values["report"], report)
     atomic_write_json(values["issue_candidates"], issues)
+    atomic_write_json(values["report_bundle"], bundle)
     if state["complete"]:
         success("Audit complete")
     else:
@@ -1217,6 +1297,7 @@ def report_run(
         complete=state["complete"],
         report=str(values["report"]),
         issue_candidates=str(values["issue_candidates"]),
+        report_bundle=_report_bundle_status(root, values, manifest, state),
     )
 
 
