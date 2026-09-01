@@ -39,18 +39,68 @@ def load_json(path: Path) -> dict[str, Any]:
 
 
 def canonical_sha256(value: Any) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    encoded = json.dumps(canonicalize_json(value), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _canonical_value(value: Any) -> Any:
-    """Normalize JSON values whose array ordering is not semantically relevant."""
+def canonicalize_json(value: Any) -> Any:
+    """Canonicalize object keys while preserving the order of every array."""
     if isinstance(value, dict):
-        return {key: _canonical_value(value[key]) for key in sorted(value)}
+        return {key: canonicalize_json(value[key]) for key in sorted(value)}
     if isinstance(value, list):
-        normalized = [_canonical_value(item) for item in value]
-        return sorted(normalized, key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+        return [canonicalize_json(item) for item in value]
     return value
+
+
+def _sorted_json_items(value: Any) -> Any:
+    """Sort only schema-defined set-like collections such as evidence."""
+    if not isinstance(value, list):
+        return value
+    normalized = [canonicalize_json(item) for item in value]
+    return sorted(
+        normalized,
+        key=lambda item: json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+    )
+
+
+def _canonical_domain_resolution(value: Any) -> Any:
+    normalized = canonicalize_json(value)
+    if isinstance(normalized, dict) and isinstance(normalized.get("domains"), dict):
+        for resolution in normalized["domains"].values():
+            if isinstance(resolution, dict) and "evidence" in resolution:
+                resolution["evidence"] = _sorted_json_items(resolution["evidence"])
+    return normalized
+
+
+def _canonical_domain_context(value: Any) -> Any:
+    normalized = canonicalize_json(value)
+    if isinstance(normalized, dict) and isinstance(normalized.get("domains"), dict):
+        for requirements in normalized["domains"].values():
+            if isinstance(requirements, dict):
+                for context_entry in requirements.values():
+                    if isinstance(context_entry, dict) and "evidence" in context_entry:
+                        context_entry["evidence"] = _sorted_json_items(context_entry["evidence"])
+    return normalized
+
+
+def _canonical_screen_results(value: Any) -> Any:
+    normalized = canonicalize_json(value)
+    if isinstance(normalized, dict) and isinstance(normalized.get("results"), list):
+        for result in normalized["results"]:
+            if isinstance(result, dict) and "evidence" in result:
+                result["evidence"] = _sorted_json_items(result["evidence"])
+        normalized["results"] = sorted(
+            normalized["results"],
+            key=lambda result: result.get("canonical_id", "") if isinstance(result, dict) else json.dumps(result, ensure_ascii=False, sort_keys=True),
+        )
+    return normalized
+
+
+def _canonical_review_record(value: Any) -> Any:
+    normalized = canonicalize_json(value)
+    if isinstance(normalized, dict) and "evidence" in normalized:
+        normalized["evidence"] = _sorted_json_items(normalized["evidence"])
+    return normalized
 
 
 def check_body_hash(check: dict[str, Any]) -> str:
@@ -92,9 +142,9 @@ def review_snapshot_id(
     return canonical_sha256(
         {
             "routing_snapshot_id": snapshot,
-            "domain_resolution": _canonical_value(normalized_resolution),
-            "domain_context": _canonical_value(domain_context),
-            "screen_results": _canonical_value(screen_results),
+            "domain_resolution": _canonical_domain_resolution(normalized_resolution),
+            "domain_context": _canonical_domain_context(domain_context),
+            "screen_results": _canonical_screen_results(screen_results),
         }
     )
 
@@ -107,7 +157,7 @@ def review_state_digest(records: dict[str, dict[str, Any]], candidate_ids: set[s
     return canonical_sha256(
         {
             "candidates": [
-                {"canonical_id": canonical_id, "record": _canonical_value(records[canonical_id])}
+                {"canonical_id": canonical_id, "record": _canonical_review_record(records[canonical_id])}
                 for canonical_id in sorted(candidate_ids)
             ]
         }

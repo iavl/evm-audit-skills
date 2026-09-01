@@ -261,10 +261,7 @@ def build_feature_map(
     slither = Slither(str(target.resolve()), **kwargs)
     detected = detect(slither, detector_config)
     scope_root = resolve_scope_root(target, audit_root)
-    compilation_root = resolve_build_root(
-        scope_root if build_root is None and scope_root.is_dir() else target,
-        build_root,
-    )
+    compilation_root = resolve_build_root(scope_root, build_root)
     scope_files, excluded_paths = scope_inventory(scope_root, exclusions, include_patterns, dependency_roots)
     files_analyzed = analyzed_source_paths(slither, scope_root)
     uncompiled_paths = sorted(set(scope_files) - set(files_analyzed))

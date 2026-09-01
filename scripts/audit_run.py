@@ -20,6 +20,7 @@ try:
         atomic_write_json,
         atomic_write_text,
         derive_review_snapshot_id,
+        has_placeholder,
         invalidate_final_outputs,
         load_json,
         validate_domain_context,
@@ -35,6 +36,7 @@ except ImportError:  # pragma: no cover
         atomic_write_json,
         atomic_write_text,
         derive_review_snapshot_id,
+        has_placeholder,
         invalidate_final_outputs,
         load_json,
         validate_domain_context,
@@ -50,6 +52,15 @@ except ImportError:  # pragma: no cover
 ROOT = Path(__file__).resolve().parents[1]
 TOTAL_STAGES = 7
 VERBOSE_CHILD_SCRIPTS = {"select_checks.py", "render_runtime.py"}
+REPORTING_DIMENSIONS = (
+    "impact", "exploitability", "privileges", "capital_required",
+    "repeatability", "user_interaction", "loss_bound", "protocol_exposure",
+    "recoverability",
+)
+REPORTING_IDENTITY_KEYS = (
+    "schema_version", "routing_snapshot_id", "review_state_digest",
+    "registry_sha256", "source_digest", "compilation_input_digest",
+)
 
 
 def paths(run_dir: Path) -> dict[str, Path]:
@@ -391,6 +402,144 @@ def _ledger_paths(run_dir: Path) -> list[Path]:
     return sorted((run_dir / "reviews").glob("review-*.jsonl"))
 
 
+def _reporting_identity(manifest: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    audit = manifest["audit_context"]
+    return {
+        "schema_version": 2,
+        "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "review_state_digest": state["review_state_digest"],
+        "registry_sha256": audit["registry_sha256"],
+        "source_digest": audit["source_digest"],
+        "compilation_input_digest": audit["compilation_input_digest"],
+    }
+
+
+def _reporting_payloads(manifest: dict[str, Any], state: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    identity = _reporting_identity(manifest, state)
+    confirmed = sorted(state["coverage"]["confirmed"])
+    return {
+        "severity": {
+            **identity,
+            "artifact_state": "TEMPLATE",
+            "decisions": {
+                canonical_id: {
+                    "severity": "TODO",
+                    "rationale": "TODO: provide proof-bound severity rationale",
+                    "dimensions": {dimension: "TODO" for dimension in REPORTING_DIMENSIONS},
+                }
+                for canonical_id in confirmed
+            },
+        },
+        "finding_details": {
+            **identity,
+            "artifact_state": "TEMPLATE",
+            "findings": [
+                {
+                    "canonical_id": canonical_id,
+                    "location": "TODO",
+                    "description": "TODO: describe the confirmed defect",
+                    "recommendation": "TODO: provide a concrete remediation",
+                }
+                for canonical_id in confirmed
+            ],
+        },
+    }
+
+
+def _reporting_ids(value: dict[str, Any], kind: str) -> tuple[set[str] | None, bool]:
+    if kind == "severity":
+        decisions = value.get("decisions")
+        if not isinstance(decisions, dict) or any(not isinstance(canonical_id, str) for canonical_id in decisions):
+            return None, False
+        return set(decisions), True
+    findings = value.get("findings")
+    if not isinstance(findings, list):
+        return None, False
+    ids = [item.get("canonical_id") for item in findings if isinstance(item, dict)]
+    if len(ids) != len(findings) or any(not isinstance(canonical_id, str) for canonical_id in ids):
+        return None, False
+    return set(ids), len(ids) == len(set(ids))
+
+
+def _is_generated_reporting_template(value: dict[str, Any], kind: str) -> bool:
+    if value.get("artifact_state") == "COMPLETED":
+        return False
+    content = value.get("decisions" if kind == "severity" else "findings")
+    return has_placeholder(content)
+
+
+def _reporting_matches(
+    value: dict[str, Any],
+    expected: dict[str, Any],
+    confirmed_ids: set[str],
+    kind: str,
+) -> bool:
+    if any(value.get(key) != expected[key] for key in REPORTING_IDENTITY_KEYS):
+        return False
+    actual_ids, unique = _reporting_ids(value, kind)
+    return unique and actual_ids == confirmed_ids
+
+
+def _archive_stale_reporting(path: Path, value: dict[str, Any], expected: dict[str, Any]) -> Path:
+    digest = value.get("review_state_digest")
+    prefix = digest[:12] if isinstance(digest, str) and digest else expected["review_state_digest"][:12]
+    archived = path.with_name(f"{path.stem}.stale-{prefix}{path.suffix}")
+    counter = 1
+    while archived.exists():
+        archived = path.with_name(f"{path.stem}.stale-{prefix}-{counter}{path.suffix}")
+        counter += 1
+    path.replace(archived)
+    return archived
+
+
+def _ensure_reporting_template(
+    path: Path,
+    payload: dict[str, Any],
+    kind: str,
+) -> tuple[str, Path | None]:
+    if not path.exists():
+        atomic_write_json(path, payload)
+        return "GENERATED_TEMPLATE", None
+
+    try:
+        existing = load_json(path)
+    except ValueError:
+        existing = {}
+    expected = {key: payload[key] for key in REPORTING_IDENTITY_KEYS}
+    confirmed_ids, _ = _reporting_ids(payload, kind)
+    if _reporting_matches(existing, expected, confirmed_ids or set(), kind):
+        status = "CURRENT_TEMPLATE" if _is_generated_reporting_template(existing, kind) else "CURRENT_COMPLETED"
+        return status, None
+    if _is_generated_reporting_template(existing, kind):
+        atomic_write_json(path, payload)
+        return "REGENERATED_STALE_TEMPLATE", None
+    archived = _archive_stale_reporting(path, existing, expected)
+    atomic_write_json(path, payload)
+    return "ARCHIVED_STALE_ARTIFACT", archived
+
+
+def _ensure_reporting_templates(manifest: dict[str, Any], state: dict[str, Any], run_dir: Path) -> dict[str, Any]:
+    payloads = _reporting_payloads(manifest, state)
+    paths_by_kind = {
+        "severity": run_dir / "reviews/severity-decisions.json",
+        "finding_details": run_dir / "reviews/finding-details.json",
+    }
+    statuses: dict[str, str] = {}
+    archives: dict[str, str] = {}
+    for kind, path in paths_by_kind.items():
+        status, archived = _ensure_reporting_template(path, payloads[kind], kind)
+        statuses[kind] = status
+        if archived is not None:
+            archives[kind] = str(archived)
+    result = {
+        "templates": {kind: str(path) for kind, path in paths_by_kind.items()},
+        "template_status": statuses,
+    }
+    if archives:
+        result["archived_templates"] = archives
+    return result
+
+
 def status_run(root: Path, run_dir: Path, *, emit: bool = True) -> dict[str, Any]:
     values, manifest, registry = _load_run(root, run_dir)
     screen = load_json(values["screen_results"]) if values["screen_results"].exists() else None
@@ -534,56 +683,10 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         _log_report(state, finished=True)
     result: dict[str, Any] = {"stage": "REPORT", "status": state["status"], "audit_state": str(values["audit_state"])}
     if state["status"] == "COMPLETE_WITH_FINDINGS":
-        severity_template = run_dir / "reviews/severity-decisions.json"
-        details_template = run_dir / "reviews/finding-details.json"
-        identity = {
-            "schema_version": 2,
-            "routing_snapshot_id": manifest["routing_snapshot_id"],
-            "review_state_digest": state["review_state_digest"],
-            "registry_sha256": manifest["audit_context"]["registry_sha256"],
-            "source_digest": manifest["audit_context"]["source_digest"],
-            "compilation_input_digest": manifest["audit_context"]["compilation_input_digest"],
-        }
-        dimensions = (
-            "impact", "exploitability", "privileges", "capital_required",
-            "repeatability", "user_interaction", "loss_bound", "protocol_exposure",
-            "recoverability",
-        )
-        if not severity_template.exists():
-            atomic_write_json(
-                severity_template,
-                {
-                    **identity,
-                    "decisions": {
-                        canonical_id: {
-                            "severity": "TODO",
-                            "rationale": "TODO: provide proof-bound severity rationale",
-                            "dimensions": {dimension: "TODO" for dimension in dimensions},
-                        }
-                        for canonical_id in state["coverage"]["confirmed"]
-                    },
-                },
-            )
-        if not details_template.exists():
-            atomic_write_json(
-                details_template,
-                {
-                    **identity,
-                    "findings": [
-                        {
-                            "canonical_id": canonical_id,
-                            "location": "TODO",
-                            "description": "TODO: describe the confirmed defect",
-                            "recommendation": "TODO: provide a concrete remediation",
-                        }
-                        for canonical_id in state["coverage"]["confirmed"]
-                    ],
-                },
-            )
+        result.update(_ensure_reporting_templates(manifest, state, run_dir))
         result.update(
             {
                 "required_inputs": ["severity-decisions", "finding-details"],
-                "templates": {"severity": str(severity_template), "finding_details": str(details_template)},
             }
         )
     return result

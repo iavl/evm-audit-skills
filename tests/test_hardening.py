@@ -7,10 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.audit_artifacts import check_body_hash
+from scripts.audit_artifacts import canonical_sha256, check_body_hash, derive_review_snapshot_id
+from scripts.audit_run import _ensure_reporting_templates
 from scripts.render_runtime import domain_context_template, domain_resolution_template, screen_results_template
 from scripts.review_ledger import append
-from scripts.scope_context import compilation_digests, scope_inventory
+from scripts.scope_context import compilation_digests, resolve_build_root, scope_inventory
 from scripts.synthesize_report import main as synthesize_main, synthesize
 from scripts.validate_audit_run import validate_run
 
@@ -104,6 +105,63 @@ class HardeningTests(unittest.TestCase):
             stale_screen = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
             self.assertEqual(stale_screen["status"], "INCOMPLETE_REVIEW")
             self.assertTrue(any("review_snapshot_id" in reason for reason in stale_screen["reasons"]))
+
+    def test_review_snapshot_preserves_ordered_values_and_normalizes_set_like_results(self) -> None:
+        _, _, _, manifest = build_manifest()
+        domain_context = self.context(manifest)
+        screen, _ = self.screen(manifest, candidate=False)
+        domain = next(iter(domain_context["domains"]))
+        key = next(iter(domain_context["domains"][domain]))
+        domain_context["domains"][domain][key]["value"] = ["chainlink", "twap"]
+        first = derive_review_snapshot_id(ROOT, manifest, None, domain_context, screen)
+
+        reversed_context = json.loads(json.dumps(domain_context))
+        reversed_context["domains"][domain][key]["value"] = ["twap", "chainlink"]
+        self.assertNotEqual(
+            first,
+            derive_review_snapshot_id(ROOT, manifest, None, reversed_context, screen),
+        )
+
+        permuted_screen = json.loads(json.dumps(screen))
+        permuted_screen["results"].reverse()
+        for item in permuted_screen["results"]:
+            item["evidence"].reverse()
+        self.assertEqual(
+            first,
+            derive_review_snapshot_id(ROOT, manifest, None, domain_context, permuted_screen),
+        )
+        self.assertEqual(
+            canonical_sha256({"a": 1, "b": 2}),
+            canonical_sha256({"b": 2, "a": 1}),
+        )
+
+    def test_ordered_domain_context_mutation_stales_existing_review(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        domain_context = self.context(manifest)
+        screen, candidate_id = self.screen(manifest, candidate=True)
+        domain = next(iter(domain_context["domains"]))
+        key = next(iter(domain_context["domains"][domain]))
+        domain_context["domains"][domain][key]["value"] = ["A", "B"]
+        context = self.context_artifact(manifest)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            append(
+                ledger,
+                manifest,
+                self.review_record(registry, manifest, candidate_id),
+                registry,
+                {candidate_id},
+                domain_context=domain_context,
+                screen_results=screen,
+            )
+            clean = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            self.assertEqual(clean["status"], "COMPLETE_CLEAN")
+
+            domain_context["domains"][domain][key]["value"] = ["B", "A"]
+            stale = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            self.assertNotEqual(clean["review_snapshot_id"], stale["review_snapshot_id"])
+            self.assertEqual(stale["status"], "INCOMPLETE_REVIEW")
+            self.assertTrue(any("review_snapshot_id" in reason for reason in stale["reasons"]))
 
     def test_domain_resolution_mutation_stales_existing_review(self) -> None:
         registry, _, _, manifest = build_manifest(domains=None)
@@ -205,6 +263,109 @@ class HardeningTests(unittest.TestCase):
             (root / "foundry.toml").write_text('[profile.default]\nsrc = "contracts"\n', encoding="utf-8")
             after_config = compilation_digests(target, files, "0.8.24", build_root=root)
             self.assertNotEqual(after_dependency["compilation_input_digest"], after_config["compilation_input_digest"])
+
+    def test_directory_scope_discovers_nearest_project_build_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = root / "project"
+            source = project / "src"
+            dependency = project / "lib/Dependency.sol"
+            for path in (source / "Vault.sol", source / "Helper.sol", dependency):
+                path.parent.mkdir(parents=True, exist_ok=True)
+            (project / "foundry.toml").write_text('[profile.default]\nsrc = "src"\n', encoding="utf-8")
+            (project / "remappings.txt").write_text("dep/=lib/\n", encoding="utf-8")
+            (source / "Vault.sol").write_text("pragma solidity ^0.8.24; contract Vault {}", encoding="utf-8")
+            (source / "Helper.sol").write_text("pragma solidity ^0.8.24; contract Helper {}", encoding="utf-8")
+            dependency.write_text("pragma solidity ^0.8.24; contract Dependency {}", encoding="utf-8")
+
+            self.assertEqual(resolve_build_root(source), project.resolve())
+            files, _ = scope_inventory(source)
+            before = compilation_digests(source, files, "0.8.24")
+            (project / "foundry.toml").write_text('[profile.default]\nsrc = "contracts"\n', encoding="utf-8")
+            after_config = compilation_digests(source, files, "0.8.24")
+            self.assertNotEqual(before["compilation_input_digest"], after_config["compilation_input_digest"])
+            dependency.write_text("pragma solidity ^0.8.24; contract Dependency { uint256 changed; }", encoding="utf-8")
+            after_dependency = compilation_digests(source, files, "0.8.24")
+            self.assertNotEqual(after_config["compilation_input_digest"], after_dependency["compilation_input_digest"])
+
+            repo = root / "repo"
+            protocol = repo / "packages/protocol"
+            (repo / "package.json").parent.mkdir(parents=True, exist_ok=True)
+            (repo / "package.json").write_text("{}", encoding="utf-8")
+            (protocol / "foundry.toml").parent.mkdir(parents=True, exist_ok=True)
+            (protocol / "foundry.toml").write_text("[profile.default]\n", encoding="utf-8")
+            nested_source = protocol / "src"
+            nested_source.mkdir()
+            self.assertEqual(resolve_build_root(nested_source), protocol.resolve())
+
+            override = root
+            self.assertEqual(resolve_build_root(source, override), override.resolve())
+            outside = root / "outside"
+            outside.mkdir()
+            with self.assertRaisesRegex(ValueError, "inside build root"):
+                resolve_build_root(source, outside)
+
+    def test_reporting_templates_refresh_and_preserve_completed_artifacts(self) -> None:
+        _, _, _, manifest = build_manifest()
+        candidate_id = manifest["selected"][0]["canonical_id"]
+        second_candidate_id = manifest["selected"][1]["canonical_id"]
+        digest_one = "1" * 64
+        digest_two = "2" * 64
+        state_one = {"review_state_digest": digest_one, "coverage": {"confirmed": [candidate_id]}}
+        state_two = {"review_state_digest": digest_two, "coverage": {"confirmed": [candidate_id]}}
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            first = _ensure_reporting_templates(manifest, state_one, run_dir)
+            self.assertEqual(first["template_status"], {"severity": "GENERATED_TEMPLATE", "finding_details": "GENERATED_TEMPLATE"})
+            severity_path = run_dir / "reviews/severity-decisions.json"
+            details_path = run_dir / "reviews/finding-details.json"
+            original = severity_path.read_text(encoding="utf-8")
+            self.assertEqual(json.loads(original)["review_state_digest"], digest_one)
+            self.assertEqual(json.loads(original)["artifact_state"], "TEMPLATE")
+
+            unchanged = _ensure_reporting_templates(manifest, state_one, run_dir)
+            self.assertEqual(unchanged["template_status"]["severity"], "CURRENT_TEMPLATE")
+            self.assertEqual(severity_path.read_text(encoding="utf-8"), original)
+
+            refreshed = _ensure_reporting_templates(manifest, state_two, run_dir)
+            self.assertEqual(refreshed["template_status"]["severity"], "REGENERATED_STALE_TEMPLATE")
+            self.assertEqual(json.loads(severity_path.read_text(encoding="utf-8"))["review_state_digest"], digest_two)
+
+            changed_set = _ensure_reporting_templates(
+                manifest,
+                {"review_state_digest": digest_two, "coverage": {"confirmed": [candidate_id, second_candidate_id]}},
+                run_dir,
+            )
+            self.assertEqual(changed_set["template_status"]["severity"], "REGENERATED_STALE_TEMPLATE")
+            self.assertEqual(
+                set(json.loads(severity_path.read_text(encoding="utf-8"))["decisions"]),
+                {candidate_id, second_candidate_id},
+            )
+            _ensure_reporting_templates(manifest, state_two, run_dir)
+
+            completed_severity = json.loads(severity_path.read_text(encoding="utf-8"))
+            completed_severity["artifact_state"] = "COMPLETED"
+            completed_severity["decisions"][candidate_id] = {
+                "severity": "High",
+                "rationale": "completed rationale",
+                "dimensions": {dimension: "completed" for dimension in (
+                    "impact", "exploitability", "privileges", "capital_required", "repeatability",
+                    "user_interaction", "loss_bound", "protocol_exposure", "recoverability",
+                )},
+            }
+            completed_severity["review_state_digest"] = digest_one
+            severity_path.write_text(json.dumps(completed_severity) + "\n", encoding="utf-8")
+            completed_details = json.loads(details_path.read_text(encoding="utf-8"))
+            completed_details["artifact_state"] = "COMPLETED"
+            completed_details["review_state_digest"] = digest_one
+            completed_details["findings"][0].update(description="completed description", recommendation="completed fix")
+            details_path.write_text(json.dumps(completed_details) + "\n", encoding="utf-8")
+
+            archived = _ensure_reporting_templates(manifest, state_two, run_dir)
+            self.assertEqual(archived["template_status"]["severity"], "ARCHIVED_STALE_ARTIFACT")
+            self.assertEqual(archived["template_status"]["finding_details"], "ARCHIVED_STALE_ARTIFACT")
+            self.assertIn("completed rationale", Path(archived["archived_templates"]["severity"]).read_text(encoding="utf-8"))
+            self.assertEqual(json.loads(severity_path.read_text(encoding="utf-8"))["artifact_state"], "TEMPLATE")
 
     def test_review_state_digest_rejects_stale_reporting_inputs(self) -> None:
         registry, _, _, manifest = build_manifest()

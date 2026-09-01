@@ -174,14 +174,17 @@ def _submodule_commits(root: Path, dependency_roots: Iterable[str]) -> str:
 
 def resolve_build_root(target: Path, build_root: Path | None = None) -> Path:
     """Resolve the compilation project independently from the audit scope."""
+    target = target.resolve()
     if build_root is not None:
         resolved = build_root.resolve()
         if not resolved.is_dir():
             raise ValueError(f"build root must be a directory: {resolved}")
+        try:
+            target.relative_to(resolved)
+        except ValueError as error:
+            raise ValueError("audit root must be inside build root") from error
         return resolved
-    if target.is_dir():
-        return target.resolve()
-    start = target.resolve().parent
+    start = target if target.is_dir() else target.parent
     for candidate in (start, *start.parents):
         if (
             (candidate / "foundry.toml").is_file()
@@ -190,7 +193,7 @@ def resolve_build_root(target: Path, build_root: Path | None = None) -> Path:
             or any(candidate.glob("hardhat.config.*"))
         ):
             return candidate
-    # A standalone Solidity file still gets a conservative parent compilation context.
+    # No marker means the scope itself (or a standalone file's parent) is the conservative fallback.
     return start
 
 
@@ -205,9 +208,7 @@ def compilation_digests(
     """Fingerprint audit scope and the complete selected compilation context separately."""
     source_files = tuple(source_files)
     audit_root = root.resolve()
-    compilation_root = (build_root or (audit_root if audit_root.is_dir() else audit_root.parent)).resolve()
-    if not compilation_root.is_dir():
-        raise ValueError(f"build root must be a directory: {compilation_root}")
+    compilation_root = resolve_build_root(audit_root, build_root)
     try:
         audit_root.relative_to(compilation_root)
     except ValueError as error:

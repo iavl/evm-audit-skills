@@ -296,7 +296,7 @@ def validate_recon_context(
     if target_root is None:
         raise SelectionInputError("Feature Map v4 selection requires --target-root")
     resolved = resolve_scope_root(target_root)
-    resolved_build_root = resolve_build_root(resolved, build_root or Path(raw["build_root"]))
+    resolved_build_root = resolve_build_root(resolved, build_root)
     files, excluded = scope_inventory(resolved, exclusions, include_values, dependency_values)
     scope_files = set(files)
     actual_digest = source_digest(resolved, files)
@@ -327,6 +327,7 @@ def validate_recon_context(
         raise SelectionInputError("Recon compilation_complete does not match compilation coverage")
     normalized = dict(raw)
     normalized["target_root"] = str(resolved)
+    normalized["build_root"] = str(resolved_build_root)
     return normalized
 
 
