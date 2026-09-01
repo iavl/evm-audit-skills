@@ -38,6 +38,34 @@ evidence-bound templates. `DEEP_REVIEW` means candidate records are missing;
 current artifacts and refuses stale, incomplete, or under-specified reporting
 inputs.
 
+## Codex model policy
+
+For a new Codex audit with no confirmed profile, ask once before starting:
+
+```text
+EVM AUDIT :: CODEX MODEL PROFILE
+RECON / ROUTING: gpt-5.6-luna max
+DOMAIN_RESOLUTION / DOMAIN_CONTEXT: gpt-5.6-terra medium
+SCREEN: gpt-5.6-terra high
+DEEP_REVIEW: gpt-5.6-sol high
+PROOF: gpt-5.6-sol xhigh
+REPORT: gpt-5.6-terra medium
+
+Use this default profile?
+1. Use defaults
+2. Customize
+```
+
+Use `--accept-default-models` for confirmation, or build one validated profile
+with selective stage edits and pass it with `--model-profile`. Persist it in
+`<run-dir>/config/codex-model-profile.json`; once present, do not ask again.
+For customization, show the full current profile once and accept only changed
+lines such as `SCREEN = gpt-5.6-sol/high`, preserving omitted stages.
+At each transition, follow `recommended_execution`. This is a handoff only:
+do not claim an active Codex model switch unless a documented runtime mechanism
+actually provides one. The profile is execution metadata and never security
+lineage or artifact identity.
+
 ## Model decisions
 
 The model may choose the audit scope, provide evidence-backed environment and

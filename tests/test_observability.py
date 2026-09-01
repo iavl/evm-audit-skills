@@ -49,6 +49,8 @@ class ObservabilityTests(unittest.TestCase):
         self.assertIn("EVM AUDIT :: RECON", result.stderr)
         self.assertIn("EVM AUDIT :: ROUTING", result.stderr)
         self.assertIn("Next required stage: DOMAIN CONTEXT", result.stderr)
+        self.assertIn("Codex model: gpt-5.6-terra", result.stderr)
+        self.assertIn("Handoff: controller does not switch the active Codex model", result.stderr)
         self.assertEqual(result.stderr.count("EVM AUDIT :: RECON"), 1)
         self.assertEqual(result.stderr.count("EVM AUDIT :: ROUTING"), 1)
         self.assertNotIn("Feature Map ready", result.stderr)
@@ -58,7 +60,9 @@ class ObservabilityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result = self.init_run(Path(directory) / "run", "--quiet")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIsInstance(json.loads(result.stdout), dict)
+            payload = json.loads(result.stdout)
+            self.assertIsInstance(payload, dict)
+            self.assertEqual(payload["next"]["recommended_execution"]["model"], "gpt-5.6-terra")
             self.assertEqual(result.stderr, "")
 
             missing = self.run_cli(

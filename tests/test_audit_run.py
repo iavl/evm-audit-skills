@@ -43,6 +43,10 @@ class AuditRunTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("DOMAIN_CONTEXT", result.stdout)
+            self.assertEqual(
+                json.loads(result.stdout)["next"]["recommended_execution"],
+                {"provider": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "medium"},
+            )
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("DOMAIN_CONTEXT", result.stdout)
@@ -75,6 +79,10 @@ class AuditRunTests(unittest.TestCase):
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("COMPLETE_CLEAN", result.stdout)
+            self.assertEqual(
+                json.loads(result.stdout)["recommended_execution"],
+                {"provider": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "medium"},
+            )
             manifest = self.read(run_dir / "routing/manifest.json")
             state = self.read(run_dir / "audit-state.json")
             identity = {
@@ -147,6 +155,10 @@ class AuditRunTests(unittest.TestCase):
 
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertIn("DEEP_REVIEW", result.stdout)
+            self.assertEqual(
+                json.loads(result.stdout)["recommended_execution"],
+                {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "high"},
+            )
             manifest = self.read(run_dir / "routing/manifest.json")
             route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate["canonical_id"])
             record = {
@@ -245,6 +257,10 @@ contract RetainedPoC {
             screen_path.write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertIn("DEEP_REVIEW", result.stdout)
+            self.assertEqual(
+                json.loads(result.stdout)["recommended_execution"],
+                {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "high"},
+            )
 
             manifest = self.read(run_dir / "routing/manifest.json")
             route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate["canonical_id"])
@@ -279,6 +295,10 @@ contract RetainedPoC {
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("PROOF", result.stdout)
             self.assertIn(candidate["canonical_id"], result.stdout)
+            self.assertEqual(
+                json.loads(result.stdout)["recommended_execution"],
+                {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
+            )
             resolved = {
                 **{key: value for key, value in suspicious.items() if key != "unresolved_reason"},
                 "review_stage": "PROOF",

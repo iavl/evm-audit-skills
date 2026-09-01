@@ -16,6 +16,21 @@ except ImportError:  # pragma: no cover
     from scripts.runtime_log import configure, error, info, stage, success, warning
 
 try:
+    from codex_model_profile import (
+        default_profile,
+        load_profile,
+        stage_model,
+        write_profile,
+    )
+except ImportError:  # pragma: no cover
+    from scripts.codex_model_profile import (
+        default_profile,
+        load_profile,
+        stage_model,
+        write_profile,
+    )
+
+try:
     from audit_artifacts import (
         atomic_write_json,
         atomic_write_text,
@@ -76,6 +91,7 @@ def paths(run_dir: Path) -> dict[str, Path]:
         "audit_state": run_dir / "audit-state.json",
         "report": run_dir / "AUDIT-REPORT.md",
         "issue_candidates": run_dir / "issue-candidates.json",
+        "model_profile": run_dir / "config/codex-model-profile.json",
     }
 
 
@@ -126,11 +142,93 @@ def _display_stage(name: str) -> str:
     return name.replace("_", " ")
 
 
-def _log_recon(feature_map: dict[str, Any], target: Path, strict: bool) -> None:
+def _effective_model_profile(run_dir: Path) -> dict[str, Any]:
+    profile_path = paths(run_dir.resolve())["model_profile"]
+    return load_profile(profile_path) if profile_path.exists() else default_profile()
+
+
+def recommended_execution(run_dir: Path, stage_name: str) -> dict[str, str]:
+    profile = _effective_model_profile(run_dir)
+    return {"provider": profile["provider"], **stage_model(profile, stage_name)}
+
+
+def _log_model_guidance(run_dir: Path | None, stage_name: str) -> None:
+    if run_dir is None:
+        return
+    execution = recommended_execution(run_dir, stage_name)
+    info(f"Codex model: {execution['model']}")
+    info(f"Reasoning: {execution['reasoning_effort']}")
+    info("Handoff: controller does not switch the active Codex model")
+
+
+def _stage_result(run_dir: Path, stage_name: str, **values: Any) -> dict[str, Any]:
+    return {
+        "stage": stage_name,
+        **values,
+        "recommended_execution": recommended_execution(run_dir, stage_name),
+    }
+
+
+def _unknown_domains(resolution: dict[str, Any] | None) -> set[str] | None:
+    if resolution is None:
+        return None
+    return {
+        domain
+        for domain, value in resolution.get("domains", {}).items()
+        if isinstance(value, dict) and value.get("status") == "UNKNOWN"
+    }
+
+
+def _unknown_context(domain_context: dict[str, Any] | None) -> set[str] | None:
+    if domain_context is None:
+        return None
+    return {
+        f"{domain}.{key}"
+        for domain, requirements in domain_context.get("domains", {}).items()
+        if isinstance(requirements, dict)
+        for key, value in requirements.items()
+        if isinstance(value, dict) and value.get("status") == "UNKNOWN"
+    }
+
+
+def _state_stage(
+    state: dict[str, Any],
+    manifest: dict[str, Any],
+    resolution: dict[str, Any] | None,
+    domain_context: dict[str, Any] | None,
+) -> str | None:
+    status = state.get("status")
+    coverage = state.get("coverage", {})
+    if status == "INCOMPLETE_DOMAIN_ROUTING":
+        return "DOMAIN_RESOLUTION"
+    if status == "INCOMPLETE_CONTEXT":
+        return "DOMAIN_CONTEXT"
+    if status == "INCOMPLETE_COVERAGE":
+        unresolved_domains = _unknown_domains(resolution)
+        if manifest.get("deferred_domains") and (unresolved_domains is None or unresolved_domains):
+            return "DOMAIN_RESOLUTION"
+        if domain_context is None or _unknown_context(domain_context):
+            return "DOMAIN_CONTEXT"
+        return "SCREEN"
+    if status == "INCOMPLETE_REVIEW":
+        candidates = coverage.get("deep_candidates", []) if isinstance(coverage, dict) else []
+        reviewed = coverage.get("deep_reviewed", []) if isinstance(coverage, dict) else []
+        if isinstance(candidates, list) and isinstance(reviewed, list) and set(candidates) - set(reviewed):
+            return "DEEP_REVIEW"
+        if isinstance(coverage, dict) and coverage.get("suspicious"):
+            return "PROOF"
+        return "DEEP_REVIEW"
+    if status in {"COMPLETE_CLEAN", "COMPLETE_WITH_FINDINGS"}:
+        return "REPORT"
+    return None
+
+
+def _log_recon(feature_map: dict[str, Any], target: Path, strict: bool, *, run_dir: Path | None = None) -> None:
     recon = feature_map["recon_context"]
     complete = recon["compilation_complete"]
     info(f"Audit scope: {target}")
     info(f"Compilation: {'COMPLETE' if complete else 'INCOMPLETE'}")
+    _log_model_guidance(run_dir, "RECON")
     if complete:
         success("Recon complete")
     else:
@@ -139,20 +237,22 @@ def _log_recon(feature_map: dict[str, Any], target: Path, strict: bool) -> None:
             warning("Strict compilation policy rejected this scope")
 
 
-def _log_routing(manifest: dict[str, Any]) -> None:
+def _log_routing(manifest: dict[str, Any], *, run_dir: Path | None = None) -> None:
     info(f"Selected domains: {len(manifest['selected_domains'])}")
     info(f"Deferred domains: {len(manifest['deferred_domains'])}")
     info(f"Filtered domains: {len(manifest['filtered_domains'])}")
     info(f"Selected checks: {manifest['selected_count']}")
     info(f"Deferred checks: {manifest['deferred_count']}")
     info(f"Filtered checks: {manifest['filtered_count']}")
+    _log_model_guidance(run_dir, "ROUTING")
     success("Routing snapshot created")
 
 
 def _log_domain_resolution(
-    manifest: dict[str, Any], unresolved: set[str] | None = None
+    manifest: dict[str, Any], unresolved: set[str] | None = None, *, run_dir: Path | None = None
 ) -> None:
     stage("DOMAIN RESOLUTION", step=3, total=TOTAL_STAGES, detail="Resolving Deferred Domains")
+    _log_model_guidance(run_dir, "DOMAIN_RESOLUTION")
     total = len(manifest["deferred_domains"])
     remaining = unresolved if unresolved is not None else {entry["domain"] for entry in manifest["deferred_domains"]}
     info(f"Resolved: {total - len(remaining)} / {total}")
@@ -171,9 +271,10 @@ def _context_requirement_count(manifest: dict[str, Any]) -> int:
 
 
 def _log_domain_context(
-    manifest: dict[str, Any], unresolved: set[str] | None = None
+    manifest: dict[str, Any], unresolved: set[str] | None = None, *, run_dir: Path | None = None
 ) -> None:
     stage("DOMAIN CONTEXT", step=3, total=TOTAL_STAGES, detail="Resolving required Domain context")
+    _log_model_guidance(run_dir, "DOMAIN_CONTEXT")
     total = _context_requirement_count(manifest)
     if unresolved is None:
         remaining = {
@@ -191,10 +292,11 @@ def _log_domain_context(
         success("Domain Context resolved")
 
 
-def _log_screen(screen: dict[str, Any], candidates: set[str]) -> None:
+def _log_screen(screen: dict[str, Any], candidates: set[str], *, run_dir: Path | None = None) -> None:
     results = screen.get("results", [])
     total = len(results) if isinstance(results, list) else 0
     stage("SCREEN", step=4, total=TOTAL_STAGES, detail="Screening routed checks")
+    _log_model_guidance(run_dir, "SCREEN")
     info(f"Screen checks: {total}")
     info(f"Deep candidates: {len(candidates)}")
     info(f"Screen NOT_APPLICABLE: {total - len(candidates)}")
@@ -210,11 +312,12 @@ def _log_deep(candidates: set[str], records: dict[str, dict[str, Any]], pending:
     info(f"Confirmed: {confirmed}")
 
 
-def _log_report(state: dict[str, Any], *, finished: bool) -> None:
+def _log_report(state: dict[str, Any], *, finished: bool, run_dir: Path | None = None) -> None:
     coverage = state.get("coverage", {})
     confirmed = coverage.get("confirmed", []) if isinstance(coverage, dict) else []
     suspicious = coverage.get("suspicious", []) if isinstance(coverage, dict) else []
     stage("REPORT", step=7, total=TOTAL_STAGES, detail="Deriving final audit state")
+    _log_model_guidance(run_dir, "REPORT")
     info(f"Status: {state.get('status', 'UNKNOWN')}")
     info(f"Complete: {'yes' if state.get('complete') else 'no'}")
     info(f"Confirmed: {len(confirmed) if isinstance(confirmed, list) else 0}")
@@ -232,57 +335,40 @@ def _log_current_state(
     manifest: dict[str, Any],
     resolution: dict[str, Any] | None,
     domain_context: dict[str, Any] | None,
+    *,
+    run_dir: Path | None = None,
 ) -> None:
     status = state.get("status")
     coverage = state.get("coverage", {})
     if status == "INCOMPLETE_DOMAIN_ROUTING":
         unresolved = None
         if resolution is not None:
-            unresolved = {
-                domain
-                for domain, value in resolution.get("domains", {}).items()
-                if isinstance(value, dict) and value.get("status") == "UNKNOWN"
-            }
-        _log_domain_resolution(manifest, unresolved)
+            unresolved = _unknown_domains(resolution)
+        _log_domain_resolution(manifest, unresolved, run_dir=run_dir)
         return
     if status == "INCOMPLETE_CONTEXT":
         unresolved = None
         if domain_context is not None:
-            unresolved = {
-                f"{domain}.{key}"
-                for domain, requirements in domain_context.get("domains", {}).items()
-                if isinstance(requirements, dict)
-                for key, value in requirements.items()
-                if isinstance(value, dict) and value.get("status") == "UNKNOWN"
-            }
-        _log_domain_context(manifest, unresolved)
+            unresolved = _unknown_context(domain_context)
+        _log_domain_context(manifest, unresolved, run_dir=run_dir)
         return
     if status == "INCOMPLETE_COVERAGE":
         if manifest["deferred_domains"]:
             unresolved_domains = None
             if resolution is not None:
-                unresolved_domains = {
-                    domain
-                    for domain, value in resolution.get("domains", {}).items()
-                    if isinstance(value, dict) and value.get("status") == "UNKNOWN"
-                }
+                unresolved_domains = _unknown_domains(resolution)
             if resolution is None or unresolved_domains:
-                _log_domain_resolution(manifest, unresolved_domains)
+                _log_domain_resolution(manifest, unresolved_domains, run_dir=run_dir)
                 return
         if domain_context is None:
-            _log_domain_context(manifest)
+            _log_domain_context(manifest, run_dir=run_dir)
             return
-        unresolved_context = {
-            f"{domain}.{key}"
-            for domain, requirements in domain_context.get("domains", {}).items()
-            if isinstance(requirements, dict)
-            for key, value in requirements.items()
-            if isinstance(value, dict) and value.get("status") == "UNKNOWN"
-        }
+        unresolved_context = _unknown_context(domain_context) or set()
         if unresolved_context:
-            _log_domain_context(manifest, unresolved_context)
+            _log_domain_context(manifest, unresolved_context, run_dir=run_dir)
             return
         stage("SCREEN", step=4, total=TOTAL_STAGES, detail="Screening routed checks")
+        _log_model_guidance(run_dir, "SCREEN")
         selected = coverage.get("selected", []) if isinstance(coverage, dict) else []
         candidates = coverage.get("deep_candidates", []) if isinstance(coverage, dict) else []
         not_applicable = coverage.get("screen_not_applicable", []) if isinstance(coverage, dict) else []
@@ -298,24 +384,38 @@ def _log_current_state(
         pending = set(candidates) - set(reviewed) if isinstance(candidates, list) and isinstance(reviewed, list) else set()
         if pending:
             stage("DEEP REVIEW", step=5, total=TOTAL_STAGES, detail="Reviewing Deep candidates")
+            _log_model_guidance(run_dir, "DEEP_REVIEW")
             info(f"Reviewed: {len(reviewed) if isinstance(reviewed, list) else 0} / {len(candidates) if isinstance(candidates, list) else 0}")
             info(f"Remaining: {len(pending)}")
         elif suspicious:
             stage("PROOF", step=6, total=TOTAL_STAGES, detail="Resolving suspicious findings")
+            _log_model_guidance(run_dir, "PROOF")
             info(f"Remaining proof items: {len(suspicious)}")
         else:
             stage("DEEP REVIEW", step=5, total=TOTAL_STAGES, detail="Reviewing Deep candidates")
+            _log_model_guidance(run_dir, "DEEP_REVIEW")
             info(f"Reviewed: {len(reviewed) if isinstance(reviewed, list) else 0} / {len(candidates) if isinstance(candidates, list) else 0}")
             info(f"Remaining: {len(candidates) - len(reviewed) if isinstance(candidates, list) and isinstance(reviewed, list) else 0}")
         warning("Further review is required")
         return
-    _log_report(state, finished=True)
+    _log_report(state, finished=True, run_dir=run_dir)
+
+
+def _init_model_profile(args: argparse.Namespace, run_dir: Path) -> None:
+    if args.model_profile:
+        profile = load_profile(args.model_profile.resolve())
+    elif args.accept_default_models:
+        profile = default_profile()
+    else:
+        return
+    write_profile(paths(run_dir)["model_profile"], profile)
 
 
 def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     run_dir = args.run_dir.resolve()
     if run_dir.exists() and any(run_dir.iterdir()):
         raise ValueError(f"refusing to initialize non-empty run directory: {run_dir}")
+    _init_model_profile(args, run_dir)
     values = paths(run_dir)
     values["feature_map"].parent.mkdir(parents=True, exist_ok=True)
     values["manifest"].parent.mkdir(parents=True, exist_ok=True)
@@ -343,7 +443,7 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         warning("Recon failed")
         raise
-    _log_recon(feature_map, audit_root, args.require_complete_compilation)
+    _log_recon(feature_map, audit_root, args.require_complete_compilation, run_dir=run_dir)
 
     selector_args = [
         "--root", str(root),
@@ -376,14 +476,16 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     except (OSError, ValueError, KeyError, json.JSONDecodeError):
         warning("Routing failed")
         raise
-    _log_routing(manifest)
+    _log_routing(manifest, run_dir=run_dir)
     next_result = next_step(root, run_dir, verbose=args.verbose, emit=False)
     info(f"Next required stage: {_display_stage(next_result['stage'])}")
+    _log_model_guidance(run_dir, next_result["stage"])
     return {
         "stage": "INITIALIZED",
         "run_dir": str(run_dir),
         "manifest": str(values["manifest"]),
         "next": next_result,
+        "recommended_execution": next_result["recommended_execution"],
     }
 
 
@@ -540,7 +642,13 @@ def _ensure_reporting_templates(manifest: dict[str, Any], state: dict[str, Any],
     return result
 
 
-def status_run(root: Path, run_dir: Path, *, emit: bool = True) -> dict[str, Any]:
+def status_run(
+    root: Path,
+    run_dir: Path,
+    *,
+    emit: bool = True,
+    include_execution: bool = False,
+) -> dict[str, Any]:
     values, manifest, registry = _load_run(root, run_dir)
     screen = load_json(values["screen_results"]) if values["screen_results"].exists() else None
     resolution = load_json(values["resolution"]) if values["resolution"].exists() else None
@@ -558,8 +666,13 @@ def status_run(root: Path, run_dir: Path, *, emit: bool = True) -> dict[str, Any
     )
     atomic_write_json(values["audit_state"], state)
     if emit:
-        _log_current_state(state, manifest, resolution, domain_context)
-    return state
+        _log_current_state(state, manifest, resolution, domain_context, run_dir=run_dir)
+    if not include_execution:
+        return state
+    stage_name = _state_stage(state, manifest, resolution, domain_context)
+    if stage_name is None:
+        return state
+    return {**state, "recommended_execution": recommended_execution(run_dir, stage_name)}
 
 
 def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = True) -> dict[str, Any]:
@@ -568,7 +681,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
     if manifest["deferred_domains"]:
         if not values["resolution"].exists():
             if emit:
-                _log_domain_resolution(manifest)
+                _log_domain_resolution(manifest, run_dir=run_dir)
             _render_screen(
                 root,
                 values,
@@ -578,17 +691,18 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             )
             if emit:
                 info(f"Resolution template required: {values['resolution']}")
-            return {"stage": "DOMAIN_RESOLUTION", "template": str(values["resolution"])}
+            return _stage_result(run_dir, "DOMAIN_RESOLUTION", template=str(values["resolution"]))
         resolution = load_json(values["resolution"])
         unresolved = validate_domain_resolution(root, manifest, resolution)
         if emit:
-            _log_domain_resolution(manifest, unresolved)
+            _log_domain_resolution(manifest, unresolved, run_dir=run_dir)
         if unresolved:
-            return {"stage": "DOMAIN_RESOLUTION", "unresolved_domains": sorted(unresolved)}
+            return _stage_result(run_dir, "DOMAIN_RESOLUTION", unresolved_domains=sorted(unresolved))
 
     if not values["domain_context"].exists():
         if emit:
             stage("DOMAIN CONTEXT", step=3, total=TOTAL_STAGES, detail="Resolving required Domain context")
+            _log_model_guidance(run_dir, "DOMAIN_CONTEXT")
             info(f"Resolved: 0 / {_context_requirement_count(manifest)}")
             warning("Domain Context template required")
         extra = []
@@ -604,17 +718,18 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         )
         if emit:
             info(f"Domain Context template required: {values['domain_context']}")
-        return {"stage": "DOMAIN_CONTEXT", "template": str(values["domain_context"])}
+        return _stage_result(run_dir, "DOMAIN_CONTEXT", template=str(values["domain_context"]))
     domain_context = load_json(values["domain_context"])
     unresolved_context = validate_domain_context(root, manifest, domain_context, resolution)
     if emit:
-        _log_domain_context(manifest, unresolved_context)
+        _log_domain_context(manifest, unresolved_context, run_dir=run_dir)
     if unresolved_context:
-        return {"stage": "DOMAIN_CONTEXT", "unresolved_context": sorted(unresolved_context)}
+        return _stage_result(run_dir, "DOMAIN_CONTEXT", unresolved_context=sorted(unresolved_context))
 
     if not values["screen_results"].exists():
         if emit:
             stage("SCREEN", step=4, total=TOTAL_STAGES, detail="Screening routed checks")
+            _log_model_guidance(run_dir, "SCREEN")
             info(f"Screen checks: {len(selected_entries(manifest, domain_resolution=resolution))}")
         extra = ["--domain-context", str(values["domain_context"]), "--screen-results-out", str(values["screen_results"])]
         if resolution is not None:
@@ -622,17 +737,18 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         _render_screen(root, values, *extra, verbose=verbose)
         if emit:
             info(f"Screen result template required: {values['screen_results']}")
-        return {"stage": "SCREEN", "template": str(values["screen_results"])}
+        return _stage_result(run_dir, "SCREEN", template=str(values["screen_results"]))
     screen = load_json(values["screen_results"])
     candidates = validate_screen_results(root, manifest, screen, resolution)
     if emit:
-        _log_screen(screen, candidates)
+        _log_screen(screen, candidates, run_dir=run_dir)
     review_snapshot = derive_review_snapshot_id(
         root, manifest, resolution, domain_context, screen
     )
     if candidates:
         if emit:
             stage("DEEP REVIEW", step=5, total=TOTAL_STAGES, detail="Reviewing Deep candidates")
+            _log_model_guidance(run_dir, "DEEP_REVIEW")
         for stale_view in (run_dir / "runtime").glob("deep-*.md"):
             stale_view.unlink()
         for owner in sorted({entry["owner_domain"] for entry in selected_entries(manifest, domain_resolution=resolution) if entry["canonical_id"] in candidates}):
@@ -660,7 +776,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         if emit:
             _log_deep(candidates, records, pending)
         if pending:
-            return {"stage": "DEEP_REVIEW", "pending": sorted(pending)}
+            return _stage_result(run_dir, "DEEP_REVIEW", pending=sorted(pending))
         suspicious = {
             canonical_id
             for canonical_id, record in records.items()
@@ -670,8 +786,9 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             if emit:
                 success("Deep review complete")
                 stage("PROOF", step=6, total=TOTAL_STAGES, detail="Resolving suspicious findings")
+                _log_model_guidance(run_dir, "PROOF")
                 info(f"Remaining proof items: {len(suspicious)}")
-            return {"stage": "PROOF", "pending": sorted(suspicious)}
+            return _stage_result(run_dir, "PROOF", pending=sorted(suspicious))
         if emit:
             success("Deep review complete")
 
@@ -680,8 +797,13 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             stale_view.unlink()
     state = status_run(root, run_dir, emit=False)
     if emit:
-        _log_report(state, finished=True)
-    result: dict[str, Any] = {"stage": "REPORT", "status": state["status"], "audit_state": str(values["audit_state"])}
+        _log_report(state, finished=True, run_dir=run_dir)
+    result: dict[str, Any] = _stage_result(
+        run_dir,
+        "REPORT",
+        status=state["status"],
+        audit_state=str(values["audit_state"]),
+    )
     if state["status"] == "COMPLETE_WITH_FINDINGS":
         result.update(_ensure_reporting_templates(manifest, state, run_dir))
         result.update(
@@ -690,6 +812,35 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             }
         )
     return result
+
+
+def models_run(
+    root: Path,
+    run_dir: Path,
+    *,
+    model_profile_path: Path | None = None,
+    reset_defaults: bool = False,
+) -> dict[str, Any]:
+    if model_profile_path is not None and reset_defaults:
+        raise ValueError("--model-profile and --reset-defaults are mutually exclusive")
+    run_dir = run_dir.resolve()
+    values, _, _ = _load_run(root, run_dir)
+    if model_profile_path is not None:
+        profile = load_profile(model_profile_path.resolve())
+        write_profile(values["model_profile"], profile)
+    elif reset_defaults:
+        profile = default_profile()
+        write_profile(values["model_profile"], profile)
+    elif values["model_profile"].exists():
+        profile = load_profile(values["model_profile"])
+    else:
+        profile = default_profile()
+    return {
+        "stage": "MODELS",
+        "profile_path": str(values["model_profile"]),
+        "persisted": values["model_profile"].exists(),
+        "profile": profile,
+    }
 
 
 def report_run(
@@ -701,7 +852,7 @@ def report_run(
     invalidate_final_outputs(run_dir / "AUDIT-REPORT.md", run_dir / "issue-candidates.json")
     values, manifest, registry = _load_run(root, run_dir)
     state = status_run(root, run_dir, emit=False)
-    _log_report(state, finished=False)
+    _log_report(state, finished=False, run_dir=run_dir)
     severity = load_json(severity_path) if state["complete"] and severity_path else None
     finding_details = load_json(finding_details_path) if state["complete"] and finding_details_path else None
     resolution = load_json(values["resolution"]) if values["resolution"].exists() else None
@@ -732,6 +883,7 @@ def report_run(
         "stage": "REPORT",
         "status": state["status"],
         "complete": state["complete"],
+        "recommended_execution": recommended_execution(run_dir, "REPORT"),
         "report": str(values["report"]),
         "issue_candidates": str(values["issue_candidates"]),
     }
@@ -771,6 +923,17 @@ def main(argv: list[str] | None = None) -> int:
     init.add_argument("--audit-timestamp")
     init.add_argument("--environment-context", type=Path)
     init.add_argument("--require-complete-compilation", action="store_true")
+    model_options = init.add_mutually_exclusive_group()
+    model_options.add_argument(
+        "--accept-default-models",
+        action="store_true",
+        help="persist the canonical Codex stage-model profile",
+    )
+    model_options.add_argument(
+        "--model-profile",
+        type=Path,
+        help="validate and persist a Codex stage-model profile",
+    )
     _add_logging_flags(init)
 
     for name in ("next", "status"):
@@ -786,6 +949,22 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--finding-details", type=Path)
     _add_logging_flags(report)
 
+    models = subparsers.add_parser("models")
+    models.add_argument("--run-dir", type=Path, required=True)
+    models.add_argument("--root", type=Path, default=ROOT)
+    model_options = models.add_mutually_exclusive_group()
+    model_options.add_argument(
+        "--reset-defaults",
+        action="store_true",
+        help="replace the run-scoped Codex profile with canonical defaults",
+    )
+    model_options.add_argument(
+        "--model-profile",
+        type=Path,
+        help="validate and replace the run-scoped Codex profile",
+    )
+    _add_logging_flags(models)
+
     args = parser.parse_args(argv)
     configure(quiet=args.quiet, verbose=args.verbose)
     try:
@@ -795,7 +974,14 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "next":
             result = next_step(root, args.run_dir, verbose=args.verbose)
         elif args.command == "status":
-            result = status_run(root, args.run_dir)
+            result = status_run(root, args.run_dir, include_execution=True)
+        elif args.command == "models":
+            result = models_run(
+                root,
+                args.run_dir,
+                model_profile_path=args.model_profile,
+                reset_defaults=args.reset_defaults,
+            )
         else:
             result = report_run(root, args.run_dir, args.severity_decisions, args.finding_details)
         print(json.dumps(result, ensure_ascii=False, indent=2))
