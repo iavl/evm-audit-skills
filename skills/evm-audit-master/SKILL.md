@@ -42,10 +42,12 @@ inputs.
 
 Controller stderr is terminal-oriented and may be collapsed by the Codex UI.
 After `init`, `next`, `status`, or `report` returns a user-relevant stage,
-render exactly one compact chat banner from its `progress` and
-`recommended_execution` fields before continuing model-owned work. For `init`,
-use `next.stage` and its nested fields; for the other commands, use the returned
-stage fields.
+render compact chat banners from its `progress` and `recommended_execution`
+fields before continuing model-owned work. For `init`, render exactly one
+banner for each entry in `progress_history`, in order; the first entries are
+completed stages and the final entry is the current `next` stage. Do not render
+`next` a second time. For the other commands, render one banner from the
+returned stage fields.
 
 ```text
 +----------------------------------------------+

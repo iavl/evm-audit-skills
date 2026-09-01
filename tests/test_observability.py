@@ -61,6 +61,30 @@ class ObservabilityTests(unittest.TestCase):
                 "summary": "4 required context fields need resolution",
             },
         )
+        history = payload["progress_history"]
+        self.assertEqual(
+            [entry["stage"] for entry in history],
+            ["RECON", "ROUTING", "DOMAIN_CONTEXT"],
+        )
+        self.assertEqual(
+            [entry["state"] for entry in history],
+            ["COMPLETED", "COMPLETED", "CURRENT"],
+        )
+        self.assertEqual(
+            [entry["progress"]["step"] for entry in history],
+            [1, 2, 3],
+        )
+        self.assertEqual(
+            [entry["progress"]["total"] for entry in history],
+            [7, 7, 7],
+        )
+        self.assertEqual(history[-1]["progress"], payload["next"]["progress"])
+        self.assertEqual(
+            history[-1]["recommended_execution"],
+            payload["next"]["recommended_execution"],
+        )
+        self.assertIn("Solidity files analyzed", history[0]["progress"]["summary"])
+        self.assertIn("checks selected", history[1]["progress"]["summary"])
         self.assertIn("EVM AUDIT :: RECON", result.stderr)
         self.assertIn("EVM AUDIT :: ROUTING", result.stderr)
         self.assertIn("Next required stage: DOMAIN CONTEXT", result.stderr)
@@ -71,6 +95,28 @@ class ObservabilityTests(unittest.TestCase):
         self.assertNotIn("Feature Map ready", result.stderr)
         self.assertIsInstance(payload, dict)
 
+    def test_init_history_exposes_domain_resolution_as_step_three(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            result = self.run_cli(
+                "scripts/audit_run.py",
+                "init",
+                str(EMPTY_TARGET),
+                "--run-dir",
+                str(run_dir),
+                "--audit-root",
+                str(EMPTY_TARGET),
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        history = payload["progress_history"]
+        self.assertEqual(payload["next"]["stage"], "DOMAIN_RESOLUTION")
+        self.assertEqual(
+            [(entry["stage"], entry["progress"]["step"]) for entry in history],
+            [("RECON", 1), ("ROUTING", 2), ("DOMAIN_RESOLUTION", 3)],
+        )
+        self.assertEqual(history[-1]["state"], "CURRENT")
+
     def test_quiet_keeps_json_and_errors_visible(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = self.init_run(Path(directory) / "run", "--quiet")
@@ -79,6 +125,10 @@ class ObservabilityTests(unittest.TestCase):
             self.assertIsInstance(payload, dict)
             self.assertEqual(payload["next"]["progress"]["label"], "DOMAIN CONTEXT")
             self.assertEqual(payload["next"]["recommended_execution"]["model"], "gpt-5.6-terra")
+            self.assertEqual(
+                [entry["progress"]["step"] for entry in payload["progress_history"]],
+                [1, 2, 3],
+            )
             self.assertEqual(result.stderr, "")
 
             missing = self.run_cli(
@@ -177,6 +227,17 @@ class ObservabilityTests(unittest.TestCase):
             progress_metadata("PROOF"),
             {"step": 6, "total": 7, "label": "PROOF", "summary": "PROOF stage"},
         )
+
+    def test_domain_substages_keep_distinct_labels_at_step_three(self) -> None:
+        for stage_name, label in (
+            ("DOMAIN_RESOLUTION", "DOMAIN RESOLUTION"),
+            ("DOMAIN_CONTEXT", "DOMAIN CONTEXT"),
+        ):
+            with self.subTest(stage=stage_name):
+                result = _stage_result(Path("/tmp/run"), stage_name)
+                self.assertEqual(result["progress"]["step"], 3)
+                self.assertEqual(result["progress"]["total"], 7)
+                self.assertEqual(result["progress"]["label"], label)
 
     def test_init_next_status_and_report_keep_quiet_stdout_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

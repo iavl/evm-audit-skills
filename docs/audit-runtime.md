@@ -24,6 +24,13 @@ machine-readable `progress` metadata for executor/UI use on `stdout`. The
 Master Skill renders a compact chat banner from that metadata after a
 user-relevant stage transition; it does not parse or depend on `stderr`.
 
+`init` additionally returns an additive `progress_history` array. It contains
+the completed `RECON` and `ROUTING` entries followed by the current `next`
+stage. Each entry has `stage`, display-only `state` (`COMPLETED` or `CURRENT`),
+`progress`, and `recommended_execution`. `next`, `status`, and `report` keep
+their existing single-stage response shape; the history is not persisted in
+audit artifacts.
+
 ## Runtime profiles and artifacts
 
 ### Codex model policy

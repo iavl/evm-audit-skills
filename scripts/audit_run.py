@@ -210,6 +210,38 @@ def _stage_result(
     }
 
 
+def _progress_history_entry(
+    run_dir: Path,
+    stage_name: str,
+    state: str,
+    *,
+    summary: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "stage": stage_name,
+        "state": state,
+        "progress": progress_metadata(stage_name, summary=summary),
+        "recommended_execution": recommended_execution(run_dir, stage_name),
+    }
+
+
+def _recon_progress_summary(feature_map: dict[str, Any]) -> str:
+    recon = feature_map["recon_context"]
+    files_analyzed = recon.get("files_analyzed", [])
+    file_count = len(files_analyzed) if isinstance(files_analyzed, list) else 0
+    compilation = "COMPLETE" if recon.get("compilation_complete") else "INCOMPLETE"
+    return f"{file_count} Solidity files analyzed; compilation {compilation}"
+
+
+def _routing_progress_summary(manifest: dict[str, Any]) -> str:
+    return (
+        f"{len(manifest['selected_domains'])} selected domains; "
+        f"{manifest['selected_count']} checks selected; "
+        f"{len(manifest['deferred_domains'])} deferred domains; "
+        f"{manifest['deferred_count']} checks deferred"
+    )
+
+
 def _unknown_domains(resolution: dict[str, Any] | None) -> set[str] | None:
     if resolution is None:
         return None
@@ -600,10 +632,31 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     next_result = next_step(root, run_dir, verbose=args.verbose, emit=False)
     info(f"Next required stage: {_display_stage(next_result['stage'])}")
     _log_model_guidance(run_dir, next_result["stage"])
+    progress_history = [
+        _progress_history_entry(
+            run_dir,
+            "RECON",
+            "COMPLETED",
+            summary=_recon_progress_summary(feature_map),
+        ),
+        _progress_history_entry(
+            run_dir,
+            "ROUTING",
+            "COMPLETED",
+            summary=_routing_progress_summary(manifest),
+        ),
+        {
+            "stage": next_result["stage"],
+            "state": "CURRENT",
+            "progress": next_result["progress"],
+            "recommended_execution": next_result["recommended_execution"],
+        },
+    ]
     return {
         "stage": "INITIALIZED",
         "run_dir": str(run_dir),
         "manifest": str(values["manifest"]),
+        "progress_history": progress_history,
         "next": next_result,
         "recommended_execution": next_result["recommended_execution"],
     }
