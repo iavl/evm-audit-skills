@@ -49,7 +49,7 @@ class CodexModelProfileTests(unittest.TestCase):
             "DOMAIN_CONTEXT": ("gpt-5.6-terra", "medium"),
             "SCREEN": ("gpt-5.6-terra", "high"),
             "DEEP_REVIEW": ("gpt-5.6-sol", "high"),
-            "PROOF": ("gpt-5.6-sol", "xhigh"),
+            "PROOF": ("gpt-5.6-sol", "max"),
             "REPORT": ("gpt-5.6-terra", "medium"),
         }
         self.assertEqual(DEFAULT_CODEX_MODEL_PROFILE, default_profile())
@@ -234,7 +234,7 @@ class CodexModelProfileTests(unittest.TestCase):
             "DOMAIN_CONTEXT": ("gpt-5.6-terra", "medium"),
             "SCREEN": ("gpt-5.6-terra", "high"),
             "DEEP_REVIEW": ("gpt-5.6-sol", "high"),
-            "PROOF": ("gpt-5.6-sol", "xhigh"),
+            "PROOF": ("gpt-5.6-sol", "max"),
             "REPORT": ("gpt-5.6-terra", "medium"),
         }
         _, _, _, manifest = build_manifest()

@@ -48,7 +48,7 @@ RECON / ROUTING: gpt-5.6-luna max
 DOMAIN_RESOLUTION / DOMAIN_CONTEXT: gpt-5.6-terra medium
 SCREEN: gpt-5.6-terra high
 DEEP_REVIEW: gpt-5.6-sol high
-PROOF: gpt-5.6-sol xhigh
+PROOF: gpt-5.6-sol max
 REPORT: gpt-5.6-terra medium
 
 Use this default profile?

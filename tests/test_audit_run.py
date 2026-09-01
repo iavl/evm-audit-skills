@@ -297,7 +297,7 @@ contract RetainedPoC {
             self.assertIn(candidate["canonical_id"], result.stdout)
             self.assertEqual(
                 json.loads(result.stdout)["recommended_execution"],
-                {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
+                {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "max"},
             )
             resolved = {
                 **{key: value for key, value in suspicious.items() if key != "unresolved_reason"},

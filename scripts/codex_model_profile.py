@@ -38,7 +38,7 @@ DEFAULT_CODEX_MODEL_PROFILE: dict[str, Any] = {
         "DOMAIN_CONTEXT": {"model": "gpt-5.6-terra", "reasoning_effort": "medium"},
         "SCREEN": {"model": "gpt-5.6-terra", "reasoning_effort": "high"},
         "DEEP_REVIEW": {"model": "gpt-5.6-sol", "reasoning_effort": "high"},
-        "PROOF": {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
+        "PROOF": {"model": "gpt-5.6-sol", "reasoning_effort": "max"},
         "REPORT": {"model": "gpt-5.6-terra", "reasoning_effort": "medium"},
     },
 }

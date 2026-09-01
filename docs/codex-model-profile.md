@@ -10,7 +10,7 @@ for the audit.
 | Domain Resolution / Context | Terra · Medium |
 | Screen | Terra · High |
 | Deep Review | Sol · High |
-| Proof | Sol · xHigh |
+| Proof | Sol · Max |
 | Report | Terra · Medium |
 
 Use the defaults unless a stage needs a deliberate model or reasoning
