@@ -140,6 +140,20 @@ def _compilation_sources(root: Path) -> list[Path]:
     ]
 
 
+def _selected_compilation_sources(root: Path, compilation_files: Iterable[str]) -> list[Path]:
+    selected: list[Path] = []
+    for relative in sorted(set(compilation_files)):
+        path = (root / relative).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as error:
+            raise ValueError(f"compilation file is outside build root: {relative}") from error
+        if path.suffix != ".sol" or not path.is_file():
+            raise ValueError(f"compilation file is not an existing Solidity file: {relative}")
+        selected.append(path)
+    return selected
+
+
 def _build_configs(root: Path, dependency_roots: Iterable[str]) -> list[Path]:
     roots = set(dependency_roots)
     return [
@@ -157,8 +171,10 @@ def _compilation_digest(
     dependency: str,
     build: str,
     compiler_version: str | None,
+    compiler_versions: Iterable[str] | None = None,
 ) -> str:
-    values = (audit, dependency, build, compiler_version or "")
+    versions = sorted(set(compiler_versions or (() if compiler_version is None else (compiler_version,))))
+    values = (audit, dependency, build, "\0".join(versions))
     return hashlib.sha256(b"\0".join(value.encode("utf-8") for value in values)).hexdigest()
 
 
@@ -204,6 +220,8 @@ def compilation_digests(
     *,
     build_root: Path | None = None,
     dependency_roots: Iterable[str] = DEFAULT_DEPENDENCY_ROOTS,
+    compilation_files: Iterable[str] | None = None,
+    compiler_versions: Iterable[str] | None = None,
 ) -> dict[str, str]:
     """Fingerprint audit scope and the complete selected compilation context separately."""
     source_files = tuple(source_files)
@@ -214,7 +232,11 @@ def compilation_digests(
     except ValueError as error:
         raise ValueError("audit root must be inside build root") from error
     audit = source_digest(audit_root, source_files)
-    compilation_sources = _compilation_sources(compilation_root)
+    compilation_sources = (
+        _selected_compilation_sources(compilation_root, compilation_files)
+        if compilation_files is not None
+        else _compilation_sources(compilation_root)
+    )
     audit_paths = {
         (audit_root if audit_root.is_file() else audit_root / relative).resolve()
         for relative in source_files
@@ -226,5 +248,7 @@ def compilation_digests(
     dependency = hashlib.sha256((dependency_files + "\0" + _submodule_commits(compilation_root, dependency_roots)).encode("utf-8")).hexdigest()
     build_configs = [path for path in configs if path.name not in DEPENDENCY_METADATA_NAMES]
     build = _digest_files(compilation_root, build_configs)
-    compilation = _compilation_digest(audit, dependency, build, compiler_version)
+    if compiler_versions is None and compiler_version is not None:
+        compiler_versions = (compiler_version,)
+    compilation = _compilation_digest(audit, dependency, build, compiler_version, compiler_versions)
     return {"audit_source_digest": audit, "dependency_digest": dependency, "build_config_digest": build, "compilation_input_digest": compilation}

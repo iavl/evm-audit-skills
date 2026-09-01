@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:code-index:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "target_root", "build_root", "source_digest", "compilation_input_digest", "contracts", "functions", "inheritance", "external_calls", "storage_writes", "modifiers", "source_ranges"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "target_root": {"type": "string", "minLength": 1},
+    "build_root": {"type": "string", "minLength": 1},
+    "source_digest": {"$ref": "#/$defs/hash"},
+    "compilation_input_digest": {"$ref": "#/$defs/hash"},
+    "contracts": {"type": "object", "additionalProperties": {"$ref": "#/$defs/contract"}},
+    "functions": {"type": "object", "additionalProperties": {"$ref": "#/$defs/function"}},
+    "inheritance": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}},
+    "external_calls": {"type": "array", "items": {"$ref": "#/$defs/call"}},
+    "storage_writes": {"type": "array", "items": {"$ref": "#/$defs/write"}},
+    "modifiers": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}},
+    "source_ranges": {"type": "object", "additionalProperties": {"$ref": "#/$defs/range"}}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "origin": {"enum": ["AUDIT_SCOPE", "DEPENDENCY", "UNKNOWN"]},
+    "range": {
+      "type": "object",
+      "required": ["file", "start_line", "end_line"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1}
+      }
+    },
+    "contract": {
+      "allOf": [
+        {"$ref": "#/$defs/range"},
+        {
+          "type": "object",
+          "properties": {
+            "bases": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+            "scope_origin": {"$ref": "#/$defs/origin"}
+          },
+          "required": ["bases", "scope_origin"]
+        }
+      ]
+    },
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "name", "file", "start_line", "end_line", "visibility", "modifiers", "reads", "writes", "internal_calls", "external_calls", "scope_origin"],
+      "properties": {
+        "contract": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "visibility": {"type": "string"},
+        "modifiers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "reads": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "writes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "internal_calls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "external_calls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "scope_origin": {"$ref": "#/$defs/origin"}
+      }
+    },
+    "call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caller", "target", "kind", "file", "start_line"],
+      "properties": {
+        "caller": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1}
+      }
+    },
+    "write": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "variable", "file", "start_line"],
+      "properties": {
+        "function": {"type": "string", "minLength": 1},
+        "variable": {"type": "string", "minLength": 1},
+        "file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

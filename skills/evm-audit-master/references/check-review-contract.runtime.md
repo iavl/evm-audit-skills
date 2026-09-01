@@ -22,9 +22,10 @@ safe path cannot establish `REVIEWED_SAFE` or `CONFIRMED`.
 
 The authoritative JSON object includes `routing_snapshot_id`,
 `registry_sha256`, `source_digest`, `compilation_input_digest`, `owner_domain`,
-`check_body_hash`, `revision`, `review_stage`, `status`, all review fields, and typed
-`evidence` entries (`kind`, `location`, `reason`). It uses review-record schema
-v5 and must match the one routing snapshot that owns the ledger. A follow-up
+`check_body_hash`, `revision`, `review_stage`, `status`, and typed `evidence`
+entries (`kind`, `location`, `reason`). Records must validate against the current
+`<suite-root>/schemas/review-record.schema.json`; status-specific fields are
+required by status, so safe and non-applicable records stay compact. A follow-up
 revision may resolve only a prior `SUSPICIOUS` event and must use `PROOF`.
 `CONFIRMED` records require `PROOF` stage and strong test, trace, invariant, or
 calculation evidence.
@@ -57,7 +58,8 @@ helpers and mocks, is user-owned audit evidence and remains a deliverable.
 ```
 
 For `NOT_APPLICABLE`, set complete scope evidence and cite the relevant exclusion
-dimension; irrelevant evidence kinds are not required.
+dimension allowed by the effective owning Domain's `trusted_absence_policy`;
+irrelevant evidence kinds are not required. Do not emit unresolved field markers.
 For `REVIEWED_SAFE`, cover alternate, inherited, proxy, callback, and
 delegatecall paths where relevant. For `SUSPICIOUS`, identify the missing proof
 step. Only `CONFIRMED` records enter synthesis or receive severity.

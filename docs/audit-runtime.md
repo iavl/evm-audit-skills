@@ -68,7 +68,7 @@ Build and route one immutable snapshot:
 
 ```bash
 python3 scripts/recon.py <target> --audit-root <target-root> --build-root <project-root> \
-  --output recon/feature-map.json
+  --output recon/feature-map.json --code-index-out recon/code-index.json
 python3 scripts/select_checks.py --feature-map recon/feature-map.json \
   --target-root <target-root> --manifest-out routing/manifest.json \
   --context-out context.json
@@ -93,7 +93,7 @@ python3 scripts/render_runtime.py --manifest routing/manifest.json --profile dee
   --screen-results reviews/screen-results.json --output runtime/deep.md
 ```
 
-`screen` carries only ID, title, trigger, and detection. It may classify a
+`screen` carries only ID, title, and a compact screen gate (or trigger fallback). It may classify a
 check only as `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`; only `CANDIDATE` cards
 reach `deep`. Resolve every Deferred Domain, then resolve the required
 snapshot-bound Domain Context and rerun Screen with both artifacts.
@@ -111,15 +111,24 @@ checkpoint and every event bind the deterministic `review_snapshot_id`, derived
 from the routing snapshot plus current Domain resolution, Domain Context, and
 Screen results. Changing any of those artifacts makes prior events stale; start
 a new review epoch instead of rewriting history.
-Events include snapshot/hash identity, a contiguous revision, applicability,
-code path, preconditions, exploitability, impact, PoC/invariant evidence, and
-one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
+Events include snapshot/hash identity, a contiguous revision, typed evidence,
+and one of `NOT_APPLICABLE`, `REVIEWED_SAFE`, `SUSPICIOUS`, or `CONFIRMED`.
+Payload fields are status-specific: safe/non-applicable records stay compact,
+while `CONFIRMED` retains applicability, path, preconditions, exploitability,
+impact, and proof.
 `SUSPICIOUS` may be resolved only by a later `PROOF` event; the latest valid
 event is the derived state and earlier events remain visible in the Markdown
 view.
 
+`proof` runtime views contain only current `SUSPICIOUS` IDs and are written as
+`runtime/proof-<owner-domain>.md`; full machine identity is kept in the adjacent
+`.meta.json` sidecar.
+
+`scripts/benchmark_routing.py` reports UTF-8 byte sizes for Screen, Deep, Proof,
+and representative safe/confirmed records; it uses no external tokenizer.
+
 `--append-record` accepts a current review payload with `record_type: "review"`
-and `schema_version: 6`; the append command assigns the next revision and the
+and the version required by `schemas/review-record.schema.json`; the append command assigns the next revision and the
 current `review_snapshot_id` when it
 is omitted. `CONFIRMED` requires `PROOF` and strong proof evidence. Missing,
 stale, or older record shapes are rejected.
@@ -137,9 +146,10 @@ python3 scripts/review_ledger.py --manifest routing/manifest.json \
   --ledger reviews/review-<owner-domain>.jsonl --render-markdown reviews/review.md
 ```
 
-Runtime Markdown is a generated view with routing snapshot, review snapshot,
-registry, source, compilation-input, profile, and candidate-set hashes; the renderer validates
-those identities before reading check bodies. Filtered IDs remain in the
+Runtime Markdown is a generated model-facing view with only compact stage and
+candidate metadata. Full routing/source/compilation/candidate-set identity is
+kept in the adjacent `.meta.json` sidecar; the renderer validates those
+identities before reading check bodies. Filtered IDs remain in the
 manifest and do not generate per-check Markdown records. Completion comes from
 `validate_audit_run.py` rather than an upstream completion flag.
 

@@ -164,7 +164,10 @@ class RuntimeTests(unittest.TestCase):
         resolution["domains"][primary] = {
             "status": "ABSENT_CONFIRMED",
             "scope_complete": True,
-            "evidence": [{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+            "evidence": [
+                {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                {"kind": "inheritance", "location": "fixture", "reason": "domain surface absent"},
+            ],
         }
         resolution["domains"][fallback] = {
             "status": "PRESENT",
@@ -176,7 +179,10 @@ class RuntimeTests(unittest.TestCase):
                 resolution["domains"][domain] = {
                     "status": "ABSENT_CONFIRMED",
                     "scope_complete": True,
-                    "evidence": [{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+                    "evidence": [
+                        {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                        {"kind": "inheritance", "location": "fixture", "reason": "domain surface absent"},
+                    ],
                 }
         shared_id = "EVM-TIME-001"
         manifest_route = next(entry for entry in manifest["deferred"] if entry["canonical_id"] == shared_id)
@@ -190,7 +196,7 @@ class RuntimeTests(unittest.TestCase):
         check = next(item for item in registry["checks"] if item["canonical_id"] == shared_id)
         record = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "canonical_id": shared_id,
             "revision": 1,
             "owner_domain": fallback,
@@ -232,7 +238,10 @@ class RuntimeTests(unittest.TestCase):
             item.update(
                 status="ABSENT_CONFIRMED",
                 scope_complete=True,
-                evidence=[{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+                evidence=[
+                    {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                    {"kind": "inheritance", "location": "fixture", "reason": "domain surface absent"},
+                ],
             )
         self.assertFalse(any(entry["canonical_id"] == "EVM-TIME-001" for entry in resolved_routes(manifest, resolution)))
         self.assertEqual(screen_results_template(manifest, resolution)["results"], [])
@@ -301,7 +310,10 @@ class RuntimeTests(unittest.TestCase):
         resolution["domains"][deferred[1]] = {
             "status": "ABSENT_CONFIRMED",
             "scope_complete": True,
-            "evidence": [{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+            "evidence": [
+                {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                {"kind": "inheritance", "location": "fixture", "reason": "domain surface absent"},
+            ],
         }
         unresolved = validate_domain_resolution(ROOT, manifest, resolution)
         self.assertEqual(unresolved, set(deferred[2:]))
@@ -394,8 +406,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(candidates, {candidate})
         screen = render(manifest, registry, "screen", set())
         deep = render(manifest, registry, "deep", candidates)
-        self.assertIn("**Trigger:**", screen)
-        self.assertIn("**Detection:**", screen)
+        self.assertIn("**Screen gate:**", screen)
+        self.assertNotIn("**Detection:**", screen)
         self.assertNotIn("**Risk:**", screen)
         self.assertIn(f"## [{candidate}]", deep)
         self.assertIn("**Risk:**", deep)
@@ -410,7 +422,7 @@ class RuntimeTests(unittest.TestCase):
             scope_complete=True,
             evidence=[
                 {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-                {"kind": "source", "location": "fixture", "reason": "trigger absent from source"},
+                {"kind": "inheritance", "location": "fixture", "reason": "trigger absent from inheritance"},
             ],
         )
         validate_screen_results(ROOT, manifest, screen)
@@ -604,7 +616,7 @@ class RuntimeTests(unittest.TestCase):
             path = Path(directory) / "review.jsonl"
             record = {
                 "record_type": "review",
-                "schema_version": 6,
+                "schema_version": 7,
                 "canonical_id": check["canonical_id"],
                 "owner_domain": entry["owner_domain"],
                 "routing_snapshot_id": manifest["routing_snapshot_id"],
@@ -649,7 +661,7 @@ class RuntimeTests(unittest.TestCase):
         screen, domain_context, snapshot = review_inputs(manifest)
         first = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "canonical_id": entry["canonical_id"],
             "owner_domain": entry["owner_domain"],
             "routing_snapshot_id": manifest["routing_snapshot_id"],
@@ -702,7 +714,7 @@ class RuntimeTests(unittest.TestCase):
         screen, domain_context, snapshot = review_inputs(manifest)
         base = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "canonical_id": entry["canonical_id"],
             "revision": 1,
             "owner_domain": entry["owner_domain"],
@@ -776,7 +788,7 @@ class RuntimeTests(unittest.TestCase):
             "proof": "scope proof",
             "evidence": [
                 {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-                {"kind": "source", "location": "fixture", "reason": "trigger absent"},
+                {"kind": "inheritance", "location": "fixture", "reason": "trigger absent"},
             ],
         }
         errors = validate_records(
@@ -794,7 +806,7 @@ class RuntimeTests(unittest.TestCase):
         _, _, snapshot = review_inputs(manifest)
         record = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "canonical_id": entry["canonical_id"],
             "revision": 1,
             "owner_domain": entry["owner_domain"],
@@ -811,7 +823,7 @@ class RuntimeTests(unittest.TestCase):
             "proof": "source evidence proves absence",
             "evidence": [
                 {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-                {"kind": "source", "location": "fixture", "reason": "trigger absent"},
+                {"kind": "inheritance", "location": "fixture", "reason": "trigger absent"},
             ],
         }
         record.update({key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")})
@@ -825,7 +837,7 @@ class RuntimeTests(unittest.TestCase):
         _, _, snapshot = review_inputs(manifest)
         record = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "canonical_id": entry["canonical_id"],
             "revision": 1,
             "owner_domain": entry["owner_domain"],
@@ -858,7 +870,7 @@ class RuntimeTests(unittest.TestCase):
         screen, domain_context, snapshot = review_inputs(manifest)
         record = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "canonical_id": entry["canonical_id"],
             "revision": 1,
             "owner_domain": entry["owner_domain"],
@@ -932,7 +944,7 @@ class RuntimeTests(unittest.TestCase):
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
         _, _, snapshot = review_inputs(manifest)
         base = {
-                "schema_version": 6,
+                "schema_version": 7,
             "record_type": "review",
             "canonical_id": entry["canonical_id"],
             "revision": 1,

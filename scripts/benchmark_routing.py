@@ -11,12 +11,12 @@ import tempfile
 from pathlib import Path
 
 try:
-    from audit_artifacts import validate_domain_context, validate_domain_resolution, validate_schema
+    from audit_artifacts import check_body_hash, validate_domain_context, validate_domain_resolution, validate_schema
     from render_runtime import domain_context_template, render, selected_entries, validate_manifest, validate_screen_results
     from scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, scope_inventory
     from select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
 except ImportError:  # pragma: no cover
-    from scripts.audit_artifacts import validate_domain_context, validate_domain_resolution, validate_schema
+    from scripts.audit_artifacts import check_body_hash, validate_domain_context, validate_domain_resolution, validate_schema
     from scripts.render_runtime import domain_context_template, render, selected_entries, validate_manifest, validate_screen_results
     from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, scope_inventory
     from scripts.select_checks import audit_context, load_domains, load_json, normalize_feature_map, select, vocabulary
@@ -68,7 +68,7 @@ def feature_map(names: set[str], policies: dict[str, dict[str, object]], present
         if status != "UNKNOWN":
             allowed = policies[name]["allowed_absence_evidence"] if status == "ABSENT_CONFIRMED" else ["manual"]
             if allowed:
-                evidence = [{"kind": allowed[0], "location": "benchmark", "reason": "declared benchmark scope"}]
+                evidence = [{"kind": allowed[0], "location": "benchmark", "reason": "declared benchmark scope", "scope_origin": "AUDIT_SCOPE"}]
         entries[name] = {"status": status, "evidence": evidence}
     return {"schema_version": 4, "recon_context": recon_context(SYNTHETIC_TARGET), "features": entries}
 
@@ -176,7 +176,10 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
             entry["domain"]: {
                 "status": "ABSENT_CONFIRMED",
                 "scope_complete": True,
-                "evidence": [{"kind": "scope", "location": "benchmark", "reason": "complete synthetic scope"}],
+                "evidence": [
+                    {"kind": "scope", "location": "benchmark", "reason": "complete synthetic scope"},
+                    {"kind": "inheritance", "location": "benchmark", "reason": "no domain surface"},
+                ],
             }
             for entry in manifest["deferred_domains"]
         },
@@ -195,6 +198,38 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
     candidates = {entry["canonical_id"] for entry in selected_entries(manifest, domain_resolution=domain_resolution)}
     deep = render(manifest, registry, "deep", candidates)
     cost = _total_cost(manifest, screen, deep)
+    proof_ids = set(sorted(candidates)[:3])
+    proof_records = {
+        canonical_id: {
+            "revision": 1,
+            "review_stage": "DEEP_REVIEW",
+            "status": "SUSPICIOUS",
+            "code_path": "benchmark path",
+            "unresolved_reason": "benchmark proof pending",
+            "evidence": [{"kind": "source", "location": "benchmark", "reason": "sample evidence"}],
+        }
+        for canonical_id in proof_ids
+    }
+    proof = render(manifest, registry, "proof", proof_ids, review_snapshot="0" * 64, proof_records=proof_records)
+    sample_id = next(iter(proof_ids), manifest["selected"][0]["canonical_id"])
+    sample_route = next(entry for entry in manifest["selected"] if entry["canonical_id"] == sample_id)
+    sample_identity = {
+        "record_type": "review", "schema_version": 7, "canonical_id": sample_id, "revision": 1,
+        "owner_domain": sample_route["owner_domain"], "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "review_snapshot_id": "0" * 64, "registry_sha256": manifest["audit_context"]["registry_sha256"],
+        "source_digest": manifest["audit_context"]["source_digest"], "compilation_input_digest": manifest["audit_context"]["compilation_input_digest"],
+        "check_body_hash": check_body_hash(next(check for check in registry["checks"] if check["canonical_id"] == sample_id)),
+    }
+    cost.update({
+        "proof_runtime_bytes": len(proof.encode()),
+        "reviewed_safe_record_bytes": len(json.dumps({
+            **sample_identity, "review_stage": "DEEP_REVIEW", "status": "REVIEWED_SAFE", "applicability": "APPLICABLE", "code_path": "benchmark", "preserved_invariant": "holds", "evidence": proof_records[sample_id]["evidence"] if proof_ids else [],
+        }).encode()),
+        "confirmed_record_bytes": len(json.dumps({
+            **sample_identity, "review_stage": "PROOF", "status": "CONFIRMED", "applicability": "APPLICABLE", "code_path": "benchmark", "preconditions": "benchmark", "exploitability": "permissionless", "impact": "fund_loss", "proof": "trace", "evidence": proof_records[sample_id]["evidence"] if proof_ids else [],
+        }).encode()),
+    })
+    cost["total_context_bytes"] += cost["proof_runtime_bytes"]
     recall, false_negative_cases = _routing_recall(fixture, candidates)
     if len(screen) >= len(deep):
         raise ValueError(f"{fixture['name']}: screen runtime must be smaller than candidate Deep runtime")
@@ -207,7 +242,9 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
         "deferred_domains": sorted(_domains(manifest, "deferred_domains")), "filtered_domains": sorted(_domains(manifest, "filtered_domains")),
         "selected_checks": len(candidates), "deferred_checks": manifest["deferred_count"],
         "filtered_checks": manifest["filtered_count"], "screen_runtime_bytes": len(screen.encode()),
-        "deep_runtime_bytes": len(deep.encode()), "aggregate_domain_skill_bytes": aggregate_domain_skill_bytes(root),
+        "deep_runtime_bytes": len(deep.encode()), "proof_runtime_bytes": cost["proof_runtime_bytes"],
+        "reviewed_safe_record_bytes": cost["reviewed_safe_record_bytes"], "confirmed_record_bytes": cost["confirmed_record_bytes"],
+        "aggregate_domain_skill_bytes": aggregate_domain_skill_bytes(root),
         "routing_recall": recall, "false_negative_cases": false_negative_cases, "cost": cost,
     }
 

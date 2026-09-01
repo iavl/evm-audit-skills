@@ -4,36 +4,42 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
 try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows does not provide fcntl
+    fcntl = None  # type: ignore[assignment]
+
+try:
     from audit_artifacts import (
-        absence_evidence_errors,
         check_body_hash,
         derive_review_snapshot_id,
-        has_placeholder,
+        has_unresolved_marker,
         load_json,
         resolved_routes,
+        trusted_absence_policy,
         validate_domain_resolution,
         validate_artifact_identity,
+        validate_non_applicability,
         validate_schema,
         validate_target_snapshot,
     )
     from render_runtime import selected_entries, validate_manifest, validate_screen_results
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
-        absence_evidence_errors,
         check_body_hash,
         derive_review_snapshot_id,
-        has_placeholder,
+        has_unresolved_marker,
         load_json,
         resolved_routes,
+        trusted_absence_policy,
         validate_domain_resolution,
         validate_artifact_identity,
+        validate_non_applicability,
         validate_schema,
         validate_target_snapshot,
     )
@@ -46,11 +52,44 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 TERMINAL = {"NOT_APPLICABLE", "REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}
 REVIEW_STAGES = {"DEEP_REVIEW", "PROOF"}
 IDENTITY_KEYS = ("routing_snapshot_id", "review_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest")
 BASE_IDENTITY_KEYS = tuple(key for key in IDENTITY_KEYS if key != "review_snapshot_id")
+
+
+@contextmanager
+def _ledger_lock(path: Path, *, shared: bool):
+    """Use the same advisory lock for readers and writers when available."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        if fcntl is None:
+            yield
+            return
+        mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+        fcntl.flock(lock.fileno(), mode)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _load_unlocked(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        value = json.loads(line)
+        if not isinstance(value, dict):
+            raise ValueError(f"{path}:{number} must contain an object")
+        records.append(value)
+    return records
+
+
 def read_json(path: Path) -> dict[str, Any]:
     return load_json(path)
 
@@ -71,17 +110,8 @@ def checkpoint(manifest: dict[str, Any], review_snapshot_id: str | None = None) 
 
 
 def load(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    records: list[dict[str, Any]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        value = json.loads(line)
-        if not isinstance(value, dict):
-            raise ValueError(f"{path}:{number} must contain an object")
-        records.append(value)
-    return records
+    with _ledger_lock(path, shared=True):
+        return _load_unlocked(path)
 
 
 def _manifest_routes(
@@ -173,27 +203,38 @@ def validate_record(
     status = record.get("status")
     if status not in TERMINAL:
         errors.append(f"{canonical_id}: status is not terminal")
-    missing = _nonempty(record, ("applicability", "code_path", "preconditions", "exploitability", "impact", "proof"))
+    required_fields = {
+        "NOT_APPLICABLE": ("applicability",),
+        "REVIEWED_SAFE": ("applicability", "code_path", "preserved_invariant"),
+        "SUSPICIOUS": ("code_path", "unresolved_reason"),
+        "CONFIRMED": ("applicability", "code_path", "preconditions", "exploitability", "impact", "proof"),
+    }.get(status, ())
+    missing = _nonempty(record, required_fields)
     if missing:
         errors.append(f"{canonical_id}: missing review fields {missing}")
     evidence = record.get("evidence")
     if not isinstance(evidence, list) or not evidence:
         errors.append(f"{canonical_id}: evidence must be a non-empty typed list")
-    if status == "REVIEWED_SAFE" and _nonempty(record, ("preserved_invariant",)):
-        errors.append(f"{canonical_id}: REVIEWED_SAFE requires preserved_invariant")
-    if status == "REVIEWED_SAFE" and has_placeholder(*(record.get(field) for field in ("applicability", "code_path", "preconditions", "exploitability", "impact", "proof", "preserved_invariant"))):
+    if status == "REVIEWED_SAFE" and has_unresolved_marker(*(record.get(field) for field in ("applicability", "code_path", "preserved_invariant", "blocking_guard"))):
         errors.append(f"{canonical_id}: REVIEWED_SAFE cannot contain UNKNOWN/UNRESOLVED/TODO fields")
     if status == "SUSPICIOUS":
         if _nonempty(record, ("unresolved_reason",)):
             errors.append(f"{canonical_id}: SUSPICIOUS requires unresolved_reason")
     if status == "NOT_APPLICABLE" and not str(record.get("applicability", "")).startswith("NOT_APPLICABLE"):
         errors.append(f"{canonical_id}: NOT_APPLICABLE must explain non-applicability")
-    if status == "NOT_APPLICABLE" and isinstance(evidence, list):
-        quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality", {})
-        if quality.get("absence_filtering_complete") is not True:
-            errors.append(f"{canonical_id}: NOT_APPLICABLE requires complete compilation")
-        errors.extend(absence_evidence_errors(evidence, record.get("scope_complete"), str(canonical_id)))
-    if status == "CONFIRMED" and has_placeholder(*(record.get(field) for field in ("applicability", "code_path", "preconditions", "exploitability", "impact", "proof"))):
+    if status == "NOT_APPLICABLE":
+        errors.extend(validate_non_applicability(
+            evidence=evidence,
+            scope_complete=record.get("scope_complete"),
+            trusted_absence_policy=trusted_absence_policy(manifest, record.get("owner_domain", "")),
+            recon_quality=manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality"),
+            label=str(canonical_id),
+            values=tuple(record.get(field) for field in (
+                "applicability", "code_path", "preconditions", "exploitability", "impact", "proof",
+                "preserved_invariant", "unresolved_reason", "blocking_guard", "suspected_impact", "suspected_preconditions",
+            )),
+        ))
+    if status == "CONFIRMED" and has_unresolved_marker(*(record.get(field) for field in ("applicability", "code_path", "preconditions", "exploitability", "impact", "proof"))):
         errors.append(f"{canonical_id}: CONFIRMED cannot contain UNKNOWN/UNRESOLVED/TODO fields")
     if status == "CONFIRMED":
         if record.get("review_stage") != "PROOF":
@@ -334,14 +375,8 @@ def collect_review_history(
 @contextmanager
 def _writer_lock(path: Path):
     """Serialize revision calculation and append for one ledger."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.with_name(f".{path.name}.lock")
-    with lock_path.open("a+", encoding="utf-8") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    with _ledger_lock(path, shared=False):
+        yield
 
 
 def append(
@@ -372,7 +407,7 @@ def append(
                 raise ValueError(f"append record {key} does not match manifest")
         record = {**record, **{key: identity[key] for key in IDENTITY_KEYS}}
         registry_value = registry or read_json(ROOT / "data/canonical-checks.json")
-        records = load(path)
+        records = _load_unlocked(path)
         if records:
             existing_errors = validate_records(
                 records, manifest, registry_value, expected_ids, domain_resolution, current_snapshot
@@ -421,11 +456,17 @@ def pending(
         raise ValueError("partial screen results contain duplicate or non-selected IDs")
     for entry in screen_records:
         if entry["result"] == "NOT_APPLICABLE_CONFIRMED":
-            quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality", {})
-            if quality.get("absence_filtering_complete") is not True:
-                raise ValueError(f"{entry['canonical_id']}: NOT_APPLICABLE_CONFIRMED requires complete compilation")
-            errors = absence_evidence_errors(
-                entry["evidence"], entry.get("scope_complete"), entry["canonical_id"]
+            route = next(
+                (item for item in selected_entries(manifest, domain_resolution=domain_resolution)
+                 if item["canonical_id"] == entry["canonical_id"]),
+                None,
+            )
+            errors = validate_non_applicability(
+                evidence=entry["evidence"],
+                scope_complete=entry.get("scope_complete"),
+                trusted_absence_policy=trusted_absence_policy(manifest, route["owner_domain"]) if route else None,
+                recon_quality=manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality"),
+                label=entry["canonical_id"],
             )
             if errors:
                 raise ValueError("; ".join(errors))

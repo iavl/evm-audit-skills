@@ -39,7 +39,7 @@ class HardeningTests(unittest.TestCase):
         candidate_id = value["results"][0]["canonical_id"]
         evidence = [
             {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-            {"kind": "source", "location": "fixture", "reason": "screen disposition"},
+            {"kind": "inheritance", "location": "fixture", "reason": "screen disposition"},
         ]
         for item in value["results"]:
             if candidate and item["canonical_id"] == candidate_id:
@@ -52,7 +52,7 @@ class HardeningTests(unittest.TestCase):
         check = next(item for item in registry["checks"] if item["canonical_id"] == canonical_id)
         value = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "canonical_id": canonical_id,
             "owner_domain": route["owner_domain"],
             "check_body_hash": check_body_hash(check),
@@ -170,7 +170,10 @@ class HardeningTests(unittest.TestCase):
             item.update(
                 status="ABSENT_CONFIRMED",
                 scope_complete=True,
-                evidence=[{"kind": "scope", "location": "fixture", "reason": "complete scope"}],
+                evidence=[
+                    {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+                    {"kind": "inheritance", "location": "fixture", "reason": "domain surface absent"},
+                ],
             )
         domain_context = self.context(manifest, resolution)
         screen, candidate_id = self.screen(manifest, resolution, candidate=True)
@@ -348,10 +351,11 @@ class HardeningTests(unittest.TestCase):
             completed_severity["decisions"][candidate_id] = {
                 "severity": "High",
                 "rationale": "completed rationale",
-                "dimensions": {dimension: "completed" for dimension in (
-                    "impact", "exploitability", "privileges", "capital_required", "repeatability",
-                    "user_interaction", "loss_bound", "protocol_exposure", "recoverability",
-                )},
+                "dimensions": {
+                    "impact": "none", "exploitability": "permissionless", "privileges": "none",
+                    "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
+                    "loss_bound": "none", "protocol_exposure": "single_position", "recoverability": "irreversible",
+                },
             }
             completed_severity["review_state_digest"] = digest_one
             severity_path.write_text(json.dumps(completed_severity) + "\n", encoding="utf-8")
@@ -397,7 +401,11 @@ class HardeningTests(unittest.TestCase):
                     candidate_id: {
                         "severity": "High",
                         "rationale": "proof-bound fixture impact",
-                        "dimensions": {key: "fixture" for key in ("impact", "exploitability", "privileges", "capital_required", "repeatability", "user_interaction", "loss_bound", "protocol_exposure", "recoverability")},
+                        "dimensions": {
+                            "impact": "none", "exploitability": "permissionless", "privileges": "none",
+                            "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
+                            "loss_bound": "none", "protocol_exposure": "single_position", "recoverability": "irreversible",
+                        },
                     }
                 },
             }
@@ -460,7 +468,11 @@ class HardeningTests(unittest.TestCase):
                 "review_state_digest": state["review_state_digest"],
                 **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
             }
-            severity = {**identity, "decisions": {candidate_id: {"severity": "High", "rationale": "first", "dimensions": {key: "first" for key in ("impact", "exploitability", "privileges", "capital_required", "repeatability", "user_interaction", "loss_bound", "protocol_exposure", "recoverability")}}}}
+            severity = {**identity, "decisions": {candidate_id: {"severity": "High", "rationale": "first", "dimensions": {
+                "impact": "none", "exploitability": "permissionless", "privileges": "none",
+                "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
+                "loss_bound": "none", "protocol_exposure": "single_position", "recoverability": "irreversible",
+            }}}}
             details = {**identity, "findings": [{"canonical_id": candidate_id, "location": "Fixture.sol:1", "description": "first description", "recommendation": "first fix"}]}
             write_json(severity_path, severity)
             write_json(details_path, details)

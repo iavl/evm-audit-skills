@@ -31,15 +31,15 @@
           "additionalProperties": false,
           "required": ["impact", "exploitability", "privileges", "capital_required", "repeatability", "user_interaction", "loss_bound", "protocol_exposure", "recoverability"],
           "properties": {
-            "impact": {"type": "string", "minLength": 1},
-            "exploitability": {"type": "string", "minLength": 1},
-            "privileges": {"type": "string", "minLength": 1},
-            "capital_required": {"type": "string", "minLength": 1},
-            "repeatability": {"type": "string", "minLength": 1},
-            "user_interaction": {"type": "string", "minLength": 1},
-            "loss_bound": {"type": "string", "minLength": 1},
-            "protocol_exposure": {"type": "string", "minLength": 1},
-            "recoverability": {"type": "string", "minLength": 1}
+            "impact": {"enum": ["none", "limited_user_loss", "fund_loss", "data_integrity", "denial_of_service", "governance_control", "infrastructure_compromise"]},
+            "exploitability": {"enum": ["permissionless", "ordinary_user", "operator_only", "admin_only", "governance_only", "environment_dependent"]},
+            "privileges": {"enum": ["none", "ordinary_user", "operator", "admin", "governance"]},
+            "capital_required": {"enum": ["none", "low", "medium", "high", "protocol_liquidity"]},
+            "repeatability": {"enum": ["one_shot", "repeatable", "state_consuming"]},
+            "user_interaction": {"enum": ["none", "attacker_only", "victim_action", "operator_action"]},
+            "loss_bound": {"enum": ["none", "single_user", "affected_users", "protocol_liquidity", "unbounded"]},
+            "protocol_exposure": {"enum": ["single_position", "affected_users", "whole_protocol", "ecosystem"]},
+            "recoverability": {"enum": ["irreversible", "user_recoverable", "admin_remediable", "governance_remediable"]}
           }
         }
       }

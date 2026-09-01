@@ -19,7 +19,9 @@ from evm_audit_runtime.routing import effective_owner_domain, resolved_routes
 
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-PLACEHOLDER_RE = re.compile(r"\b(?:UNKNOWN|UNRESOLVED|TODO|TBD)\b", re.IGNORECASE)
+# Only treat a field explicitly marked unresolved as unresolved.  Completed
+# prose may legitimately mention words such as "unknown".
+UNRESOLVED_MARKERS = ("UNKNOWN", "UNRESOLVED", "TODO", "TBD")
 ABSENCE_EVIDENCE_KINDS = {
     "source",
     "inheritance",
@@ -249,8 +251,19 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def has_placeholder(*values: Any) -> bool:
-    return any(PLACEHOLDER_RE.search(str(value or "")) for value in values)
+def is_unresolved_value(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().upper()
+    return any(
+        normalized == marker or normalized.startswith(f"{marker} ") or normalized.startswith(f"{marker}:")
+        or normalized.startswith(f"{marker}-") or normalized.startswith(f"{marker}—")
+        for marker in UNRESOLVED_MARKERS
+    )
+
+
+def has_unresolved_marker(*values: Any) -> bool:
+    return any(is_unresolved_value(value) for value in values)
 
 
 def artifact_identity(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -300,8 +313,35 @@ def absence_evidence_errors(
     kinds = {item.get("kind") for item in evidence if isinstance(item, dict)}
     if "scope" not in kinds:
         errors.append(f"{label}: non-applicability requires scope evidence")
-    if not kinds & ABSENCE_EVIDENCE_KINDS:
+    if not kinds & (ABSENCE_EVIDENCE_KINDS - {"scope"}):
         errors.append(f"{label}: non-applicability requires evidence for an exclusion dimension")
+    return errors
+
+
+def validate_non_applicability(
+    *,
+    evidence: Any,
+    scope_complete: Any,
+    trusted_absence_policy: dict[str, Any] | None,
+    recon_quality: dict[str, Any] | None,
+    label: str,
+    values: tuple[Any, ...] = (),
+) -> list[str]:
+    """Apply the same fail-closed absence policy to every review stage."""
+    errors = absence_evidence_errors(evidence, scope_complete, label)
+    if (recon_quality or {}).get("absence_filtering_complete") is not True:
+        errors.append(f"{label}: NOT_APPLICABLE requires complete compilation")
+    if not isinstance(trusted_absence_policy, dict):
+        errors.append(f"{label}: trusted_absence_policy is unavailable")
+    else:
+        allowed = set(trusted_absence_policy.get("allowed_evidence", []))
+        kinds = {item.get("kind") for item in evidence if isinstance(item, dict)} if isinstance(evidence, list) else set()
+        if not kinds or not kinds <= allowed:
+            errors.append(f"{label}: non-applicability evidence violates trusted_absence_policy")
+        if trusted_absence_policy.get("requires_complete_scope") is True and "scope" not in kinds:
+            errors.append(f"{label}: complete-scope absence requires scope evidence")
+    if has_unresolved_marker(*values):
+        errors.append(f"{label}: non-applicability cannot contain unresolved field markers")
     return errors
 
 
@@ -314,6 +354,12 @@ def _domain_route(manifest: dict[str, Any], domain: str) -> dict[str, Any] | Non
         ),
         None,
     )
+
+
+def trusted_absence_policy(manifest: dict[str, Any], domain: str) -> dict[str, Any] | None:
+    route = _domain_route(manifest, domain)
+    policy = route.get("trusted_absence_policy") if route else None
+    return policy if isinstance(policy, dict) else None
 
 
 def validate_domain_resolution(
@@ -346,15 +392,15 @@ def validate_domain_resolution(
             quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality", {})
             if quality.get("absence_filtering_complete") is not True:
                 raise ValueError(f"{domain}: ABSENT_CONFIRMED is unavailable with incomplete compilation")
-            policy = route.get("trusted_absence_policy") or {}
-            kinds = {item["kind"] for item in evidence}
-            allowed = set(policy.get("allowed_evidence", []))
-            if resolution["scope_complete"] is not True:
-                raise ValueError(f"{domain}: ABSENT_CONFIRMED requires scope_complete=true")
-            if not kinds or not kinds <= allowed:
-                raise ValueError(f"{domain}: absence evidence violates trusted_absence_policy")
-            if policy.get("requires_complete_scope") is True and "scope" not in kinds:
-                raise ValueError(f"{domain}: complete-scope absence requires scope evidence")
+            errors = validate_non_applicability(
+                evidence=evidence,
+                scope_complete=resolution["scope_complete"],
+                trusted_absence_policy=route.get("trusted_absence_policy"),
+                recon_quality=manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality"),
+                label=domain,
+            )
+            if errors:
+                raise ValueError("; ".join(errors))
         if status == "UNKNOWN":
             unresolved.add(domain)
             if require_terminal:
@@ -427,21 +473,14 @@ def validate_domain_context(
                 if not _non_empty_value(item.get("value")) or not item.get("evidence"):
                     raise ValueError(f"{domain}.{key} KNOWN requires value and evidence")
             elif status == "NOT_APPLICABLE":
-                quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality", {})
-                if quality.get("absence_filtering_complete") is not True:
-                    raise ValueError(f"{domain}.{key}: NOT_APPLICABLE is unavailable with incomplete compilation")
                 route = _domain_route(manifest, domain)
-                policy = route.get("trusted_absence_policy") if route else None
-                if not isinstance(policy, dict):
-                    raise ValueError(f"{domain}.{key} NOT_APPLICABLE has no trusted_absence_policy")
-                errors = absence_evidence_errors(
-                    item.get("evidence"), item.get("scope_complete"), f"{domain}.{key}"
+                errors = validate_non_applicability(
+                    evidence=item.get("evidence"),
+                    scope_complete=item.get("scope_complete"),
+                    trusted_absence_policy=route.get("trusted_absence_policy") if route else None,
+                    recon_quality=manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality"),
+                    label=f"{domain}.{key}",
                 )
-                evidence = item.get("evidence")
-                kinds = {entry.get("kind") for entry in evidence if isinstance(entry, dict)} if isinstance(evidence, list) else set()
-                allowed = set(policy.get("allowed_evidence", []))
-                if kinds and not kinds <= allowed:
-                    errors.append(f"{domain}.{key}: non-applicability evidence violates trusted_absence_policy")
                 if errors:
                     raise ValueError("; ".join(errors))
             if requirements[domain][key]["required"] and status == "UNKNOWN":
@@ -496,6 +535,8 @@ def validate_target_snapshot(manifest: dict[str, Any]) -> None:
         recon["solc_version"],
         build_root=build_root,
         dependency_roots=dependency_roots,
+        compilation_files=recon.get("compilation_files"),
+        compiler_versions=recon.get("compiler_versions"),
     )
     expected = {
         "source_digest": recon["source_digest"],

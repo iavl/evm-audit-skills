@@ -23,7 +23,7 @@ class ReportingTests(unittest.TestCase):
         candidate_id = screen["results"][0]["canonical_id"]
         evidence = [
             {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-            {"kind": "source", "location": "fixture", "reason": "screen disposition"},
+            {"kind": "inheritance", "location": "fixture", "reason": "screen disposition"},
         ]
         for result in screen["results"]:
             if result["canonical_id"] == candidate_id and candidate:
@@ -46,7 +46,7 @@ class ReportingTests(unittest.TestCase):
         check = next(item for item in registry["checks"] if item["canonical_id"] == candidate_id)
         record = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "revision": 1,
             "canonical_id": candidate_id,
             "owner_domain": entry["owner_domain"],
@@ -83,15 +83,15 @@ class ReportingTests(unittest.TestCase):
                     "severity": severity,
                     "rationale": "fixture impact and reachability support the selected level",
                     "dimensions": {
-                        "impact": "material accounting loss",
-                        "exploitability": "permissionless after setup",
-                        "privileges": "ordinary user",
+                        "impact": "fund_loss",
+                        "exploitability": "permissionless",
+                        "privileges": "ordinary_user",
                         "capital_required": "low",
                         "repeatability": "repeatable",
-                        "user_interaction": "victim action required",
-                        "loss_bound": "affected position",
-                        "protocol_exposure": "affected users",
-                        "recoverability": "admin-remediable",
+                        "user_interaction": "victim_action",
+                        "loss_bound": "affected_users",
+                        "protocol_exposure": "affected_users",
+                        "recoverability": "admin_remediable",
                     },
                 }
             },

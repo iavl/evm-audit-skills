@@ -136,7 +136,7 @@ class LifecycleTests(unittest.TestCase):
         value = self.read(path)
         evidence = [
             {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-            {"kind": "source", "location": "fixture", "reason": "trigger absent"},
+            {"kind": "inheritance", "location": "fixture", "reason": "trigger absent"},
         ]
         for result in value["results"]:
             result.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
@@ -169,7 +169,7 @@ class LifecycleTests(unittest.TestCase):
         value = self.read(paths["screen_results"])
         evidence = [
             {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-            {"kind": "source", "location": "fixture", "reason": "candidate requires review"},
+            {"kind": "inheritance", "location": "fixture", "reason": "candidate requires review"},
         ]
         for result in value["results"][1:]:
             result.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
@@ -178,7 +178,7 @@ class LifecycleTests(unittest.TestCase):
         route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate)
         record = {
             "record_type": "review",
-            "schema_version": 6,
+            "schema_version": 7,
             "canonical_id": candidate,
             "owner_domain": route["owner_domain"],
             "check_body_hash": route["check_body_hash"],
@@ -331,7 +331,7 @@ class LifecycleTests(unittest.TestCase):
             if domain == present:
                 value["domains"][domain] = {"status": "PRESENT", "scope_complete": False, "evidence": [{"kind": "source", "location": "fixture", "reason": "surface present"}]}
             else:
-                value["domains"][domain] = {"status": "ABSENT_CONFIRMED", "scope_complete": True, "evidence": [{"kind": "scope", "location": "fixture", "reason": "complete scope"}]}
+                value["domains"][domain] = {"status": "ABSENT_CONFIRMED", "scope_complete": True, "evidence": [{"kind": "scope", "location": "fixture", "reason": "complete scope"}, {"kind": "inheritance", "location": "fixture", "reason": "domain surface absent"}]}
         self.write(paths["resolution"], value)
 
     def render_resolved_automatic(self, paths: dict[str, Path]) -> None:

@@ -21,6 +21,7 @@ try:
         atomic_write_text,
         invalidate_final_outputs,
         load_json,
+        has_unresolved_marker,
         review_state_digest,
         validate_artifact_identity,
         validate_domain_resolution,
@@ -36,6 +37,7 @@ except ImportError:  # pragma: no cover
         atomic_write_text,
         invalidate_final_outputs,
         load_json,
+        has_unresolved_marker,
         review_state_digest,
         validate_artifact_identity,
         validate_domain_resolution,
@@ -215,6 +217,15 @@ def synthesize(
             validate_artifact_identity(severity_decisions, manifest)
             validate_review_state_binding(severity_decisions, current_digest)
             decisions = _severity_decisions(severity_decisions)
+            if any(
+                has_unresolved_marker(
+                    decision.get("severity"),
+                    decision.get("rationale"),
+                    *(decision.get("dimensions", {}).values() if isinstance(decision.get("dimensions"), dict) else ()),
+                )
+                for decision in decisions.values()
+            ):
+                raise ValueError("severity artifact contains unresolved field markers")
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"INCOMPLETE_SEVERITY: {error}") from error
     for canonical_id in decisions:
@@ -265,6 +276,13 @@ def synthesize(
             validate_artifact_identity(finding_details, manifest)
             validate_review_state_binding(finding_details, current_digest)
             details = _finding_details(finding_details)
+            if any(
+                has_unresolved_marker(
+                    finding.get("location"), finding.get("description"), finding.get("recommendation")
+                )
+                for finding in details.values()
+            ):
+                raise ValueError("finding details contain unresolved field markers")
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"INCOMPLETE_REPORTING: {error}") from error
     if confirmed and finding_details is None:

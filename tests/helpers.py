@@ -48,9 +48,9 @@ def synthetic_feature_map(
             evidence: list[dict[str, str]] = []
         elif status == "ABSENT_CONFIRMED":
             kind = (policies[feature].get("allowed_absence_evidence") or ["manual"])[0]
-            evidence = [{"kind": kind, "location": "fixture", "reason": "explicit fixture evidence"}]
+            evidence = [{"kind": kind, "location": "fixture", "reason": "explicit fixture evidence", "scope_origin": "AUDIT_SCOPE"}]
         else:
-            evidence = [{"kind": "manual", "location": "fixture", "reason": "explicit fixture evidence"}]
+            evidence = [{"kind": "manual", "location": "fixture", "reason": "explicit fixture evidence", "scope_origin": "AUDIT_SCOPE"}]
         features[feature] = {"status": status, "evidence": evidence}
     return {
         "schema_version": 4,

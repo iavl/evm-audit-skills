@@ -11,6 +11,7 @@ REQUIRED_FIELDS = {
     "id", "name", "checklist_title", "description", "surface_features", "related_domains",
     "always_screen", "required_context", "review_requirements", "trusted_absence_policy",
 }
+OPTIONAL_FIELDS = {"dependency_presence_sufficient"}
 
 
 def validate_domain_configs(
@@ -22,8 +23,8 @@ def validate_domain_configs(
     valid_domains = set(configs)
     for domain, config in configs.items():
         prefix = f"{root / 'domains'}:{domain}"
-        if set(config) != REQUIRED_FIELDS:
-            errors.append(f"{prefix}: fields must be {sorted(REQUIRED_FIELDS)}")
+        if set(config) - REQUIRED_FIELDS - OPTIONAL_FIELDS or not REQUIRED_FIELDS <= set(config):
+            errors.append(f"{prefix}: fields must include {sorted(REQUIRED_FIELDS)}")
         if not all(isinstance(config.get(field), str) and config[field].strip() for field in ("id", "name", "checklist_title", "description")):
             errors.append(f"{prefix}: id/name/checklist_title/description must be non-empty strings")
         if not isinstance(config.get("surface_features"), list) or not config["surface_features"]:
@@ -32,6 +33,8 @@ def validate_domain_configs(
             errors.append(f"{prefix}: related_domains must be a list")
         if not isinstance(config.get("always_screen"), bool):
             errors.append(f"{prefix}: always_screen must be boolean")
+        if "dependency_presence_sufficient" in config and not isinstance(config["dependency_presence_sufficient"], bool):
+            errors.append(f"{prefix}: dependency_presence_sufficient must be boolean")
         required_context = config.get("required_context")
         if not isinstance(required_context, list) or not required_context:
             errors.append(f"{prefix}: required_context must be a non-empty list")

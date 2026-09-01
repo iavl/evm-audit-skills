@@ -95,8 +95,9 @@ The JSONL checkpoint carries `routing_snapshot_id`, `registry_sha256`,
 `source_digest`, and `compilation_input_digest`; every review record also
 carries the routed `check_body_hash`. Typed evidence entries use `kind`,
 `location`, and `reason`.
-The current review-record schema is v5. A ledger belongs to exactly one routing
-snapshot; if any identity or schema value changes, start a new audit run.
+Records must validate against the current
+`<suite-root>/schemas/review-record.schema.json`. A ledger belongs to exactly one
+routing snapshot; if any identity or schema value changes, start a new audit run.
 Markdown ledgers are not runtime input; `review_ledger.py` renders them from
 JSONL when a human view is needed.
 
@@ -115,9 +116,11 @@ JSONL when a human view is needed.
 ```
 
 New runs do not write `FAST_FILTER` records: the routing manifest is the sole
-FAST_FILTER artifact. At `DEEP_REVIEW` and `PROOF`, do not leave applicable
-fields blank. Use an explicit `N/A — reason` or `UNRESOLVED — missing ...`
-where a field does not support the selected status.
+FAST_FILTER artifact. Review records use status-specific payloads: `REVIEWED_SAFE`
+requires the preserved invariant, `NOT_APPLICABLE` requires complete trusted
+absence evidence, `SUSPICIOUS` requires an unresolved reason, and `CONFIRMED`
+requires the full proof-bound payload. Do not pad compact statuses with unresolved
+placeholders.
 
 ## State-Specific Gates
 

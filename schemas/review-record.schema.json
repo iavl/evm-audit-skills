@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:review-record:v6",
+  "$id": "urn:evm-audit-skills:review-record:v7",
   "oneOf": [
     {
       "type": "object",
@@ -8,7 +8,7 @@
       "required": ["record_type", "schema_version", "routing_snapshot_id", "review_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest"],
       "properties": {
         "record_type": {"const": "checkpoint"},
-        "schema_version": {"const": 6},
+        "schema_version": {"const": 7},
         "routing_snapshot_id": {"$ref": "#/$defs/hash"},
         "review_snapshot_id": {"$ref": "#/$defs/hash"},
         "registry_sha256": {"$ref": "#/$defs/hash"},
@@ -21,12 +21,11 @@
       "additionalProperties": false,
       "required": [
         "record_type", "schema_version", "canonical_id", "revision", "owner_domain", "routing_snapshot_id", "review_snapshot_id",
-        "registry_sha256", "source_digest", "compilation_input_digest", "check_body_hash", "review_stage", "status", "applicability", "code_path",
-        "preconditions", "exploitability", "impact", "proof", "evidence"
+        "registry_sha256", "source_digest", "compilation_input_digest", "check_body_hash", "review_stage", "status", "evidence"
       ],
       "properties": {
         "record_type": {"const": "review"},
-        "schema_version": {"const": 6},
+        "schema_version": {"const": 7},
         "canonical_id": {"type": "string", "minLength": 1},
         "revision": {"type": "integer", "minimum": 1},
         "owner_domain": {"type": "string", "pattern": "^evm-audit-[a-z0-9-]+$"},
@@ -47,18 +46,31 @@
         "proof": {"type": "string", "minLength": 1},
         "preserved_invariant": {"type": "string", "minLength": 1},
         "unresolved_reason": {"type": "string", "minLength": 1},
+        "blocking_guard": {"type": "string", "minLength": 1},
+        "suspected_impact": {"type": "string", "minLength": 1},
+        "suspected_preconditions": {"type": "string", "minLength": 1},
         "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}}
       },
       "allOf": [
-        {"if": {"properties": {"status": {"const": "REVIEWED_SAFE"}}}, "then": {"required": ["preserved_invariant"]}},
-        {"if": {"properties": {"status": {"const": "SUSPICIOUS"}}}, "then": {"required": ["unresolved_reason"]}},
+        {
+          "if": {"properties": {"status": {"const": "REVIEWED_SAFE"}}},
+          "then": {"required": ["applicability", "code_path", "preserved_invariant"]}
+        },
         {
           "if": {"properties": {"status": {"const": "NOT_APPLICABLE"}}},
-          "then": {"required": ["scope_complete"], "properties": {"scope_complete": {"const": true}}}
+          "then": {
+            "required": ["scope_complete", "applicability"],
+            "properties": {"scope_complete": {"const": true}}
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "SUSPICIOUS"}}},
+          "then": {"required": ["code_path", "unresolved_reason"]}
         },
         {
           "if": {"properties": {"status": {"const": "CONFIRMED"}}},
           "then": {
+            "required": ["applicability", "code_path", "preconditions", "exploitability", "impact", "proof"],
             "properties": {
               "review_stage": {"const": "PROOF"},
               "evidence": {

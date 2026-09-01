@@ -18,8 +18,11 @@ For every confirmed finding, record an evidence-backed value and rationale for:
 - **Protocol exposure** — isolated component, affected users, market, or whole protocol.
 - **Recoverability** — automatic, admin-remediable, delayed, or irreversible.
 
-Use `none`, `low`, `medium`, or `high` where a dimension is qualitative. Include
-the code path, calculation, test, or deployment fact supporting each value.
+Use the constrained enum values in
+`<suite-root>/schemas/severity-decisions.schema.json` (for example
+`fund_loss`, `permissionless`, `repeatable`, and `whole_protocol`), not free-form
+sentences. Include the code path, calculation, test, or deployment fact in the
+rationale supporting each value.
 
 ## Synthesis mapping
 

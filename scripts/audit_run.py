@@ -41,14 +41,14 @@ try:
         atomic_write_json,
         atomic_write_text,
         derive_review_snapshot_id,
-        has_placeholder,
         invalidate_final_outputs,
         load_json,
         validate_domain_context,
         validate_domain_resolution,
         validate_target_snapshot,
     )
-    from render_runtime import selected_entries, validate_manifest, validate_screen_results
+    from render_runtime import runtime_metadata, selected_entries, validate_manifest, validate_screen_results
+    from code_context import validate_code_index
     from review_ledger import collect_review_records
     from synthesize_report import synthesize
     from validate_audit_run import validate_run
@@ -57,14 +57,14 @@ except ImportError:  # pragma: no cover
         atomic_write_json,
         atomic_write_text,
         derive_review_snapshot_id,
-        has_placeholder,
         invalidate_final_outputs,
         load_json,
         validate_domain_context,
         validate_domain_resolution,
         validate_target_snapshot,
     )
-    from scripts.render_runtime import selected_entries, validate_manifest, validate_screen_results
+    from scripts.render_runtime import runtime_metadata, selected_entries, validate_manifest, validate_screen_results
+    from scripts.code_context import validate_code_index
     from scripts.review_ledger import collect_review_records
     from scripts.synthesize_report import synthesize
     from scripts.validate_audit_run import validate_run
@@ -97,6 +97,7 @@ REPORTING_IDENTITY_KEYS = (
 def paths(run_dir: Path) -> dict[str, Path]:
     return {
         "feature_map": run_dir / "recon/feature-map.json",
+        "code_index": run_dir / "recon/code-index.json",
         "manifest": run_dir / "routing/manifest.json",
         "context": run_dir / "context.json",
         "environment": run_dir / "routing/environment-context.json",
@@ -576,6 +577,7 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     recon_args = [str(target), "--root", str(root), "--output", str(values["feature_map"])]
     if args.solc:
         recon_args.extend(["--solc", args.solc])
+    recon_args.extend(["--code-index-out", str(values["code_index"])])
     if args.audit_root:
         recon_args.extend(["--audit-root", str(audit_root)])
     if args.build_root:
@@ -656,6 +658,7 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         "stage": "INITIALIZED",
         "run_dir": str(run_dir),
         "manifest": str(values["manifest"]),
+        "code_index": str(values["code_index"]),
         "progress_history": progress_history,
         "next": next_result,
         "recommended_execution": next_result["recommended_execution"],
@@ -670,11 +673,79 @@ def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Path], dict[str, Any
     registry = load_json(root / "data/canonical-checks.json")
     validate_manifest(root, manifest, registry)
     validate_target_snapshot(manifest)
+    if values["code_index"].exists():
+        index = load_json(values["code_index"])
+        audit = manifest["audit_context"]
+        validate_code_index(
+            root,
+            index,
+            source_digest=audit["source_digest"],
+            compilation_input_digest=audit["compilation_input_digest"],
+        )
     return values, manifest, registry
 
 
 def _ledger_paths(run_dir: Path) -> list[Path]:
     return sorted((run_dir / "reviews").glob("review-*.jsonl"))
+
+
+def _runtime_view_current(output: Path, expected: dict[str, Any]) -> bool:
+    metadata = output.with_suffix(".meta.json")
+    if not output.exists() or not metadata.exists():
+        return False
+    try:
+        return load_json(metadata) == expected
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+
+
+def _prune_runtime_views(run_dir: Path, profile: str, keep: set[Path]) -> None:
+    for output in (run_dir / "runtime").glob(f"{profile}-*.md"):
+        if output.resolve() in keep:
+            continue
+        output.unlink()
+        metadata = output.with_suffix(".meta.json")
+        if metadata.exists():
+            metadata.unlink()
+
+
+def _render_owner_view(
+    root: Path,
+    values: dict[str, Path],
+    *,
+    profile: str,
+    owner: str,
+    ids: set[str],
+    review_snapshot: str,
+    resolution: Path | None = None,
+    ledger_paths: list[Path] | None = None,
+    verbose: bool = False,
+) -> tuple[Path, bool]:
+    output = values["manifest"].parent.parent / "runtime" / f"{profile}-{owner}.md"
+    expected = runtime_metadata(
+        load_json(values["manifest"]), profile, sorted(ids), owner, review_snapshot
+    )
+    if _runtime_view_current(output, expected):
+        return output, True
+    extra = [
+        "--domain-context", str(values["domain_context"]),
+        "--screen-results", str(values["screen_results"]),
+        "--owner-domain", owner,
+        "--output", str(output),
+    ]
+    if resolution is not None:
+        extra[0:0] = ["--domain-resolution", str(resolution)]
+    if profile == "proof":
+        for ledger in ledger_paths or []:
+            extra.extend(["--ledger", str(ledger)])
+    _run(
+        root,
+        "render_runtime.py",
+        ["--manifest", str(values["manifest"]), "--profile", profile, *extra],
+        verbose=verbose,
+    )
+    atomic_write_json(output.with_suffix(".meta.json"), expected)
+    return output, False
 
 
 def _reporting_identity(manifest: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
@@ -739,8 +810,7 @@ def _reporting_ids(value: dict[str, Any], kind: str) -> tuple[set[str] | None, b
 def _is_generated_reporting_template(value: dict[str, Any], kind: str) -> bool:
     if value.get("artifact_state") == "COMPLETED":
         return False
-    content = value.get("decisions" if kind == "severity" else "findings")
-    return has_placeholder(content)
+    return value.get("artifact_state") == "TEMPLATE"
 
 
 def _reporting_matches(
@@ -957,24 +1027,20 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         if emit:
             _emit_stage("DEEP_REVIEW", "Reviewing Deep candidates")
             _log_model_guidance(run_dir, "DEEP_REVIEW")
-        for stale_view in (run_dir / "runtime").glob("deep-*.md"):
-            stale_view.unlink()
+        deep_views: set[Path] = set()
         for owner in sorted({entry["owner_domain"] for entry in selected_entries(manifest, domain_resolution=resolution) if entry["canonical_id"] in candidates}):
-            output = run_dir / "runtime" / f"deep-{owner}.md"
-            extra = [
-                "--domain-context", str(values["domain_context"]),
-                "--screen-results", str(values["screen_results"]),
-                "--owner-domain", owner,
-                "--output", str(output),
-            ]
-            if resolution is not None:
-                extra[0:0] = ["--domain-resolution", str(values["resolution"])]
-            _run(
+            output, _ = _render_owner_view(
                 root,
-                "render_runtime.py",
-                ["--manifest", str(values["manifest"]), "--profile", "deep", *extra],
+                values,
+                profile="deep",
+                owner=owner,
+                ids={entry["canonical_id"] for entry in selected_entries(manifest, owner, resolution) if entry["canonical_id"] in candidates},
+                review_snapshot=review_snapshot,
+                resolution=values["resolution"] if resolution is not None else None,
                 verbose=verbose,
             )
+            deep_views.add(output.resolve())
+        _prune_runtime_views(run_dir, "deep", deep_views)
         records, errors = collect_review_records(
             _ledger_paths(run_dir), manifest, registry, candidates, resolution, review_snapshot
         )
@@ -996,6 +1062,22 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             if record["status"] == "SUSPICIOUS"
         }
         if suspicious:
+            proof_views: set[Path] = set()
+            ledgers = _ledger_paths(run_dir)
+            for owner in sorted({record["owner_domain"] for record in records.values() if record.get("status") == "SUSPICIOUS"}):
+                output, _ = _render_owner_view(
+                    root,
+                    values,
+                    profile="proof",
+                    owner=owner,
+                    ids={canonical_id for canonical_id, record in records.items() if record.get("status") == "SUSPICIOUS" and record.get("owner_domain") == owner},
+                    review_snapshot=review_snapshot,
+                    resolution=values["resolution"] if resolution is not None else None,
+                    ledger_paths=ledgers,
+                    verbose=verbose,
+                )
+                proof_views.add(output.resolve())
+            _prune_runtime_views(run_dir, "proof", proof_views)
             if emit:
                 success("Deep review complete")
                 _emit_stage("PROOF", "Resolving suspicious findings")
@@ -1006,13 +1088,14 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
                 "PROOF",
                 summary=f"{len(suspicious)} suspicious findings require Proof",
                 pending=sorted(suspicious),
+                runtime_views=[str(path) for path in sorted(proof_views)],
             )
         if emit:
             success("Deep review complete")
 
     if not candidates:
-        for stale_view in (run_dir / "runtime").glob("deep-*.md"):
-            stale_view.unlink()
+        _prune_runtime_views(run_dir, "deep", set())
+    _prune_runtime_views(run_dir, "proof", set())
     state = status_run(root, run_dir, emit=False)
     if emit:
         _log_report(state, finished=True, run_dir=run_dir)

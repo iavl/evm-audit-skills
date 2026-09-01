@@ -30,6 +30,11 @@ except ImportError:  # pragma: no cover - supports importing from another cwd
     from scripts.audit_artifacts import validate_schema
 
 try:
+    from code_context import build_code_index
+except ImportError:  # pragma: no cover - supports importing from another cwd
+    from scripts.code_context import build_code_index
+
+try:
     from runtime_log import configure, error, info, stage, success
 except ImportError:  # pragma: no cover - supports importing from another cwd
     from scripts.runtime_log import configure, error, info, stage, success
@@ -96,40 +101,76 @@ def ensure_slither_import() -> Any:
         raise AssertionError("unreachable")
 
 
-def source_evidence(value: Any, detector: str, kind: str) -> tuple[str, str, str]:
+def scope_origin_for(
+    value: Any,
+    scope_root: Path | None,
+    audit_files: set[str] | None,
+) -> str:
+    if scope_root is None:
+        return "UNKNOWN"
+    mapping = getattr(value, "source_mapping", None)
+    filename = getattr(getattr(mapping, "filename", None), "absolute", None)
+    if not filename:
+        return "UNKNOWN"
+    absolute = Path(str(filename)).resolve()
+    if scope_root.is_file():
+        return "AUDIT_SCOPE" if absolute == scope_root.resolve() else "DEPENDENCY"
+    relative = relative_scope_path(scope_root, absolute)
+    return "AUDIT_SCOPE" if relative is not None and (audit_files is None or relative in audit_files) else "DEPENDENCY"
+
+
+def source_evidence(
+    value: Any,
+    detector: str,
+    kind: str,
+    scope_root: Path | None = None,
+    audit_files: set[str] | None = None,
+) -> tuple[str, str, str, str]:
     mapping = getattr(value, "source_mapping", None)
     filename = getattr(getattr(mapping, "filename", None), "relative", None)
     lines = getattr(mapping, "lines", None) or []
     location = f"{filename}:{lines[0]}" if filename and lines else str(filename or "unknown")
-    return kind, location, f"Slither detector matched {detector}"
+    return kind, location, f"Slither detector matched {detector}", scope_origin_for(value, scope_root, audit_files)
 
 
-def add(evidence: dict[str, set[tuple[str, str, str]]], feature: str, value: Any, detector: str, kind: str = "slither-ast") -> None:
-    evidence[feature].add(source_evidence(value, detector, kind))
+def add(
+    evidence: dict[str, set[tuple[str, str, str, str]]],
+    feature: str,
+    value: Any,
+    detector: str,
+    kind: str = "slither-ast",
+    scope_root: Path | None = None,
+    audit_files: set[str] | None = None,
+) -> None:
+    evidence[feature].add(source_evidence(value, detector, kind, scope_root, audit_files))
 
 
 def add_presence_heuristics(
-    evidence: dict[str, set[tuple[str, str, str]]],
+    evidence: dict[str, set[tuple[str, str, str, str]]],
     value: Any,
     text: str,
     detectors: dict[str, dict[str, Any]],
+    scope_root: Path | None = None,
+    audit_files: set[str] | None = None,
 ) -> None:
     for feature, detector in detectors.items():
         if detector["mode"] == "heuristic" and any(term in text for term in detector["terms"]):
-            add(evidence, feature, value, detector["label"], "source")
+            add(evidence, feature, value, detector["label"], "source", scope_root, audit_files)
 
 
 def add_structural(
-    evidence: dict[str, set[tuple[str, str, str]]],
+    evidence: dict[str, set[tuple[str, str, str, str]]],
     detectors: dict[str, dict[str, Any]],
     implementation: str,
     value: Any,
     detector: str,
     kind: str = "slither-ast",
+    scope_root: Path | None = None,
+    audit_files: set[str] | None = None,
 ) -> None:
     for feature, config in detectors.items():
         if config["mode"] == "structural" and config.get("implementation") == implementation:
-            add(evidence, feature, value, detector, kind)
+            add(evidence, feature, value, detector, kind, scope_root, audit_files)
 
 
 def lowered_parts(contract: Any, function: Any | None = None, node: Any | None = None) -> str:
@@ -151,7 +192,12 @@ def lowered_parts(contract: Any, function: Any | None = None, node: Any | None =
     return " ".join(values).lower()
 
 
-def detect(slither: Any, detectors: dict[str, dict[str, Any]]) -> dict[str, set[tuple[str, str, str]]]:
+def detect(
+    slither: Any,
+    detectors: dict[str, dict[str, Any]],
+    scope_root: Path | None = None,
+    audit_files: set[str] | None = None,
+) -> dict[str, set[tuple[str, str, str, str]]]:
     from slither.slithir.operations import (
         Binary,
         HighLevelCall,
@@ -167,66 +213,89 @@ def detect(slither: Any, detectors: dict[str, dict[str, Any]]) -> dict[str, set[
     evidence = {feature: set() for feature in detectors}
     for contract in slither.contracts:
         contract_text = lowered_parts(contract)
-        add_presence_heuristics(evidence, contract, contract_text, detectors)
+        add_presence_heuristics(evidence, contract, contract_text, detectors, scope_root, audit_files)
 
         for function in contract.functions_and_modifiers_declared:
             function_text = lowered_parts(contract, function)
-            add_presence_heuristics(evidence, function, function_text, detectors)
+            add_presence_heuristics(evidence, function, function_text, detectors, scope_root, audit_files)
             if getattr(function, "payable", False):
-                add_structural(evidence, detectors, "payable_function", function, "payable-function")
+                add_structural(evidence, detectors, "payable_function", function, "payable-function", scope_root=scope_root, audit_files=audit_files)
             if any(str(variable).lower() == "msg.value" for variable in getattr(function, "solidity_variables_read", [])):
-                add_structural(evidence, detectors, "msg_value_read", function, "msg-value-read")
+                add_structural(evidence, detectors, "msg_value_read", function, "msg-value-read", scope_root=scope_root, audit_files=audit_files)
             if any(str(variable).lower() in {"block.timestamp", "block.number"} for variable in getattr(function, "solidity_variables_read", [])):
-                add_structural(evidence, detectors, "time_read", function, "block-time-read", "slither-ir")
+                add_structural(evidence, detectors, "time_read", function, "block-time-read", "slither-ir", scope_root, audit_files)
 
             for node in function.nodes:
                 node_type = str(getattr(node, "type", ""))
                 text = lowered_parts(contract, function, node)
-                add_presence_heuristics(evidence, node, text, detectors)
+                add_presence_heuristics(evidence, node, text, detectors, scope_root, audit_files)
                 if "ASSEMBLY" in node_type:
-                    add_structural(evidence, detectors, "assembly_node", node, "assembly-node")
+                    add_structural(evidence, detectors, "assembly_node", node, "assembly-node", scope_root=scope_root, audit_files=audit_files)
                 if "LOOP" in node_type:
-                    add_structural(evidence, detectors, "loop_node", node, "loop-node")
+                    add_structural(evidence, detectors, "loop_node", node, "loop-node", scope_root=scope_root, audit_files=audit_files)
                 for ir in getattr(node, "irs", []):
                     if isinstance(ir, LowLevelCall):
                         call_name = str(getattr(ir, "function_name", "")).lower()
-                        add_structural(evidence, detectors, "low_level_call_ir", node, f"{call_name or 'low-level-call'}-ir", "slither-ir")
-                        add_structural(evidence, detectors, "external_call_ir", node, f"{call_name or 'low-level-call'}-ir", "slither-ir")
+                        add_structural(evidence, detectors, "low_level_call_ir", node, f"{call_name or 'low-level-call'}-ir", "slither-ir", scope_root, audit_files)
+                        add_structural(evidence, detectors, "external_call_ir", node, f"{call_name or 'low-level-call'}-ir", "slither-ir", scope_root, audit_files)
                         if call_name == "delegatecall":
-                            add_structural(evidence, detectors, "delegatecall_ir", node, "delegatecall-ir", "slither-ir")
+                            add_structural(evidence, detectors, "delegatecall_ir", node, "delegatecall-ir", "slither-ir", scope_root, audit_files)
                         destination = str(getattr(ir, "destination", "")).lower()
                         if any(str(parameter).lower() in destination for parameter in getattr(function, "parameters", [])):
-                            add_structural(evidence, detectors, "arbitrary_external_target_ir", node, "parameterized-call-target", "slither-ir")
+                            add_structural(evidence, detectors, "arbitrary_external_target_ir", node, "parameterized-call-target", "slither-ir", scope_root, audit_files)
                     elif isinstance(ir, (Send, Transfer)):
-                        add_structural(evidence, detectors, "low_level_call_ir", node, f"{type(ir).__name__.lower()}-ir", "slither-ir")
-                        add_structural(evidence, detectors, "external_call_ir", node, f"{type(ir).__name__.lower()}-ir", "slither-ir")
+                        add_structural(evidence, detectors, "low_level_call_ir", node, f"{type(ir).__name__.lower()}-ir", "slither-ir", scope_root, audit_files)
+                        add_structural(evidence, detectors, "external_call_ir", node, f"{type(ir).__name__.lower()}-ir", "slither-ir", scope_root, audit_files)
                     elif isinstance(ir, (HighLevelCall, LibraryCall, NewContract)):
-                        add_structural(evidence, detectors, "external_call_ir", node, f"{type(ir).__name__.lower()}-ir", "slither-ir")
+                        add_structural(evidence, detectors, "external_call_ir", node, f"{type(ir).__name__.lower()}-ir", "slither-ir", scope_root, audit_files)
                     if isinstance(ir, NewContract) and getattr(ir, "call_salt", None) is not None:
-                        add_structural(evidence, detectors, "create2_ir", node, "new-contract-salt-ir", "slither-ir")
+                        add_structural(evidence, detectors, "create2_ir", node, "new-contract-salt-ir", "slither-ir", scope_root, audit_files)
                     if isinstance(ir, SolidityCall) and "create2" in str(getattr(ir, "function", "")).lower():
-                        add_structural(evidence, detectors, "create2_ir", node, "create2-solidity-call", "slither-ir")
+                        add_structural(evidence, detectors, "create2_ir", node, "create2-solidity-call", "slither-ir", scope_root, audit_files)
                     if isinstance(ir, Binary):
-                        add_structural(evidence, detectors, "binary_ir", node, "binary-operation", "slither-ir")
+                        add_structural(evidence, detectors, "binary_ir", node, "binary-operation", "slither-ir", scope_root, audit_files)
                     if isinstance(ir, TypeConversion):
                         source_type = str(getattr(getattr(ir, "variable", None), "type", "")).lower()
                         target_type = str(getattr(ir, "type", "")).lower()
                         if source_type.startswith("int") != target_type.startswith("int") and (source_type.startswith(("int", "uint")) and target_type.startswith(("int", "uint"))):
-                            add_structural(evidence, detectors, "signed_conversion_ir", node, "signed-unsigned-conversion", "slither-ir")
+                            add_structural(evidence, detectors, "signed_conversion_ir", node, "signed-unsigned-conversion", "slither-ir", scope_root, audit_files)
                 if "msg.value" in text:
-                    add_structural(evidence, detectors, "msg_value_read", node, "msg-value-text", "source")
+                    add_structural(evidence, detectors, "msg_value_read", node, "msg-value-text", "source", scope_root, audit_files)
     return evidence
 
 
-def analyzed_source_paths(slither: Any, scope_root: Path) -> list[str]:
+def analyzed_source_paths(slither: Any, scope_root: Path, audit_files: set[str] | None = None) -> list[str]:
     analyzed: set[str] = set()
     for unit in slither.crytic_compile.compilation_units.values():
         for filename in getattr(unit, "filenames", []):
             absolute = Path(str(getattr(filename, "absolute", filename)))
             relative = relative_scope_path(scope_root, absolute)
-            if relative is not None:
+            if relative is not None and (audit_files is None or relative in audit_files):
                 analyzed.add(relative)
     return sorted(analyzed)
+
+
+def compilation_unit_paths(slither: Any, build_root: Path) -> list[str] | None:
+    """Return Slither's actual Solidity compilation closure when available."""
+    paths: set[str] = set()
+    for unit in getattr(slither.crytic_compile, "compilation_units", {}).values():
+        for filename in getattr(unit, "filenames", []):
+            absolute = Path(str(getattr(filename, "absolute", filename))).resolve()
+            try:
+                paths.add(absolute.relative_to(build_root.resolve()).as_posix())
+            except ValueError:
+                return None
+    return sorted(paths) or None
+
+
+def actual_compiler_versions(slither: Any) -> list[str]:
+    versions: set[str] = set()
+    for unit in getattr(slither.crytic_compile, "compilation_units", {}).values():
+        value = getattr(unit, "compiler_version", None)
+        version = getattr(value, "version", value)
+        if isinstance(version, str) and version.strip():
+            versions.add(version.strip())
+    return sorted(versions)
 
 
 def command_version(command: str | None) -> str | None:
@@ -250,20 +319,23 @@ def build_feature_map(
     build_root: Path | None = None,
     include_patterns: tuple[str, ...] = (),
     dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
+    code_index_out: Path | None = None,
 ) -> dict[str, Any]:
     feature_data = json.loads((root / "data" / "features.json").read_text(encoding="utf-8"))
     feature_names = sorted(feature_data["features"])
     detector_config = load_detector_config(root, set(feature_names))
+    scope_root = resolve_scope_root(target, audit_root)
+    compilation_root = resolve_build_root(scope_root, build_root)
+    scope_files, excluded_paths = scope_inventory(scope_root, exclusions, include_patterns, dependency_roots)
+    audit_files = set(scope_files)
     Slither = ensure_slither_import()
     kwargs: dict[str, Any] = {}
     if solc:
         kwargs["solc"] = solc
     slither = Slither(str(target.resolve()), **kwargs)
-    detected = detect(slither, detector_config)
-    scope_root = resolve_scope_root(target, audit_root)
-    compilation_root = resolve_build_root(scope_root, build_root)
-    scope_files, excluded_paths = scope_inventory(scope_root, exclusions, include_patterns, dependency_roots)
-    files_analyzed = analyzed_source_paths(slither, scope_root)
+    closure_files = compilation_unit_paths(slither, compilation_root)
+    detected = detect(slither, detector_config, scope_root, audit_files)
+    files_analyzed = analyzed_source_paths(slither, scope_root, audit_files)
     uncompiled_paths = sorted(set(scope_files) - set(files_analyzed))
     compilation_complete = not uncompiled_paths
 
@@ -273,7 +345,10 @@ def build_feature_map(
         if values:
             features[feature] = {
                 "status": "PRESENT",
-                "evidence": [{"kind": kind, "location": location, "reason": reason} for kind, location, reason in values],
+                "evidence": [
+                    {"kind": kind, "location": location, "reason": reason, "scope_origin": scope_origin}
+                    for kind, location, reason, scope_origin in values
+                ],
             }
         elif confirm_absence and compilation_complete and detector_config.get(feature, {}).get("absence_capable") is True:
             features[feature] = {
@@ -282,41 +357,64 @@ def build_feature_map(
                     "kind": "slither-ast",
                     "location": str(scope_root),
                     "reason": f"Complete Slither traversal found no {detector_config[feature]['label']}",
+                    "scope_origin": "AUDIT_SCOPE",
                 }],
             }
         else:
             features[feature] = {"status": "UNKNOWN", "evidence": []}
-    solc_version = command_version(solc)
+    compiler_versions = actual_compiler_versions(slither)
+    if not compiler_versions:
+        fallback_version = command_version(solc)
+        compiler_versions = [fallback_version] if fallback_version else []
+    solc_version = compiler_versions[0] if len(compiler_versions) == 1 else None
     digests = compilation_digests(
         scope_root,
         scope_files,
         solc_version,
         build_root=compilation_root,
         dependency_roots=dependency_roots,
+        compilation_files=closure_files,
+        compiler_versions=compiler_versions,
     )
+    recon_context = {
+        "target_root": str(scope_root),
+        "build_root": str(compilation_root),
+        "files_analyzed": files_analyzed,
+        "excluded_paths": excluded_paths,
+        "exclusion_patterns": sorted(set(exclusions)),
+        "include_patterns": sorted(set(include_patterns)),
+        "dependency_roots": sorted(set(dependency_roots)),
+        "uncompiled_paths": uncompiled_paths,
+        "source_digest": digests["audit_source_digest"],
+        **digests,
+        "compilation_complete": compilation_complete,
+        "recon_quality": {
+            "compilation_complete": compilation_complete,
+            "absence_filtering_complete": compilation_complete,
+            "mode": "COMPLETE" if compilation_complete else "CONSERVATIVE_DEGRADED",
+            "uncompiled_paths": uncompiled_paths,
+        },
+        "slither_version": importlib.metadata.version("slither-analyzer"),
+        "solc_version": solc_version,
+        "compiler_versions": compiler_versions,
+    }
+    if closure_files is not None:
+        recon_context["compilation_files"] = closure_files
+    if code_index_out is not None:
+        code_index = build_code_index(
+            slither,
+            scope_root,
+            compilation_root,
+            audit_files,
+            recon_context["source_digest"],
+            recon_context["compilation_input_digest"],
+        )
+        validate_schema(root, "code-index.schema.json", code_index)
+        code_index_out.parent.mkdir(parents=True, exist_ok=True)
+        code_index_out.write_text(json.dumps(code_index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {
         "schema_version": 4,
-        "recon_context": {
-            "target_root": str(scope_root),
-            "build_root": str(compilation_root),
-            "files_analyzed": files_analyzed,
-            "excluded_paths": excluded_paths,
-            "exclusion_patterns": sorted(set(exclusions)),
-            "include_patterns": sorted(set(include_patterns)),
-            "dependency_roots": sorted(set(dependency_roots)),
-            "uncompiled_paths": uncompiled_paths,
-            "source_digest": digests["audit_source_digest"],
-            **digests,
-            "compilation_complete": compilation_complete,
-            "recon_quality": {
-                "compilation_complete": compilation_complete,
-                "absence_filtering_complete": compilation_complete,
-                "mode": "COMPLETE" if compilation_complete else "CONSERVATIVE_DEGRADED",
-                "uncompiled_paths": uncompiled_paths,
-            },
-            "slither_version": importlib.metadata.version("slither-analyzer"),
-            "solc_version": solc_version,
-        },
+        "recon_context": recon_context,
         "features": features,
     }
 
@@ -333,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dependency-root", action="append", default=None, help="top-level dependency root; repeatable")
     parser.add_argument("--present-only", action="store_true", help="leave detector absences UNKNOWN")
     parser.add_argument("--output", type=Path, help="write JSON to this path instead of stdout")
+    parser.add_argument("--code-index-out", type=Path, help="write a snapshot-bound source navigation index")
     parser.add_argument("--quiet", action="store_true", help="suppress progress output")
     args = parser.parse_args(argv)
     configure(quiet=args.quiet)
@@ -349,6 +448,7 @@ def main(argv: list[str] | None = None) -> int:
             args.build_root,
             tuple(args.include),
             tuple(args.dependency_root) if args.dependency_root is not None else tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
+            args.code_index_out,
         )
         rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         if args.output:

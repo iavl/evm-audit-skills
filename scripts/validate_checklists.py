@@ -309,6 +309,8 @@ def validate_registry(root: Path) -> list[str]:
             value = check.get(field)
             if not isinstance(value, list) or not value or any(not isinstance(part, str) or not part.strip() for part in value):
                 errors.append(f"{prefix}: {field} must be a non-empty string list")
+        if "screen_gate" in check and (not isinstance(check["screen_gate"], str) or not check["screen_gate"].strip() or len(check["screen_gate"].strip()) > 200):
+            errors.append(f"{prefix}: screen_gate must be a non-empty string of at most 200 characters")
         for policy_field, content_field, generic in (
             ("fp_policy", "false_positive_gates", GENERIC_FP),
             ("proof_policy", "proof", GENERIC_PROOF),

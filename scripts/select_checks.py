@@ -56,6 +56,22 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def find_git_root(path: Path) -> Path | None:
+    start = path.resolve()
+    if start.is_file():
+        start = start.parent
+    result = subprocess.run(
+        ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        return None
+    value = result.stdout.strip()
+    return Path(value).resolve() if value else None
+
+
 def git_value(root: Path, *args: str) -> str | None:
     result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=False)
     return result.stdout.strip() if result.returncode == 0 else None
@@ -110,7 +126,7 @@ def audit_context(
         "registry_sha256": registry_sha256(registry),
         "knowledge_commit": knowledge_commit,
         "knowledge_dirty": knowledge_dirty,
-        "target_repo_commit": target_commit or git_value(target_root.resolve(), "rev-parse", "HEAD"),
+        "target_repo_commit": target_commit or git_value(find_git_root(target_root) or target_root.resolve(), "rev-parse", "HEAD"),
         "source_digest": recon_context["source_digest"],
         "audit_source_digest": recon_context["audit_source_digest"],
         "dependency_digest": recon_context["dependency_digest"],
@@ -131,11 +147,13 @@ def validate_environment_context(
     trusted_facts: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     recon_compiler = recon_context.get("solc_version")
-    if compiler_version and recon_compiler:
-        cli_version, detected_version = _version(compiler_version), _version(recon_compiler)
-        if cli_version is None or detected_version is None or cli_version != detected_version:
+    recon_compilers = recon_context.get("compiler_versions") or ([recon_compiler] if recon_compiler else [])
+    if compiler_version and recon_compilers:
+        cli_version = _version(compiler_version)
+        detected_versions = {_version(value) for value in recon_compilers if isinstance(value, str)}
+        if cli_version is None or None in detected_versions or cli_version not in detected_versions:
             raise SelectionInputError(
-                f"compiler_version {compiler_version} conflicts with Recon solc_version {recon_compiler}"
+                f"compiler_version {compiler_version} conflicts with Recon compiler_versions {recon_compilers}"
             )
     supplied = trusted_facts or {}
     allowed_keys = {"chain_id", "chain_family", "execution_environment", "compiler_version", "evm_fork", "protocol_version"}
@@ -176,7 +194,8 @@ def validate_environment_context(
             "evidence": ["explicit CLI declaration"] if value is not None else [],
         }
 
-    facts = {key: fact(key, recon_compiler if key == "compiler_version" and recon_compiler else None) for key in sorted(allowed_keys)}
+    compiler_fact = recon_compiler if len(recon_compilers) == 1 else None
+    facts = {key: fact(key, compiler_fact if key == "compiler_version" else None) for key in sorted(allowed_keys)}
     resolved_chain_id = facts["chain_id"]["value"]
     mapped_family = CHAIN_FAMILY_BY_ID.get(resolved_chain_id)
     family_fact = facts["chain_family"]
@@ -247,8 +266,9 @@ def validate_recon_context(
         "audit_source_digest", "dependency_digest", "build_config_digest", "compilation_input_digest",
         "compilation_complete", "recon_quality", "slither_version", "solc_version",
     }
-    if set(raw) != required:
-        raise SelectionInputError(f"recon_context fields must be {sorted(required)}")
+    optional = {"compilation_files", "compiler_versions"}
+    if set(raw) - required - optional or not required <= set(raw):
+        raise SelectionInputError(f"recon_context fields must include {sorted(required)}")
     analyzed = set(_string_list(raw["files_analyzed"], "recon_context.files_analyzed"))
     _string_list(raw["excluded_paths"], "recon_context.excluded_paths")
     exclusion_patterns = _string_list(raw["exclusion_patterns"], "recon_context.exclusion_patterns")
@@ -293,6 +313,24 @@ def validate_recon_context(
         raise SelectionInputError("recon_context.slither_version is required")
     if raw["solc_version"] is not None and not isinstance(raw["solc_version"], str):
         raise SelectionInputError("recon_context.solc_version must be a string or null")
+    compilation_values = None
+    if "compilation_files" in raw:
+        compilation_values = _string_list(raw["compilation_files"], "recon_context.compilation_files")
+        if not compilation_values:
+            raise SelectionInputError("recon_context.compilation_files must not be empty")
+        if any(not value.endswith(".sol") for value in compilation_values):
+            raise SelectionInputError("recon_context.compilation_files must contain Solidity paths")
+    compiler_values = None
+    if "compiler_versions" in raw:
+        compiler_values = _string_list(raw["compiler_versions"], "recon_context.compiler_versions")
+        if not compiler_values:
+            raise SelectionInputError("recon_context.compiler_versions must not be empty")
+        if len(compiler_values) == 1 and raw["solc_version"] != compiler_values[0]:
+            raise SelectionInputError("recon_context.solc_version must identify the only compiler version")
+        if len(compiler_values) > 1 and raw["solc_version"] is not None:
+            raise SelectionInputError("recon_context.solc_version cannot collapse multiple compiler versions")
+        if raw["solc_version"] is not None and raw["solc_version"] not in compiler_values:
+            raise SelectionInputError("recon_context.solc_version is not in compiler_versions")
     if target_root is None:
         raise SelectionInputError("Feature Map v4 selection requires --target-root")
     resolved = resolve_scope_root(target_root)
@@ -308,6 +346,8 @@ def validate_recon_context(
         raw["solc_version"],
         build_root=resolved_build_root,
         dependency_roots=dependency_values,
+        compilation_files=compilation_values,
+        compiler_versions=compiler_values,
     )
     for key, value in actual_digests.items():
         if raw[key] != value:
@@ -338,11 +378,17 @@ def _evidence(value: Any, feature: str) -> list[dict[str, str]]:
         raise SelectionInputError(f"feature {feature!r} evidence must be a list")
     normalized: list[dict[str, str]] = []
     for item in value:
-        if not isinstance(item, dict) or set(item) != {"kind", "location", "reason"}:
+        if not isinstance(item, dict) or not set(item) <= {"kind", "location", "reason", "scope_origin"} or not {"kind", "location", "reason"} <= set(item):
             raise SelectionInputError(f"feature {feature!r} evidence entries need kind/location/reason")
         if item.get("kind") not in EVIDENCE_KINDS or any(not isinstance(item.get(key), str) or not item[key].strip() for key in ("location", "reason")):
             raise SelectionInputError(f"feature {feature!r} has invalid typed evidence")
-        normalized.append({key: item[key].strip() for key in ("kind", "location", "reason")})
+        origin = item.get("scope_origin")
+        if origin is not None and origin not in {"AUDIT_SCOPE", "DEPENDENCY", "FIRST_PARTY_DEPENDENCY", "EXTERNAL_DEPENDENCY", "UNKNOWN"}:
+            raise SelectionInputError(f"feature {feature!r} has invalid scope_origin")
+        normalized_item = {key: item[key].strip() for key in ("kind", "location", "reason")}
+        if origin is not None:
+            normalized_item["scope_origin"] = origin
+        normalized.append(normalized_item)
     return normalized
 
 
@@ -407,14 +453,43 @@ def normalize_feature_map(
     }
 
 
-def status_for(feature: str, feature_map: dict[str, dict[str, Any]]) -> str:
-    return feature_map.get(feature, {"status": "UNKNOWN"})["status"]
+def status_for(
+    feature: str,
+    feature_map: dict[str, dict[str, Any]],
+    *,
+    dependency_presence_sufficient: bool = False,
+    require_scope_origin: bool = False,
+) -> str:
+    entry = feature_map.get(feature, {"status": "UNKNOWN"})
+    status = entry.get("status", "UNKNOWN")
+    if status != "PRESENT":
+        return status
+    if not require_scope_origin:
+        return status
+    origins = {item.get("scope_origin") for item in entry.get("evidence", []) if isinstance(item, dict)}
+    if not origins or "UNKNOWN" in origins or None in origins:
+        return "UNKNOWN"
+    if "AUDIT_SCOPE" in origins or dependency_presence_sufficient:
+        return "PRESENT"
+    return "UNKNOWN"
 
 
-def evaluate_group(features: list[str], mode: str, feature_map: dict[str, dict[str, Any]]) -> str:
+def evaluate_group(
+    features: list[str],
+    mode: str,
+    feature_map: dict[str, dict[str, Any]],
+    *,
+    dependency_presence_sufficient: bool = False,
+    require_scope_origin: bool = False,
+) -> str:
     if not features:
         return "TRUE"
-    states = [status_for(feature, feature_map) for feature in features]
+    states = [status_for(
+        feature,
+        feature_map,
+        dependency_presence_sufficient=dependency_presence_sufficient,
+        require_scope_origin=require_scope_origin,
+    ) for feature in features]
     if mode == "all_of":
         return "FALSE" if "ABSENT_CONFIRMED" in states else "TRUE" if all(state == "PRESENT" for state in states) else "UNKNOWN"
     if mode == "any_of":
@@ -554,7 +629,13 @@ def evaluate_domains(
         elif config.get("always_screen"):
             result, basis = "TRUE", ["always_screen=true"]
         else:
-            result = evaluate_group(config["surface_features"], "any_of", feature_map)
+            result = evaluate_group(
+                config["surface_features"],
+                "any_of",
+                feature_map,
+                dependency_presence_sufficient=config.get("dependency_presence_sufficient", False),
+                require_scope_origin=True,
+            )
             basis = [f"surface_features.any_of={result}"]
         state = "SELECTED" if result == "TRUE" else "FILTERED" if result == "FALSE" else "DEFERRED"
         entry = {

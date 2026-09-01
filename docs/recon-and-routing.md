@@ -2,7 +2,10 @@
 
 Run Recon against the audit scope and its distinct compilation/build root. Its Feature Map v4 records the
 scope digest, compilation-input digest, compilation coverage, analyzed files,
-tool versions, and a scope-bound `recon_context`. The map uses
+tool versions, actual compiler versions, and a scope-bound `recon_context`. The
+map also classifies each presence evidence item as `AUDIT_SCOPE`, `DEPENDENCY`,
+or `UNKNOWN`; dependency-only surface evidence remains Deferred unless a Domain
+explicitly opts into it. The map uses
 `PRESENT`, `ABSENT_CONFIRMED`, or `UNKNOWN`.
 
 Selector rejects a missing or mismatched scope before filtering. Incomplete
@@ -30,7 +33,7 @@ absence proof.
 ```bash
 python3 scripts/recon.py <target-project-or-solidity-file> --audit-root <audit-scope> \
   --build-root <project-root> \
-  --output recon-features.json
+  --output recon-features.json --code-index-out code-index.json
 ```
 
 ## Routing
@@ -69,6 +72,13 @@ Canonical predicates use `all_of` / `any_of` / `none_of`. Only a curated
 predicate can filter on `FALSE`; an inferred `FALSE` becomes `UNKNOWN` and
 remains selected. This allows keyword inference to improve recall without
 proving non-applicability.
+
+The optional `code-index.json` is a compact Slither-derived navigation hint
+bound to the source and compilation digests. Use `scripts/code_context.py` to
+expand callers/callees, then verify the returned ranges against source; the
+index is never authoritative. The actual compilation closure is used for the
+compilation digest when Slither exposes it, with the conservative full-source
+fallback otherwise.
 
 The manifest is immutable; `render_runtime.py` never re-runs routing. Screen
 cards can promote candidates to Deep Review but never filter uncertainty.

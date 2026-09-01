@@ -12,6 +12,7 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 
 - `<suite-root>/data/canonical-checks.json` is the only checklist knowledge source. Generated Markdown is a view; do not load the full registry into model context.
 - Run Recon and immutable routing once. Preserve `routing_snapshot_id`, `registry_sha256`, `source_digest`, and `compilation_input_digest` across every artifact.
+- Recon may emit `recon/code-index.json` as a navigation hint; inspect it first, load only targeted source ranges, and expand callers/callees whenever reachability is uncertain. Source remains authoritative.
 - `UNKNOWN` is never absence. Only trusted absence or confirmed environment mismatch may filter; Screen may emit only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`.
 - Deep reviews consume only Screen candidates. Every candidate needs one owner-Domain append-only JSONL event stream with valid revisions, typed evidence, and a terminal status.
 - `SUSPICIOUS` has no severity and must go through a later `PROOF` event. Only `CONFIRMED` records enter the final report.
@@ -34,7 +35,8 @@ are available on `init`, `next`, `status`, and `report`, and are mutually exclus
 
 Repeat `next` until it returns a template or `REPORT`. Resolve only generated
 evidence-bound templates. `DEEP_REVIEW` means candidate records are missing;
-`PROOF` means the latest record is `SUSPICIOUS`. `report` re-derives state from
+`PROOF` means the latest record is `SUSPICIOUS` and the controller exposes a
+suspicious-only `runtime/proof-<owner-domain>.md` view. `report` re-derives state from
 current artifacts and refuses stale, incomplete, or under-specified reporting
 inputs.
 

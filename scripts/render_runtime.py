@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render immutable routing output into screen/deep runtime views."""
+"""Render immutable routing output into compact Screen/Deep/Proof views."""
 
 from __future__ import annotations
 
@@ -10,32 +10,34 @@ from typing import Any
 
 try:
     from audit_artifacts import (
-        absence_evidence_errors,
         canonical_sha256,
         check_body_hash,
         derive_review_snapshot_id,
         load_json,
         registry_sha256,
         resolved_routes,
+        trusted_absence_policy,
         validate_domain_context,
         validate_domain_resolution,
         validate_artifact_identity,
+        validate_non_applicability,
         validate_routing_snapshot,
         validate_schema,
         validate_target_snapshot,
     )
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
-        absence_evidence_errors,
         canonical_sha256,
         check_body_hash,
         derive_review_snapshot_id,
         load_json,
         registry_sha256,
         resolved_routes,
+        trusted_absence_policy,
         validate_domain_context,
         validate_domain_resolution,
         validate_artifact_identity,
+        validate_non_applicability,
         validate_routing_snapshot,
         validate_schema,
         validate_target_snapshot,
@@ -180,23 +182,55 @@ def validate_screen_results(root: Path, manifest: dict[str, Any], value: dict[st
     validate_schema(root, "screen-results.schema.json", value)
     validate_artifact_identity(value, manifest)
     selected = {entry["canonical_id"] for entry in selected_entries(manifest, domain_resolution=domain_resolution)}
+    routes = {entry["canonical_id"]: entry for entry in selected_entries(manifest, domain_resolution=domain_resolution)}
     results = value["results"]
     ids = [entry["canonical_id"] for entry in results]
     if len(ids) != len(set(ids)) or set(ids) != selected:
         raise ValueError("screen results must resolve every selected ID exactly once")
     for entry in results:
         if entry["result"] == "NOT_APPLICABLE_CONFIRMED":
-            quality = manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality", {})
-            if quality.get("absence_filtering_complete") is not True:
-                raise ValueError(
-                    f"{entry['canonical_id']}: NOT_APPLICABLE_CONFIRMED requires complete compilation"
-                )
-            errors = absence_evidence_errors(
-                entry["evidence"], entry.get("scope_complete"), entry["canonical_id"]
+            route = routes.get(entry["canonical_id"])
+            errors = validate_non_applicability(
+                evidence=entry["evidence"],
+                scope_complete=entry.get("scope_complete"),
+                trusted_absence_policy=trusted_absence_policy(manifest, route["owner_domain"]) if route else None,
+                recon_quality=manifest.get("feature_map", {}).get("recon_context", {}).get("recon_quality"),
+                label=entry["canonical_id"],
             )
             if errors:
                 raise ValueError("; ".join(errors))
     return {entry["canonical_id"] for entry in results if entry["result"] == "CANDIDATE"}
+
+
+def runtime_metadata(
+    manifest: dict[str, Any],
+    profile: str,
+    candidate_ids: list[str],
+    owner_domain: str | None,
+    review_snapshot: str | None,
+) -> dict[str, Any]:
+    audit = manifest["audit_context"]
+    return {
+        "profile": profile,
+        "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "review_snapshot_id": review_snapshot,
+        "candidate_set_sha256": canonical_sha256(candidate_ids),
+        "candidate_count": len(candidate_ids),
+        "owner_domain": owner_domain,
+        "registry_sha256": audit["registry_sha256"],
+        "source_digest": audit["source_digest"],
+        "compilation_input_digest": audit["compilation_input_digest"],
+    }
+
+
+def _render_evidence(evidence: Any) -> str:
+    if not isinstance(evidence, list):
+        return ""
+    return "; ".join(
+        f"{item.get('kind')}:{item.get('location')} — {item.get('reason')}"
+        for item in evidence
+        if isinstance(item, dict)
+    )
 
 
 def render(
@@ -207,6 +241,7 @@ def render(
     owner_domain: str | None = None,
     domain_resolution: dict[str, Any] | None = None,
     review_snapshot: str | None = None,
+    proof_records: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     entries = {entry["canonical_id"]: entry for entry in selected_entries(manifest, owner_domain, domain_resolution)}
     checks = {
@@ -215,35 +250,55 @@ def render(
         if check["canonical_id"] in entries and (profile == "screen" or check["canonical_id"] in candidate_ids)
     }
     ids = sorted(checks)
-    audit = manifest["audit_context"]
+    snapshot_display = review_snapshot[:12] if review_snapshot else "not-yet-defined"
     lines = [
         "<!-- GENERATED RUNTIME ARTIFACT",
         f"artifact_type: runtime-{profile}",
-        f"routing_snapshot_id: {manifest['routing_snapshot_id']}",
-        f"review_snapshot_id: {review_snapshot or 'not-yet-defined'}",
-        f"registry_sha256: {audit['registry_sha256']}",
-        f"source_digest: {audit['source_digest']}",
-        f"audit_source_digest: {audit['audit_source_digest']}",
-        f"compilation_input_digest: {audit['compilation_input_digest']}",
         f"profile: {profile}",
-        f"candidate_set_sha256: {canonical_sha256(ids)}",
-        f"candidate_set: {','.join(ids)}",
-        "source: data/canonical-checks.json; do not edit by hand. -->",
+        f"owner_domain: {owner_domain or 'all'}",
+        f"candidate_count: {len(ids)}",
+        f"review_snapshot: {snapshot_display}",
+        "machine identity: adjacent .meta.json; source: data/canonical-checks.json; do not edit by hand. -->",
         "# Routed EVM Audit Checks",
         "",
-        f"- **Routing snapshot:** `{manifest['routing_snapshot_id']}`",
-        f"- **Review snapshot:** `{review_snapshot or 'not-yet-defined'}`",
-        f"- **Candidate set:** `{','.join(ids)}`",
+        f"- **Profile:** `{profile}`",
+        f"- **Candidate count:** `{len(ids)}`",
         "",
     ]
     for canonical_id in ids:
         check = checks[canonical_id]
         route = entries[canonical_id]
         lines.extend([f"## [{canonical_id}] {check['title']}"])
-        if profile == "deep":
-            lines.extend([f"- **Check body hash:** `{route['check_body_hash']}`", f"- **Routing basis:** {one_line(route['basis'])}"])
-        lines.extend([f"- **Trigger:** {one_line(check['trigger'])}", f"- **Detection:** {one_line(check['detection'])}"])
-        if profile == "deep":
+        if profile == "proof":
+            record = (proof_records or {}).get(canonical_id, {})
+            lines.extend([
+                f"- **Latest review:** revision `{record.get('revision')}`; stage `{record.get('review_stage')}`; status `{record.get('status')}`",
+                f"- **Review snapshot:** `{snapshot_display}` (full identity in the sidecar)",
+                f"- **Trigger:** {one_line(check['trigger'])}",
+                f"- **Detection:** {one_line(check['detection'])}",
+                f"- **Code path:** {record.get('code_path', '')}",
+                f"- **Unresolved reason:** {record.get('unresolved_reason', '')}",
+            ])
+            for key, label in (
+                ("applicability", "Applicability"),
+                ("preconditions", "Preconditions"),
+                ("exploitability", "Exploitability"),
+                ("impact", "Impact"),
+                ("proof", "Existing proof"),
+            ):
+                if record.get(key):
+                    lines.append(f"- **{label}:** {record[key]}")
+            if record.get("suspected_preconditions"):
+                lines.append(f"- **Suspected preconditions:** {record['suspected_preconditions']}")
+            if record.get("suspected_impact"):
+                lines.append(f"- **Suspected impact:** {record['suspected_impact']}")
+            if check.get("proof_policy") == "specific":
+                lines.append(f"- **Specific proof:** {one_line(check['proof'])}")
+            if record.get("evidence"):
+                lines.append(f"- **Latest evidence:** {_render_evidence(record['evidence'])}")
+        elif profile == "deep":
+            lines.extend([f"- **Routing basis:** {one_line(route['basis'])}"])
+            lines.extend([f"- **Trigger:** {one_line(check['trigger'])}", f"- **Detection:** {one_line(check['detection'])}"])
             lines.extend([
                 f"- **Risk:** {one_line(check['risk'])}",
                 f"- **Applicability:** `{json.dumps(check.get('applicability'), ensure_ascii=False, sort_keys=True)}`",
@@ -252,6 +307,10 @@ def render(
                 lines.append(f"- **Specific FP:** {one_line(check['false_positive_gates'])}")
             if check.get("proof_policy") == "specific":
                 lines.append(f"- **Specific proof:** {one_line(check['proof'])}")
+        elif profile == "screen":
+            gate = check.get("screen_gate") or one_line((check.get("trigger") or [])[:1])
+            gate = gate[:240]
+            lines.append(f"- **Screen gate:** {gate}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -267,8 +326,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--registry", type=Path, default=ROOT / "data/canonical-checks.json")
-    parser.add_argument("--profile", choices=("screen", "deep"), required=True)
-    parser.add_argument("--screen-results", type=Path, help="validated Screen result artifact for Deep")
+    parser.add_argument("--profile", choices=("screen", "deep", "proof"), required=True)
+    parser.add_argument("--screen-results", type=Path, help="validated Screen result artifact for Deep/Proof")
+    parser.add_argument("--ledger", type=Path, action="append", default=[], help="review ledger for Proof")
     parser.add_argument("--domain-resolution", type=Path, help="resolved Deferred Domain artifact")
     parser.add_argument("--screen-results-out", type=Path, help="write a conservative Screen result template")
     parser.add_argument("--domain-resolution-out", type=Path, help="write an unresolved Deferred Domain template")
@@ -296,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
                 info(f"{domain} {resolution['status']}")
             if unresolved_domains:
                 warning(f"{len(unresolved_domains)} Deferred Domain(s) remain UNKNOWN")
-                if args.profile == "deep":
+                if args.profile in {"deep", "proof"}:
                     raise ValueError("Deep Review blocked: unresolved Deferred Domains")
             else:
                 success("Domain routing resolved")
@@ -309,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
                 manifest,
                 domain_context,
                 domain_resolution,
-                require_complete=args.profile == "deep",
+                require_complete=args.profile in {"deep", "proof"},
             )
             if unresolved_context:
                 warning(f"{len(unresolved_context)} required Domain context item(s) remain UNKNOWN")
@@ -317,24 +377,44 @@ def main(argv: list[str] | None = None) -> int:
                 success("Domain Context validated")
         review_snapshot: str | None = None
         screen_results: dict[str, Any] | None = None
-        if args.profile == "deep":
-            stage("DEEP REVIEW", step=5, total=7, detail="Rendering candidate-only Deep Review")
+        proof_records: dict[str, dict[str, Any]] | None = None
+        if args.profile in {"deep", "proof"}:
+            stage_name = "PROOF" if args.profile == "proof" else "DEEP REVIEW"
+            stage(stage_name, step=6 if args.profile == "proof" else 5, total=7, detail=f"Rendering candidate-only {stage_name.title()}")
             if not args.screen_results:
-                raise ValueError("--profile deep requires --screen-results")
+                raise ValueError(f"--profile {args.profile} requires --screen-results")
             if manifest["deferred_domains"] and not domain_resolution:
-                raise ValueError("Deep Review blocked: --domain-resolution is required for Deferred Domains")
+                raise ValueError(f"{stage_name} blocked: --domain-resolution is required for Deferred Domains")
             if not args.domain_context:
-                raise ValueError("--profile deep requires --domain-context")
+                raise ValueError(f"--profile {args.profile} requires --domain-context")
             screen_results = load_json(args.screen_results)
             candidates = validate_screen_results(ROOT, manifest, screen_results, domain_resolution)
             review_snapshot = derive_review_snapshot_id(
                 ROOT, manifest, domain_resolution, domain_context, screen_results
             )
+            if args.profile == "proof":
+                if not args.ledger:
+                    raise ValueError("--profile proof requires at least one --ledger")
+                try:
+                    from review_ledger import collect_review_records
+                except ImportError:  # pragma: no cover - package-style import
+                    from scripts.review_ledger import collect_review_records
+                records, errors = collect_review_records(
+                    args.ledger, manifest, registry, candidates, domain_resolution, review_snapshot
+                )
+                if errors:
+                    raise ValueError("; ".join(errors))
+                proof_records = {
+                    canonical_id: record
+                    for canonical_id, record in records.items()
+                    if record.get("status") == "SUSPICIOUS"
+                }
+                candidates = set(proof_records)
         else:
             stage("SCREEN", step=4, total=7, detail="Screening routed checks")
             candidates = set()
-            if args.screen_results:
-                raise ValueError("--screen-results is only used by --profile deep")
+            if args.screen_results or args.ledger:
+                raise ValueError("--screen-results/--ledger are only used by Deep or Proof")
             if args.screen_results_out:
                 write_json(args.screen_results_out, screen_results_template(manifest, domain_resolution))
                 info(f"Screen result template written to {args.screen_results_out}")
@@ -354,13 +434,27 @@ def main(argv: list[str] | None = None) -> int:
                 args.owner_domain,
                 domain_resolution,
                 review_snapshot,
+                proof_records,
             ),
             encoding="utf-8",
         )
         entries = selected_entries(manifest, args.owner_domain, domain_resolution)
+        rendered_ids = sorted(
+            entry["canonical_id"] for entry in entries
+            if args.profile == "screen" or entry["canonical_id"] in candidates
+        )
+        write_json(
+            args.output.with_suffix(".meta.json"),
+            runtime_metadata(manifest, args.profile, rendered_ids, args.owner_domain, review_snapshot),
+            overwrite=True,
+        )
         if args.profile == "screen":
             info(f"Rendered checks: {len(entries)}")
             success("Screen runtime generated")
+        elif args.profile == "proof":
+            entries = [entry for entry in entries if entry["canonical_id"] in candidates]
+            info(f"Suspicious records admitted: {len(entries)}")
+            success("Proof runtime generated")
         else:
             entries = [entry for entry in entries if entry["canonical_id"] in candidates]
             info(f"Candidates admitted: {len(entries)}")

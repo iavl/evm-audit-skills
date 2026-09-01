@@ -75,7 +75,7 @@ class AuditRunTests(unittest.TestCase):
                     scope_complete=True,
                     evidence=[
                         {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-                        {"kind": "source", "location": "fixture", "reason": "trigger absent"},
+                        {"kind": "inheritance", "location": "fixture", "reason": "trigger absent"},
                     ],
                 )
             screen_path.write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
@@ -157,7 +157,7 @@ class AuditRunTests(unittest.TestCase):
             candidate.update(result="CANDIDATE", scope_complete=False, evidence=[])
             evidence = [
                 {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-                {"kind": "source", "location": "fixture", "reason": "screen disposition"},
+                {"kind": "inheritance", "location": "fixture", "reason": "screen disposition"},
             ]
             for item in screen["results"][1:]:
                 item.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
@@ -177,7 +177,7 @@ class AuditRunTests(unittest.TestCase):
             route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate["canonical_id"])
             record = {
                 "record_type": "review",
-                "schema_version": 6,
+                "schema_version": 7,
                 "canonical_id": candidate["canonical_id"],
                 "owner_domain": route["owner_domain"],
                 "check_body_hash": route["check_body_hash"],
@@ -264,7 +264,7 @@ contract RetainedPoC {
             candidate.update(result="CANDIDATE", scope_complete=False, evidence=[])
             evidence = [
                 {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-                {"kind": "source", "location": "fixture", "reason": "screen disposition"},
+                {"kind": "inheritance", "location": "fixture", "reason": "screen disposition"},
             ]
             for item in screen["results"][1:]:
                 item.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
@@ -280,7 +280,7 @@ contract RetainedPoC {
             route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate["canonical_id"])
             suspicious = {
                 "record_type": "review",
-                "schema_version": 6,
+                "schema_version": 7,
                 "canonical_id": candidate["canonical_id"],
                 "owner_domain": route["owner_domain"],
                 "check_body_hash": route["check_body_hash"],
@@ -313,6 +313,16 @@ contract RetainedPoC {
             self.assertEqual(proof_payload["progress"]["step"], 6)
             self.assertEqual(proof_payload["progress"]["label"], "PROOF")
             self.assertIn("suspicious findings require Proof", proof_payload["progress"]["summary"])
+            proof_views = [Path(path) for path in proof_payload["runtime_views"]]
+            self.assertEqual(len(proof_views), 1)
+            self.assertTrue(proof_views[0].exists())
+            proof_text = proof_views[0].read_text(encoding="utf-8")
+            self.assertIn(f"[{candidate['canonical_id']}]", proof_text)
+            self.assertNotIn("REVIEWED_SAFE", proof_text)
+            proof_mtime = proof_views[0].stat().st_mtime_ns
+            cached = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            self.assertEqual(cached.returncode, 0, cached.stderr)
+            self.assertEqual(proof_views[0].stat().st_mtime_ns, proof_mtime)
             self.assertEqual(
                 proof_payload["recommended_execution"],
                 {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "max"},
