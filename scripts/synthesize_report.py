@@ -14,12 +14,12 @@ if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
 from evm_audit_runtime.reporting import issue_candidate
 from evm_audit_runtime.routing import resolved_routes
+from evm_audit_runtime.versions import ISSUE_CANDIDATES_VERSION
 
 try:
     from audit_artifacts import (
         atomic_write_json,
         atomic_write_text,
-        invalidate_final_outputs,
         load_json,
         has_unresolved_marker,
         review_state_digest,
@@ -35,7 +35,6 @@ except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
         atomic_write_json,
         atomic_write_text,
-        invalidate_final_outputs,
         load_json,
         has_unresolved_marker,
         review_state_digest,
@@ -125,7 +124,7 @@ def _issue_artifact(
 ) -> dict[str, Any]:
     identity = manifest["audit_context"]
     value = {
-        "schema_version": 2,
+        "schema_version": ISSUE_CANDIDATES_VERSION,
         "routing_snapshot_id": manifest["routing_snapshot_id"],
         "review_snapshot_id": state["review_snapshot_id"],
         "review_state_digest": state["review_state_digest"],
@@ -374,7 +373,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure(quiet=args.quiet)
     try:
-        invalidate_final_outputs(*(path for path in (args.output, args.issue_candidates_out) if path is not None))
         manifest = load_json(args.manifest)
         registry = load_json(args.registry)
         state = load_json(args.audit_state)

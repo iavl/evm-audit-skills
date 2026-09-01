@@ -42,6 +42,7 @@ class AuditRunTests(unittest.TestCase):
                 "evm-audit-general",
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+
             self.assertIn("DOMAIN_CONTEXT", result.stdout)
             self.assertEqual(
                 json.loads(result.stdout)["next"]["recommended_execution"],
@@ -122,6 +123,61 @@ class AuditRunTests(unittest.TestCase):
             report = (run_dir / "AUDIT-REPORT.md").read_text(encoding="utf-8")
             self.assertIn("COMPLETE_CLEAN", report)
             self.assertTrue((run_dir / "issue-candidates.json").exists())
+            previous_report = (run_dir / "AUDIT-REPORT.md").read_text(encoding="utf-8")
+            previous_issues = (run_dir / "issue-candidates.json").read_text(encoding="utf-8")
+            bad_severity = run_dir / "bad-severity.json"
+            bad_severity.write_text("{\n", encoding="utf-8")
+            result = self.run_cli(
+                "scripts/audit_run.py",
+                "report",
+                "--run-dir",
+                str(run_dir),
+                "--severity-decisions",
+                str(bad_severity),
+                "--finding-details",
+                str(details_path),
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((run_dir / "AUDIT-REPORT.md").read_text(encoding="utf-8"), previous_report)
+            self.assertEqual((run_dir / "issue-candidates.json").read_text(encoding="utf-8"), previous_issues)
+            result = self.run_cli(
+                "scripts/audit_run.py",
+                "report",
+                "--run-dir",
+                str(run_dir),
+                "--severity-decisions",
+                str(severity_path),
+                "--finding-details",
+                str(details_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_invalid_optional_code_index_does_not_block_authoritative_status(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            result = self.run_cli(
+                "scripts/audit_run.py",
+                "init",
+                str(EMPTY_TARGET),
+                "--run-dir",
+                str(run_dir),
+                "--audit-root",
+                str(EMPTY_TARGET),
+                "--domain",
+                "evm-audit-general",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            code_index = run_dir / "recon/code-index.json"
+            original = code_index.read_text(encoding="utf-8")
+            for invalid in ({"broken": True}, {**json.loads(original), "source_digest": "0" * 64}):
+                code_index.write_text(json.dumps(invalid) + "\n", encoding="utf-8")
+                result = self.run_cli("scripts/audit_run.py", "status", "--run-dir", str(run_dir))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                payload = json.loads(result.stdout)
+                self.assertEqual(payload["navigation"]["status"], "UNAVAILABLE")
+                self.assertFalse(payload["navigation"]["available"])
+                self.assertNotEqual(payload["status"], "INVALID_SNAPSHOT")
+            code_index.write_text(original, encoding="utf-8")
 
     def test_report_rederives_state_after_current_ledger_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -319,6 +375,10 @@ contract RetainedPoC {
             proof_text = proof_views[0].read_text(encoding="utf-8")
             self.assertIn(f"[{candidate['canonical_id']}]", proof_text)
             self.assertNotIn("REVIEWED_SAFE", proof_text)
+            proof_views[0].write_text(proof_text + "\nTAMPERED\n", encoding="utf-8")
+            regenerated = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+            self.assertEqual(regenerated.returncode, 0, regenerated.stderr)
+            self.assertNotIn("TAMPERED", proof_views[0].read_text(encoding="utf-8"))
             proof_mtime = proof_views[0].stat().st_mtime_ns
             cached = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(cached.returncode, 0, cached.stderr)

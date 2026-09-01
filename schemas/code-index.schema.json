@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:code-index:v1",
+  "$id": "urn:evm-audit-skills:code-index:v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "target_root", "build_root", "source_digest", "compilation_input_digest", "contracts", "functions", "inheritance", "external_calls", "storage_writes", "modifiers", "source_ranges"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "target_root": {"type": "string", "minLength": 1},
     "build_root": {"type": "string", "minLength": 1},
     "source_digest": {"$ref": "#/$defs/hash"},
@@ -46,8 +46,10 @@
     "function": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contract", "name", "file", "start_line", "end_line", "visibility", "modifiers", "reads", "writes", "internal_calls", "external_calls", "scope_origin"],
+      "required": ["function_id", "contract_id", "contract", "name", "file", "start_line", "end_line", "visibility", "modifiers", "reads", "writes", "state_reads", "state_writes", "local_writes", "internal_calls", "external_calls", "scope_origin"],
       "properties": {
+        "function_id": {"type": "string", "minLength": 1},
+        "contract_id": {"type": "string", "minLength": 1},
         "contract": {"type": "string", "minLength": 1},
         "name": {"type": "string", "minLength": 1},
         "file": {"type": "string", "minLength": 1},
@@ -57,6 +59,9 @@
         "modifiers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "reads": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "writes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "state_reads": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "state_writes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "local_writes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "internal_calls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "external_calls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
         "scope_origin": {"$ref": "#/$defs/origin"}
@@ -71,7 +76,8 @@
         "target": {"type": "string", "minLength": 1},
         "kind": {"type": "string", "minLength": 1},
         "file": {"type": "string", "minLength": 1},
-        "start_line": {"type": "integer", "minimum": 1}
+        "start_line": {"type": "integer", "minimum": 1},
+        "location_fallback": {"type": "boolean"}
       }
     },
     "write": {
@@ -82,7 +88,8 @@
         "function": {"type": "string", "minLength": 1},
         "variable": {"type": "string", "minLength": 1},
         "file": {"type": "string", "minLength": 1},
-        "start_line": {"type": "integer", "minimum": 1}
+        "start_line": {"type": "integer", "minimum": 1},
+        "location_fallback": {"type": "boolean"}
       }
     }
   }

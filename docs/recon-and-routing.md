@@ -75,10 +75,16 @@ proving non-applicability.
 
 The optional `code-index.json` is a compact Slither-derived navigation hint
 bound to the source and compilation digests. Use `scripts/code_context.py` to
-expand callers/callees, then verify the returned ranges against source; the
-index is never authoritative. The actual compilation closure is used for the
-compilation digest when Slither exposes it, with the conservative full-source
-fallback otherwise.
+expand callers/callees, for example
+`--include-callers --include-callees --depth 2 --max-nodes 25`. Expansion is
+deterministic, cycle-safe, and reports `truncated` plus unresolved call edges;
+verify every returned range against source because the index is never
+authoritative. The actual compilation closure is used for the compilation
+digest when Slither exposes it, with the conservative full-source fallback
+otherwise; `recon_quality.compilation_provenance` records which mode was used.
+Older v4 Feature Maps without that additive field are treated as the
+conservative fallback for navigation/lineage purposes and never upgraded to
+exact-closure provenance.
 
 The manifest is immutable; `render_runtime.py` never re-runs routing. Screen
 cards can promote candidates to Deep Review but never filter uncertainty.

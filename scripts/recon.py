@@ -19,15 +19,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
     from scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 except ImportError:  # pragma: no cover - supports importing from another cwd
     from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 
 try:
-    from audit_artifacts import validate_schema
+    from audit_artifacts import atomic_write_text, validate_schema
 except ImportError:  # pragma: no cover - supports importing from another cwd
-    from scripts.audit_artifacts import validate_schema
+    from scripts.audit_artifacts import atomic_write_text, validate_schema
 
 try:
     from code_context import build_code_index
@@ -38,6 +39,8 @@ try:
     from runtime_log import configure, error, info, stage, success
 except ImportError:  # pragma: no cover - supports importing from another cwd
     from scripts.runtime_log import configure, error, info, stage, success
+
+from evm_audit_runtime.versions import FEATURE_MAP_VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -276,15 +279,28 @@ def analyzed_source_paths(slither: Any, scope_root: Path, audit_files: set[str] 
 
 
 def compilation_unit_paths(slither: Any, build_root: Path) -> list[str] | None:
-    """Return Slither's actual Solidity compilation closure when available."""
+    """Return the exact closure, or None when Slither cannot expose it.
+
+    An observed source outside ``build_root`` is an integrity error, not a
+    reason to use the broad build-root fallback.
+    """
+    units = getattr(getattr(slither, "crytic_compile", None), "compilation_units", None)
+    if not isinstance(units, dict) or not units:
+        return None
     paths: set[str] = set()
-    for unit in getattr(slither.crytic_compile, "compilation_units", {}).values():
-        for filename in getattr(unit, "filenames", []):
+    for unit in units.values():
+        filenames = getattr(unit, "filenames", None)
+        if filenames is None:
+            return None
+        for filename in filenames:
             absolute = Path(str(getattr(filename, "absolute", filename))).resolve()
             try:
                 paths.add(absolute.relative_to(build_root.resolve()).as_posix())
-            except ValueError:
-                return None
+            except ValueError as error:
+                raise ValueError(
+                    "compiled source is outside build_root; choose a build_root "
+                    f"that contains the complete compilation closure: {absolute}"
+                ) from error
     return sorted(paths) or None
 
 
@@ -393,6 +409,11 @@ def build_feature_map(
             "absence_filtering_complete": compilation_complete,
             "mode": "COMPLETE" if compilation_complete else "CONSERVATIVE_DEGRADED",
             "uncompiled_paths": uncompiled_paths,
+            "compilation_provenance": (
+                "EXACT_COMPILATION_CLOSURE"
+                if closure_files is not None
+                else "CONSERVATIVE_BUILD_ROOT_FALLBACK"
+            ),
         },
         "slither_version": importlib.metadata.version("slither-analyzer"),
         "solc_version": solc_version,
@@ -410,10 +431,9 @@ def build_feature_map(
             recon_context["compilation_input_digest"],
         )
         validate_schema(root, "code-index.schema.json", code_index)
-        code_index_out.parent.mkdir(parents=True, exist_ok=True)
-        code_index_out.write_text(json.dumps(code_index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(code_index_out, json.dumps(code_index, ensure_ascii=False, indent=2) + "\n")
     return {
-        "schema_version": 4,
+        "schema_version": FEATURE_MAP_VERSION,
         "recon_context": recon_context,
         "features": features,
     }

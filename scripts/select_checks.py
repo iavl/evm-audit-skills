@@ -7,9 +7,13 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.versions import ENVIRONMENT_CONTEXT_VERSION, FEATURE_MAP_VERSION, FEATURE_REGISTRY_VERSION, ROUTING_MANIFEST_VERSION
 
 try:
     from audit_artifacts import bind_routing_snapshot, check_body_hash, registry_sha256, validate_schema
@@ -27,9 +31,7 @@ except ImportError:  # pragma: no cover
 ROOT = Path(__file__).resolve().parents[1]
 FEATURE_STATES = {"PRESENT", "ABSENT_CONFIRMED", "UNKNOWN"}
 PREDICATE_KEYS = ("all_of", "any_of", "none_of")
-SELECTOR_VERSION = "7"
-ROUTING_MANIFEST_VERSION = 7
-FEATURE_MAP_VERSION = 4
+SELECTOR_VERSION = str(ROUTING_MANIFEST_VERSION)
 EVIDENCE_KINDS = {"slither-ast", "slither-ir", "compiler-ast", "source", "deployment", "manual"}
 HARD_FORKS = ("frontier", "homestead", "byzantium", "constantinople", "istanbul", "berlin", "london", "paris", "shanghai", "cancun", "prague")
 CHAIN_FAMILY_BY_ID = {
@@ -223,8 +225,8 @@ def validate_environment_context(
 
 
 def vocabulary(feature_data: dict[str, Any]) -> tuple[set[str], dict[str, dict[str, Any]]]:
-    if feature_data.get("schema_version") != 2:
-        raise SelectionInputError("feature registry schema_version must be 2")
+    if feature_data.get("schema_version") != FEATURE_REGISTRY_VERSION:
+        raise SelectionInputError(f"feature registry schema_version must be {FEATURE_REGISTRY_VERSION}")
     values = feature_data.get("features")
     if not isinstance(values, dict) or not values:
         raise SelectionInputError("feature registry must contain a non-empty object named 'features'")
@@ -293,16 +295,18 @@ def validate_recon_context(
     if not isinstance(raw["compilation_complete"], bool):
         raise SelectionInputError("recon_context.compilation_complete must be boolean")
     quality = raw["recon_quality"]
-    if not isinstance(quality, dict) or set(quality) != {
-        "compilation_complete", "absence_filtering_complete", "mode", "uncompiled_paths"
-    }:
+    if not isinstance(quality, dict) or set(quality) - {
+        "compilation_complete", "absence_filtering_complete", "mode", "uncompiled_paths", "compilation_provenance"
+    } or not {"compilation_complete", "absence_filtering_complete", "mode", "uncompiled_paths"} <= set(quality):
         raise SelectionInputError("recon_context.recon_quality has an invalid shape")
+    provenance = quality.get("compilation_provenance", "CONSERVATIVE_BUILD_ROOT_FALLBACK")
     expected_mode = "COMPLETE" if raw["compilation_complete"] else "CONSERVATIVE_DEGRADED"
     if (
         quality["compilation_complete"] is not raw["compilation_complete"]
         or quality["absence_filtering_complete"] is not raw["compilation_complete"]
         or quality["mode"] != expected_mode
         or quality["uncompiled_paths"] != uncompiled
+        or provenance not in {"EXACT_COMPILATION_CLOSURE", "CONSERVATIVE_BUILD_ROOT_FALLBACK"}
     ):
         raise SelectionInputError("recon_context.recon_quality does not match compilation coverage")
     if raw["compilation_complete"] and uncompiled:
@@ -366,6 +370,7 @@ def validate_recon_context(
     if raw["compilation_complete"] is not (not expected_uncompiled):
         raise SelectionInputError("Recon compilation_complete does not match compilation coverage")
     normalized = dict(raw)
+    normalized["recon_quality"] = {**quality, "compilation_provenance": provenance}
     normalized["target_root"] = str(resolved)
     normalized["build_root"] = str(resolved_build_root)
     return normalized
@@ -797,7 +802,7 @@ def write_text(path: Path, content: str) -> None:
 
 def environment_artifact(context: dict[str, Any], snapshot_id: str) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": ENVIRONMENT_CONTEXT_VERSION,
         "routing_snapshot_id": snapshot_id,
         "facts": context.get("environment_facts", {}),
     }
@@ -867,9 +872,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         domain_configs = load_domains(root)
         scope_domains = parse_domains(args, set(domain_configs))
-        environment_context = load_json(args.environment_context.resolve()) if args.environment_context else {"schema_version": 1, "facts": {}}
-        if environment_context.get("schema_version", 1) != 1 or not isinstance(environment_context.get("facts"), dict):
-            raise SelectionInputError("environment context must have schema_version 1 and facts")
+        environment_context = load_json(args.environment_context.resolve()) if args.environment_context else {"schema_version": ENVIRONMENT_CONTEXT_VERSION, "facts": {}}
+        if environment_context.get("schema_version", ENVIRONMENT_CONTEXT_VERSION) != ENVIRONMENT_CONTEXT_VERSION or not isinstance(environment_context.get("facts"), dict):
+            raise SelectionInputError(f"environment context must have schema_version {ENVIRONMENT_CONTEXT_VERSION} and facts")
         validate_schema(root, "environment-context.schema.json", environment_context)
         context = audit_context(
             root, registry, recon_context, target_root=args.target_root, target_commit=args.target_commit,

@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -20,12 +22,34 @@ from scripts.audit_artifacts import (
     validate_domain_resolution,
 )
 from scripts.render_runtime import domain_context_template, domain_resolution_template, render, screen_results_template, validate_manifest, validate_screen_results
-from scripts.review_ledger import append, check_body_hash, checkpoint, collect_review_history, collect_review_records, load, render_markdown, validate_record, validate_records, write_ledger
+from scripts.review_ledger import _ledger_lock, append, check_body_hash, checkpoint, collect_review_history, collect_review_records, load, render_markdown, validate_record, validate_records, write_ledger
 from scripts.scope_context import find_suite_root
 from scripts.select_checks import audit_context, load_domains, normalize_feature_map, select
 from scripts.validate_audit_run import validate_run
 
 from helpers import EMPTY_TARGET, ROOT, build_manifest, load_json, review_inputs, suite_inputs, synthetic_feature_map
+
+
+def _append_ledger_worker(path: str, manifest: dict, record: dict, registry: dict, expected_ids: set[str], domain_context: dict, screen_results: dict, result_queue: Any) -> None:
+    try:
+        append(Path(path), manifest, record, registry, expected_ids, domain_context=domain_context, screen_results=screen_results)
+    except Exception as error:  # pragma: no cover - asserted through the result queue
+        result_queue.put(("error", type(error).__name__, str(error)))
+    else:
+        result_queue.put(("ok", record["canonical_id"]))
+
+
+def _read_ledger_worker(path: str, start_event: Any, result_queue: Any) -> None:
+    try:
+        start_event.wait()
+        for _ in range(50):
+            for record in load(Path(path)):
+                json.dumps(record)
+            time.sleep(0.001)
+    except Exception as error:  # pragma: no cover - asserted through the result queue
+        result_queue.put(("error", type(error).__name__, str(error)))
+    else:
+        result_queue.put(("ok", "reader"))
 
 
 class RuntimeTests(unittest.TestCase):
@@ -896,6 +920,97 @@ class RuntimeTests(unittest.TestCase):
             _, errors = collect_review_records([first, second], manifest, registry, {entry["canonical_id"]}, review_snapshot_id=snapshot)
         self.assertTrue(any("duplicate Deep record across ledgers" in error for error in errors))
 
+    def test_multiprocess_ledger_writes_are_serialized_and_durable(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        screen, domain_context, snapshot = review_inputs(manifest)
+        canonical_ids = [item["canonical_id"] for item in screen["results"][:8]]
+        expected_ids = set(canonical_ids)
+        records = []
+        for canonical_id in canonical_ids:
+            route = next(item for item in manifest["selected"] if item["canonical_id"] == canonical_id)
+            records.append(
+                {
+                    "record_type": "review",
+                    "schema_version": 7,
+                    "canonical_id": canonical_id,
+                    "owner_domain": route["owner_domain"],
+                    "check_body_hash": route["check_body_hash"],
+                    "review_stage": "DEEP_REVIEW",
+                    "status": "REVIEWED_SAFE",
+                    "applicability": "APPLICABLE - fixture",
+                    "code_path": "fixture entry",
+                    "preconditions": "fixture state",
+                    "exploitability": "guard holds",
+                    "impact": "none",
+                    "proof": "fixture invariant",
+                    "preserved_invariant": "fixture invariant",
+                    "evidence": [{"kind": "test", "location": "fixture", "reason": "concurrent ledger test"}],
+                }
+            )
+
+        context = multiprocessing.get_context("spawn")
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "review.jsonl")
+            start_event = context.Event()
+            result_queue = context.Queue()
+            processes = [
+                context.Process(
+                    target=_append_ledger_worker,
+                    args=(path, manifest, record, registry, expected_ids, domain_context, screen, result_queue),
+                )
+                for record in records
+            ]
+            reader = context.Process(target=_read_ledger_worker, args=(path, start_event, result_queue))
+            processes.append(reader)
+            for process in processes:
+                process.start()
+            start_event.set()
+            outcomes = [result_queue.get(timeout=30) for _ in processes]
+            for process in processes:
+                process.join(30)
+                self.assertEqual(process.exitcode, 0)
+            self.assertEqual([outcome[0] for outcome in outcomes].count("ok"), len(processes))
+            values = load(Path(path))
+            self.assertEqual(len(values), len(records) + 1)
+            self.assertEqual(
+                validate_records(values, manifest, registry, expected_ids, review_snapshot_id=snapshot),
+                [],
+            )
+
+            race_path = str(Path(directory) / "race.jsonl")
+            race_event = context.Event()
+            race_queue = context.Queue()
+            race_processes = [
+                context.Process(
+                    target=_append_ledger_worker,
+                    args=(race_path, manifest, records[0], registry, {canonical_ids[0]}, domain_context, screen, race_queue),
+                )
+                for _ in range(2)
+            ]
+            for process in race_processes:
+                process.start()
+            race_event.set()
+            race_outcomes = [race_queue.get(timeout=30) for _ in race_processes]
+            for process in race_processes:
+                process.join(30)
+                self.assertEqual(process.exitcode, 0)
+            self.assertEqual([outcome[0] for outcome in race_outcomes].count("ok"), 1)
+            self.assertEqual(len(load(Path(race_path))), 2)
+            self.assertEqual(
+                validate_records(load(Path(race_path)), manifest, registry, {canonical_ids[0]}, review_snapshot_id=snapshot),
+                [],
+            )
+
+    def test_ledger_does_not_silently_disable_locking(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.jsonl"
+            with patch("scripts.review_ledger.fcntl", None), patch("scripts.review_ledger.msvcrt", None):
+                with self.assertRaisesRegex(RuntimeError, "locking is unavailable"):
+                    with _ledger_lock(path, shared=False):
+                        pass
+
     def test_checkpoint_cli_has_no_cross_snapshot_option(self) -> None:
         result = subprocess.run(
             [sys.executable, "scripts/review_ledger.py", "--help"],
@@ -926,10 +1041,9 @@ class RuntimeTests(unittest.TestCase):
                 self.assertIn("check-review-contract.runtime.md", text)
                 self.assertIn("Never rerun Recon or Selector", text)
                 self.assertIn("## Required Context", text)
-                self.assertIn("Pattern matches are candidates, not findings", text)
-                self.assertIn("reachable path", text)
-                self.assertIn("tri-state predicate router", text)
-                self.assertIn("Do not load `<suite-root>/data/canonical-checks.json`", text)
+                self.assertIn("Apply the Master contract", text)
+                self.assertNotIn("Pattern matches are candidates, not findings", text)
+                self.assertNotIn("The tri-state predicate router is conservative", text)
 
     def test_review_contract_keeps_suspicious_out_of_severity(self) -> None:
         text = (ROOT / "skills/evm-audit-master/references/check-review-contract.md").read_text(encoding="utf-8")

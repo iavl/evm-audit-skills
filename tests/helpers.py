@@ -71,6 +71,7 @@ def synthetic_feature_map(
                 "absence_filtering_complete": True,
                 "mode": "COMPLETE",
                 "uncompiled_paths": [],
+                "compilation_provenance": "CONSERVATIVE_BUILD_ROOT_FALLBACK",
             },
             "slither_version": "synthetic",
             "solc_version": "0.8.24",

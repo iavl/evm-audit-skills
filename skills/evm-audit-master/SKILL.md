@@ -13,6 +13,7 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 - `<suite-root>/data/canonical-checks.json` is the only checklist knowledge source. Generated Markdown is a view; do not load the full registry into model context.
 - Run Recon and immutable routing once. Preserve `routing_snapshot_id`, `registry_sha256`, `source_digest`, and `compilation_input_digest` across every artifact.
 - Recon may emit `recon/code-index.json` as a navigation hint; inspect it first, load only targeted source ranges, and expand callers/callees whenever reachability is uncertain. Source remains authoritative.
+- Use bounded code-index expansion (`--depth 2 --max-nodes 25` when a second hop is needed); treat `truncated` and unresolved edges as reasons to verify more source, never as proof of safety.
 - `UNKNOWN` is never absence. Only trusted absence or confirmed environment mismatch may filter; Screen may emit only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`.
 - Deep reviews consume only Screen candidates. Every candidate needs one owner-Domain append-only JSONL event stream with valid revisions, typed evidence, and a terminal status.
 - `SUSPICIOUS` has no severity and must go through a later `PROOF` event. Only `CONFIRMED` records enter the final report.

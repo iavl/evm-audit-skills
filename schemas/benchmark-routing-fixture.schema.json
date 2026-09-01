@@ -10,6 +10,8 @@
     "name": {"type": "string", "minLength": 1},
     "present_features": {"$ref": "#/$defs/string_list"},
     "absent_features": {"$ref": "#/$defs/string_list"},
+    "feature_scope_origins": {"type": "object", "additionalProperties": {"enum": ["AUDIT_SCOPE", "DEPENDENCY", "FIRST_PARTY_DEPENDENCY", "EXTERNAL_DEPENDENCY", "UNKNOWN"]}},
+    "compilation_complete": {"type": "boolean"},
     "must_detect_features": {"$ref": "#/$defs/string_list"},
     "domain_scope": {"type": ["array", "null"], "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
     "must_select_checks": {"$ref": "#/$defs/string_list"},

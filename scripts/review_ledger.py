@@ -5,9 +5,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.versions import REVIEW_RECORD_VERSION
 
 try:
     import fcntl
@@ -15,7 +20,13 @@ except ImportError:  # pragma: no cover - Windows does not provide fcntl
     fcntl = None  # type: ignore[assignment]
 
 try:
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX does not provide msvcrt
+    msvcrt = None  # type: ignore[assignment]
+
+try:
     from audit_artifacts import (
+        atomic_write_text,
         check_body_hash,
         derive_review_snapshot_id,
         has_unresolved_marker,
@@ -31,6 +42,7 @@ try:
     from render_runtime import selected_entries, validate_manifest, validate_screen_results
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
+        atomic_write_text,
         check_body_hash,
         derive_review_snapshot_id,
         has_unresolved_marker,
@@ -52,7 +64,7 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = REVIEW_RECORD_VERSION
 TERMINAL = {"NOT_APPLICABLE", "REVIEWED_SAFE", "SUSPICIOUS", "CONFIRMED"}
 REVIEW_STAGES = {"DEEP_REVIEW", "PROOF"}
 IDENTITY_KEYS = ("routing_snapshot_id", "review_snapshot_id", "registry_sha256", "source_digest", "compilation_input_digest")
@@ -61,19 +73,32 @@ BASE_IDENTITY_KEYS = tuple(key for key in IDENTITY_KEYS if key != "review_snapsh
 
 @contextmanager
 def _ledger_lock(path: Path, *, shared: bool):
-    """Use the same advisory lock for readers and writers when available."""
+    """Use a portable cross-process lock for readers and writers."""
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(f".{path.name}.lock")
-    with lock_path.open("a+", encoding="utf-8") as lock:
-        if fcntl is None:
-            yield
+    with lock_path.open("a+b") as lock:
+        if fcntl is not None:
+            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+            fcntl.flock(lock.fileno(), mode)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             return
-        mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
-        fcntl.flock(lock.fileno(), mode)
+        if msvcrt is None:
+            raise RuntimeError("review ledger locking is unavailable on this platform")
+        # ponytail: Windows readers share the exclusive byte lock; a second lock protocol is not worth the maintenance cost.
+        lock.seek(0, os.SEEK_END)
+        if lock.tell() == 0:
+            lock.write(b"\0")
+            lock.flush()
+        lock.seek(0)
+        msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
         try:
             yield
         finally:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _load_unlocked(path: Path) -> list[dict[str, Any]]:
@@ -432,10 +457,14 @@ def append(
             transition_errors = _transition_errors(history[-1], record) if history else []
             if transition_errors:
                 raise ValueError("; ".join(transition_errors))
+        lines = []
+        if not records:
+            lines.append(json.dumps(identity, ensure_ascii=False, sort_keys=True) + "\n")
+        lines.append(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
         with path.open("a", encoding="utf-8") as output:
-            if not records:
-                output.write(json.dumps(identity, ensure_ascii=False, sort_keys=True) + "\n")
-            output.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            output.write("".join(lines))
+            output.flush()
+            os.fsync(output.fileno())
 
 
 def pending(
@@ -561,7 +590,10 @@ def write_ledger(
         )
         if errors:
             raise ValueError("; ".join(errors))
-        path.write_text("".join(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n" for value in values), encoding="utf-8")
+        atomic_write_text(
+            path,
+            "".join(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n" for value in values),
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -626,7 +658,7 @@ def main(argv: list[str] | None = None) -> int:
             if errors:
                 raise ValueError("; ".join(errors))
             args.render_markdown.parent.mkdir(parents=True, exist_ok=True)
-            args.render_markdown.write_text(render_markdown(values, manifest, registry), encoding="utf-8")
+            atomic_write_text(args.render_markdown, render_markdown(values, manifest, registry))
             success(f"Review view written to {args.render_markdown}")
             records, errors = collect_review_records(
                 args.ledger, manifest, registry, candidates, domain_resolution, current_snapshot

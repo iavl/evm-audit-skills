@@ -1,14 +1,29 @@
 {
   "schema_version": 1,
   "name": "bridge",
-  "present_features": ["uses-bridge"],
+  "present_features": [
+    "uses-bridge"
+  ],
   "absent_features": [],
-  "domain_scope": ["evm-audit-general", "evm-audit-bridges"],
-  "expected_selected_domains": ["evm-audit-general", "evm-audit-bridges"],
+  "domain_scope": [
+    "evm-audit-general",
+    "evm-audit-bridges"
+  ],
+  "expected_selected_domains": [
+    "evm-audit-bridges",
+    "evm-audit-general"
+  ],
   "expected_selected_checks": 167,
   "expected_filtered_checks": 0,
-  "must_select_checks": ["EVM-GEN-001", "EVM-BRIDGE-001"],
-  "must_not_filter_checks": ["EVM-BRIDGE-001"],
+  "must_select_checks": [
+    "EVM-GEN-001",
+    "EVM-BRIDGE-001"
+  ],
+  "must_not_filter_checks": [
+    "EVM-BRIDGE-001"
+  ],
   "max_runtime_bytes": 130048,
-  "max_total_context_bytes": 371712
+  "max_total_context_bytes": 371712,
+  "expected_deferred_domains": [],
+  "expected_filtered_domains": []
 }

@@ -4,11 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.versions import REPORTING_VERSION
+from evm_audit_runtime.controller_state import STAGE_PROGRESS, TOTAL_STAGES, display_stage as _display_stage, progress_metadata
 
 try:
     from runtime_log import configure, error, info, stage, success, warning
@@ -41,13 +46,13 @@ try:
         atomic_write_json,
         atomic_write_text,
         derive_review_snapshot_id,
-        invalidate_final_outputs,
         load_json,
         validate_domain_context,
         validate_domain_resolution,
+        validate_schema,
         validate_target_snapshot,
     )
-    from render_runtime import runtime_metadata, selected_entries, validate_manifest, validate_screen_results
+    from render_runtime import runtime_identity, selected_entries, validate_manifest, validate_screen_results
     from code_context import validate_code_index
     from review_ledger import collect_review_records
     from synthesize_report import synthesize
@@ -57,13 +62,13 @@ except ImportError:  # pragma: no cover
         atomic_write_json,
         atomic_write_text,
         derive_review_snapshot_id,
-        invalidate_final_outputs,
         load_json,
         validate_domain_context,
         validate_domain_resolution,
+        validate_schema,
         validate_target_snapshot,
     )
-    from scripts.render_runtime import runtime_metadata, selected_entries, validate_manifest, validate_screen_results
+    from scripts.render_runtime import runtime_identity, selected_entries, validate_manifest, validate_screen_results
     from scripts.code_context import validate_code_index
     from scripts.review_ledger import collect_review_records
     from scripts.synthesize_report import synthesize
@@ -71,17 +76,6 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOTAL_STAGES = 7
-STAGE_PROGRESS: dict[str, dict[str, Any]] = {
-    "RECON": {"step": 1, "label": "RECON"},
-    "ROUTING": {"step": 2, "label": "ROUTING"},
-    "DOMAIN_RESOLUTION": {"step": 3, "label": "DOMAIN RESOLUTION"},
-    "DOMAIN_CONTEXT": {"step": 3, "label": "DOMAIN CONTEXT"},
-    "SCREEN": {"step": 4, "label": "SCREEN"},
-    "DEEP_REVIEW": {"step": 5, "label": "DEEP REVIEW"},
-    "PROOF": {"step": 6, "label": "PROOF"},
-    "REPORT": {"step": 7, "label": "REPORT"},
-}
 VERBOSE_CHILD_SCRIPTS = {"select_checks.py", "render_runtime.py"}
 REPORTING_DIMENSIONS = (
     "impact", "exploitability", "privileges", "capital_required",
@@ -94,7 +88,7 @@ REPORTING_IDENTITY_KEYS = (
 )
 
 
-def paths(run_dir: Path) -> dict[str, Path]:
+def paths(run_dir: Path) -> dict[str, Any]:
     return {
         "feature_map": run_dir / "recon/feature-map.json",
         "code_index": run_dir / "recon/code-index.json",
@@ -155,26 +149,9 @@ def _render_screen(root: Path, values: dict[str, Path], *extra: str, verbose: bo
     )
 
 
-def progress_metadata(stage_name: str, *, summary: str | None = None) -> dict[str, Any]:
-    try:
-        metadata = STAGE_PROGRESS[stage_name]
-    except KeyError as exc:
-        raise ValueError(f"unknown audit stage: {stage_name}") from exc
-    return {
-        "step": metadata["step"],
-        "total": TOTAL_STAGES,
-        "label": metadata["label"],
-        "summary": summary or f"{metadata['label']} stage",
-    }
-
-
 def _emit_stage(stage_name: str, detail: str) -> None:
     progress = progress_metadata(stage_name)
     stage(progress["label"], step=progress["step"], total=progress["total"], detail=detail)
-
-
-def _display_stage(name: str) -> str:
-    return progress_metadata(name)["label"] if name in STAGE_PROGRESS else name.replace("_", " ")
 
 
 def _effective_model_profile(run_dir: Path) -> dict[str, Any]:
@@ -201,14 +178,18 @@ def _stage_result(
     stage_name: str,
     *,
     summary: str | None = None,
+    navigation: dict[str, Any] | None = None,
     **values: Any,
 ) -> dict[str, Any]:
-    return {
+    result = {
         "stage": stage_name,
         **values,
         "progress": progress_metadata(stage_name, summary=summary),
         "recommended_execution": recommended_execution(run_dir, stage_name),
     }
+    if navigation is not None:
+        result["navigation"] = navigation
+    return result
 
 
 def _progress_history_entry(
@@ -665,16 +646,16 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Path], dict[str, Any], dict[str, Any]]:
-    values = paths(run_dir.resolve())
-    if not values["manifest"].exists():
-        raise ValueError(f"run has no routing manifest: {values['manifest']}")
-    manifest = load_json(values["manifest"])
-    registry = load_json(root / "data/canonical-checks.json")
-    validate_manifest(root, manifest, registry)
-    validate_target_snapshot(manifest)
-    if values["code_index"].exists():
-        index = load_json(values["code_index"])
+def _optional_code_index_status(
+    root: Path,
+    values: dict[str, Any],
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    path = values["code_index"]
+    if not path.exists():
+        return {"available": False, "status": "ABSENT", "message": "code-index navigation was not generated"}
+    try:
+        index = load_json(path)
         audit = manifest["audit_context"]
         validate_code_index(
             root,
@@ -682,6 +663,26 @@ def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Path], dict[str, Any
             source_digest=audit["source_digest"],
             compilation_input_digest=audit["compilation_input_digest"],
         )
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+        return {
+            "available": False,
+            "status": "UNAVAILABLE",
+            "message": f"code-index navigation unavailable: {error}",
+        }
+    return {"available": True, "status": "CURRENT", "message": "code-index navigation is current"}
+
+
+def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    values = paths(run_dir.resolve())
+    if not values["manifest"].exists():
+        raise ValueError(f"run has no routing manifest: {values['manifest']}")
+    manifest = load_json(values["manifest"])
+    registry = load_json(root / "data/canonical-checks.json")
+    validate_manifest(root, manifest, registry)
+    validate_target_snapshot(manifest)
+    values["code_index_status"] = _optional_code_index_status(root, values, manifest)
+    if values["code_index_status"]["status"] == "UNAVAILABLE":
+        warning(values["code_index_status"]["message"])
     return values, manifest, registry
 
 
@@ -694,7 +695,10 @@ def _runtime_view_current(output: Path, expected: dict[str, Any]) -> bool:
     if not output.exists() or not metadata.exists():
         return False
     try:
-        return load_json(metadata) == expected
+        value = load_json(metadata)
+        validate_schema(ROOT, "runtime-metadata.schema.json", value)
+        identity = {key: item for key, item in value.items() if key != "runtime_sha256"}
+        return identity == expected and value["runtime_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
     except (OSError, ValueError, json.JSONDecodeError):
         return False
 
@@ -722,7 +726,7 @@ def _render_owner_view(
     verbose: bool = False,
 ) -> tuple[Path, bool]:
     output = values["manifest"].parent.parent / "runtime" / f"{profile}-{owner}.md"
-    expected = runtime_metadata(
+    expected = runtime_identity(
         load_json(values["manifest"]), profile, sorted(ids), owner, review_snapshot
     )
     if _runtime_view_current(output, expected):
@@ -744,14 +748,15 @@ def _render_owner_view(
         ["--manifest", str(values["manifest"]), "--profile", profile, *extra],
         verbose=verbose,
     )
-    atomic_write_json(output.with_suffix(".meta.json"), expected)
+    if not _runtime_view_current(output, expected):
+        raise ValueError(f"renderer produced an invalid runtime view: {output}")
     return output, False
 
 
 def _reporting_identity(manifest: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
     audit = manifest["audit_context"]
     return {
-        "schema_version": 2,
+        "schema_version": REPORTING_VERSION,
         "routing_snapshot_id": manifest["routing_snapshot_id"],
         "review_state_digest": state["review_state_digest"],
         "registry_sha256": audit["registry_sha256"],
@@ -925,6 +930,7 @@ def status_run(
             ),
         ),
         "recommended_execution": recommended_execution(run_dir, stage_name),
+        "navigation": values["code_index_status"],
     }
 
 
@@ -948,6 +954,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
                 run_dir,
                 "DOMAIN_RESOLUTION",
                 summary=_domain_resolution_summary(manifest),
+                navigation=values["code_index_status"],
                 template=str(values["resolution"]),
             )
         resolution = load_json(values["resolution"])
@@ -959,6 +966,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
                 run_dir,
                 "DOMAIN_RESOLUTION",
                 summary=_domain_resolution_summary(manifest, unresolved),
+                navigation=values["code_index_status"],
                 unresolved_domains=sorted(unresolved),
             )
 
@@ -985,6 +993,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             run_dir,
             "DOMAIN_CONTEXT",
             summary=_domain_context_summary(manifest),
+            navigation=values["code_index_status"],
             template=str(values["domain_context"]),
         )
     domain_context = load_json(values["domain_context"])
@@ -996,6 +1005,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             run_dir,
             "DOMAIN_CONTEXT",
             summary=_domain_context_summary(manifest, unresolved_context),
+            navigation=values["code_index_status"],
             unresolved_context=sorted(unresolved_context),
         )
 
@@ -1014,6 +1024,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             run_dir,
             "SCREEN",
             summary=_screen_summary(manifest, resolution=resolution),
+            navigation=values["code_index_status"],
             template=str(values["screen_results"]),
         )
     screen = load_json(values["screen_results"])
@@ -1054,6 +1065,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
                 run_dir,
                 "DEEP_REVIEW",
                 summary=f"{len(pending)} Deep Review candidates remain",
+                navigation=values["code_index_status"],
                 pending=sorted(pending),
             )
         suspicious = {
@@ -1087,6 +1099,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
                 run_dir,
                 "PROOF",
                 summary=f"{len(suspicious)} suspicious findings require Proof",
+                navigation=values["code_index_status"],
                 pending=sorted(suspicious),
                 runtime_views=[str(path) for path in sorted(proof_views)],
             )
@@ -1103,6 +1116,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         run_dir,
         "REPORT",
         summary=f"Audit state: {state['status']}",
+        navigation=values["code_index_status"],
         status=state["status"],
         audit_state=str(values["audit_state"]),
     )
@@ -1165,7 +1179,6 @@ def report_run(
     severity_path: Path | None = None,
     finding_details_path: Path | None = None,
 ) -> dict[str, Any]:
-    invalidate_final_outputs(run_dir / "AUDIT-REPORT.md", run_dir / "issue-candidates.json")
     values, manifest, registry = _load_run(root, run_dir)
     state = status_run(root, run_dir, emit=False)
     _log_report(state, finished=False, run_dir=run_dir)
@@ -1199,6 +1212,7 @@ def report_run(
         run_dir,
         "REPORT",
         summary=f"Audit state: {state['status']}",
+        navigation=values["code_index_status"],
         status=state["status"],
         complete=state["complete"],
         report=str(values["report"]),

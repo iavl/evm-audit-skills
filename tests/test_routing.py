@@ -136,6 +136,7 @@ class RoutingTests(unittest.TestCase):
             "absence_filtering_complete": False,
             "mode": "CONSERVATIVE_DEGRADED",
             "uncompiled_paths": ["Empty.sol"],
+            "compilation_provenance": "CONSERVATIVE_BUILD_ROOT_FALLBACK",
         }
         normalized = normalize_feature_map(feature_map, self.feature_names, self.feature_policies, EMPTY_TARGET)
         self.assertEqual(normalized["uses-assembly"]["status"], "UNKNOWN")
@@ -164,6 +165,14 @@ class RoutingTests(unittest.TestCase):
             feature_map["recon_context"]["files_analyzed"] = ["outside.sol"]
             validate_recon_context(feature_map["recon_context"], EMPTY_TARGET, ())
 
+        legacy = synthetic_feature_map()
+        legacy["recon_context"]["recon_quality"].pop("compilation_provenance")
+        normalized_legacy = validate_recon_context(legacy["recon_context"], EMPTY_TARGET, ())
+        self.assertEqual(
+            normalized_legacy["recon_quality"]["compilation_provenance"],
+            "CONSERVATIVE_BUILD_ROOT_FALLBACK",
+        )
+
         feature_map = synthetic_feature_map()
         with self.assertRaisesRegex(ValueError, "scope_files minus files_analyzed"):
             feature_map["recon_context"]["compilation_complete"] = False
@@ -173,6 +182,7 @@ class RoutingTests(unittest.TestCase):
                 "absence_filtering_complete": False,
                 "mode": "CONSERVATIVE_DEGRADED",
                 "uncompiled_paths": ["Empty.sol"],
+                "compilation_provenance": "CONSERVATIVE_BUILD_ROOT_FALLBACK",
             }
             validate_recon_context(feature_map["recon_context"], EMPTY_TARGET, ())
 
@@ -184,6 +194,7 @@ class RoutingTests(unittest.TestCase):
                 "absence_filtering_complete": False,
                 "mode": "CONSERVATIVE_DEGRADED",
                 "uncompiled_paths": [],
+                "compilation_provenance": "CONSERVATIVE_BUILD_ROOT_FALLBACK",
             }
             validate_recon_context(feature_map["recon_context"], EMPTY_TARGET, ())
 
@@ -437,14 +448,22 @@ class RoutingTests(unittest.TestCase):
         self.assertFalse((ROOT / "development" / "migrations").exists())
         paths = fixture_paths(ROOT)
         self.assertTrue(paths)
+        self.assertTrue({path.stem for path in paths} >= {"access-control", "chain-specific", "dependency-only", "external-calls", "incomplete-compilation", "precision-math"})
         for path in paths:
             with self.subTest(path=path):
                 self.assertIn(path.parent.name, {"automatic", "explicit"})
                 fixture = load_json(path)
                 validate_fixture(ROOT, fixture)
+                for key in ("expected_selected_domains", "expected_deferred_domains", "expected_filtered_domains"):
+                    self.assertIn(key, fixture)
                 self.assertNotIn("detected_features", fixture)
                 self.assertNotIn("must_select_ids", fixture)
                 self.assertNotIn("must_not_filter_ids", fixture)
+
+        dependency = load_json(ROOT / "development/benchmarks/routing/automatic/dependency-only.json")
+        self.assertEqual(dependency["feature_scope_origins"]["uses-access-control"], "DEPENDENCY")
+        incomplete = load_json(ROOT / "development/benchmarks/routing/automatic/incomplete-compilation.json")
+        self.assertFalse(incomplete["compilation_complete"])
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "suite"

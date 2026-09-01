@@ -13,6 +13,7 @@ _SUITE_ROOT = str(Path(__file__).resolve().parents[1])
 if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
 from evm_audit_runtime.state import COMPLETE_STATES, derive_status
+from evm_audit_runtime.versions import AUDIT_STATE_VERSION
 
 try:
     from audit_artifacts import (
@@ -195,7 +196,7 @@ def validate_run(
         if reason not in reasons:
             reasons.append(reason)
     state = {
-        "schema_version": 2,
+        "schema_version": AUDIT_STATE_VERSION,
         "routing_snapshot_id": manifest.get("routing_snapshot_id"),
         "review_snapshot_id": review_snapshot,
         "review_state_digest": state_review_digest,

@@ -9,6 +9,9 @@ import sys
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.versions import KNOWLEDGE_HEALTH_VERSION
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -116,7 +119,7 @@ def knowledge_health(
 
     error_count = sum(finding["severity"] == "error" for finding in findings)
     return {
-        "schema_version": 1,
+        "schema_version": KNOWLEDGE_HEALTH_VERSION,
         "checked_at": today.isoformat(),
         "registry_schema_version": registry.get("schema_version"),
         "canonical_checks": len(registry.get("checks", [])),

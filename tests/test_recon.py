@@ -43,7 +43,12 @@ class ReconTests(unittest.TestCase):
     def test_recon_uses_slither_evidence_and_confirms_supported_absence(self) -> None:
         result = run_recon(ROOT / "tests/fixtures/recon/ReconFixture.sol")
         self.assertEqual(result.returncode, 0, result.stderr)
-        feature_map = json.loads(result.stdout)["features"]
+        payload = json.loads(result.stdout)
+        self.assertEqual(
+            payload["recon_context"]["recon_quality"]["compilation_provenance"],
+            "EXACT_COMPILATION_CLOSURE",
+        )
+        feature_map = payload["features"]
         for feature in (
             "uses-assembly",
             "uses-create2",

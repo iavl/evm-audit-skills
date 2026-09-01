@@ -10,6 +10,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.versions import DOMAIN_RESOLUTION_VERSION, FEATURE_MAP_VERSION, REVIEW_RECORD_VERSION
+
 try:
     from audit_artifacts import check_body_hash, validate_domain_context, validate_domain_resolution, validate_schema
     from render_runtime import domain_context_template, render, selected_entries, validate_manifest, validate_screen_results
@@ -35,7 +38,7 @@ def aggregate_domain_skill_bytes(root: Path) -> int:
     )
 
 
-def recon_context(target: Path) -> dict[str, object]:
+def recon_context(target: Path, *, compilation_complete: bool = True) -> dict[str, object]:
     build_root = resolve_build_root(target)
     files, excluded = scope_inventory(target)
     digests = compilation_digests(
@@ -46,21 +49,32 @@ def recon_context(target: Path) -> dict[str, object]:
         dependency_roots=DEFAULT_DEPENDENCY_ROOTS,
     )
     return {
-        "target_root": str(target.resolve()), "build_root": str(build_root.resolve()), "files_analyzed": files,
+        "target_root": str(target.resolve()), "build_root": str(build_root.resolve()),
+        "files_analyzed": files if compilation_complete else [],
         "excluded_paths": excluded, "exclusion_patterns": [], "include_patterns": [],
-        "dependency_roots": sorted(DEFAULT_DEPENDENCY_ROOTS), "uncompiled_paths": [],
-        "source_digest": digests["audit_source_digest"], **digests, "compilation_complete": True,
+        "dependency_roots": sorted(DEFAULT_DEPENDENCY_ROOTS),
+        "uncompiled_paths": [] if compilation_complete else files,
+        "source_digest": digests["audit_source_digest"], **digests, "compilation_complete": compilation_complete,
         "recon_quality": {
-            "compilation_complete": True,
-            "absence_filtering_complete": True,
-            "mode": "COMPLETE",
-            "uncompiled_paths": [],
+            "compilation_complete": compilation_complete,
+            "absence_filtering_complete": compilation_complete,
+            "mode": "COMPLETE" if compilation_complete else "CONSERVATIVE_DEGRADED",
+            "uncompiled_paths": [] if compilation_complete else files,
+            "compilation_provenance": "CONSERVATIVE_BUILD_ROOT_FALLBACK",
         },
         "slither_version": "benchmark", "solc_version": "0.8.24",
     }
 
 
-def feature_map(names: set[str], policies: dict[str, dict[str, object]], present: list[str], absent: list[str]) -> dict[str, object]:
+def feature_map(
+    names: set[str],
+    policies: dict[str, dict[str, object]],
+    present: list[str],
+    absent: list[str],
+    *,
+    feature_scope_origins: dict[str, str] | None = None,
+    compilation_complete: bool = True,
+) -> dict[str, object]:
     entries: dict[str, object] = {}
     for name in sorted(names):
         status = "PRESENT" if name in present else "ABSENT_CONFIRMED" if name in absent else "UNKNOWN"
@@ -68,9 +82,9 @@ def feature_map(names: set[str], policies: dict[str, dict[str, object]], present
         if status != "UNKNOWN":
             allowed = policies[name]["allowed_absence_evidence"] if status == "ABSENT_CONFIRMED" else ["manual"]
             if allowed:
-                evidence = [{"kind": allowed[0], "location": "benchmark", "reason": "declared benchmark scope", "scope_origin": "AUDIT_SCOPE"}]
+                evidence = [{"kind": allowed[0], "location": "benchmark", "reason": "declared benchmark scope", "scope_origin": (feature_scope_origins or {}).get(name, "AUDIT_SCOPE")}]
         entries[name] = {"status": status, "evidence": evidence}
-    return {"schema_version": 4, "recon_context": recon_context(SYNTHETIC_TARGET), "features": entries}
+    return {"schema_version": FEATURE_MAP_VERSION, "recon_context": recon_context(SYNTHETIC_TARGET, compilation_complete=compilation_complete), "features": entries}
 
 
 def _domains(manifest: dict[str, object], bucket: str) -> list[str]:
@@ -156,7 +170,14 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
     present, absent = fixture["present_features"], fixture["absent_features"]
     if not isinstance(present, list) or not isinstance(absent, list) or not set(present + absent) <= names:
         raise ValueError(f"invalid features in {fixture['name']}")
-    raw_map = feature_map(names, policies, present, absent)
+    raw_map = feature_map(
+        names,
+        policies,
+        present,
+        absent,
+        feature_scope_origins=fixture.get("feature_scope_origins"),
+        compilation_complete=fixture.get("compilation_complete", True),
+    )
     normalized = normalize_feature_map(raw_map, names, policies, SYNTHETIC_TARGET)
     scope = fixture.get("domain_scope")
     if scope is not None and (not isinstance(scope, list) or not scope):
@@ -167,18 +188,20 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
     validate_manifest(root, manifest, registry)
     _assert_fixture(fixture, normalized, manifest)
     domain_resolution = {
-        "schema_version": 2,
+        "schema_version": DOMAIN_RESOLUTION_VERSION,
         "routing_snapshot_id": manifest["routing_snapshot_id"],
         "registry_sha256": manifest["audit_context"]["registry_sha256"],
         "source_digest": manifest["audit_context"]["source_digest"],
         "compilation_input_digest": manifest["audit_context"]["compilation_input_digest"],
         "domains": {
             entry["domain"]: {
-                "status": "ABSENT_CONFIRMED",
+                "status": "ABSENT_CONFIRMED" if raw_map["recon_context"]["compilation_complete"] else "PRESENT",
                 "scope_complete": True,
                 "evidence": [
                     {"kind": "scope", "location": "benchmark", "reason": "complete synthetic scope"},
-                    {"kind": "inheritance", "location": "benchmark", "reason": "no domain surface"},
+                    {"kind": "inheritance", "location": "benchmark", "reason": "no domain surface"}
+                    if raw_map["recon_context"]["compilation_complete"]
+                    else {"kind": "source", "location": "benchmark", "reason": "compilation coverage is incomplete; retain Domain for review"},
                 ],
             }
             for entry in manifest["deferred_domains"]
@@ -194,9 +217,9 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
                 evidence=[{"kind": "scope", "location": "benchmark", "reason": "synthetic context"}],
             )
     validate_domain_context(root, manifest, domain_context, domain_resolution, require_complete=True)
-    screen = render(manifest, registry, "screen", set())
+    screen = render(manifest, registry, "screen", set(), domain_resolution=domain_resolution)
     candidates = {entry["canonical_id"] for entry in selected_entries(manifest, domain_resolution=domain_resolution)}
-    deep = render(manifest, registry, "deep", candidates)
+    deep = render(manifest, registry, "deep", candidates, domain_resolution=domain_resolution)
     cost = _total_cost(manifest, screen, deep)
     proof_ids = set(sorted(candidates)[:3])
     proof_records = {
@@ -210,11 +233,11 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
         }
         for canonical_id in proof_ids
     }
-    proof = render(manifest, registry, "proof", proof_ids, review_snapshot="0" * 64, proof_records=proof_records)
+    proof = render(manifest, registry, "proof", proof_ids, domain_resolution=domain_resolution, review_snapshot="0" * 64, proof_records=proof_records)
     sample_id = next(iter(proof_ids), manifest["selected"][0]["canonical_id"])
-    sample_route = next(entry for entry in manifest["selected"] if entry["canonical_id"] == sample_id)
+    sample_route = next(entry for entry in selected_entries(manifest, domain_resolution=domain_resolution) if entry["canonical_id"] == sample_id)
     sample_identity = {
-        "record_type": "review", "schema_version": 7, "canonical_id": sample_id, "revision": 1,
+        "record_type": "review", "schema_version": REVIEW_RECORD_VERSION, "canonical_id": sample_id, "revision": 1,
         "owner_domain": sample_route["owner_domain"], "routing_snapshot_id": manifest["routing_snapshot_id"],
         "review_snapshot_id": "0" * 64, "registry_sha256": manifest["audit_context"]["registry_sha256"],
         "source_digest": manifest["audit_context"]["source_digest"], "compilation_input_digest": manifest["audit_context"]["compilation_input_digest"],
@@ -245,6 +268,8 @@ def run_profile(root: Path, fixture: dict[str, object]) -> dict[str, object]:
         "deep_runtime_bytes": len(deep.encode()), "proof_runtime_bytes": cost["proof_runtime_bytes"],
         "reviewed_safe_record_bytes": cost["reviewed_safe_record_bytes"], "confirmed_record_bytes": cost["confirmed_record_bytes"],
         "aggregate_domain_skill_bytes": aggregate_domain_skill_bytes(root),
+        "compilation_complete": raw_map["recon_context"]["compilation_complete"],
+        "compilation_provenance": raw_map["recon_context"]["recon_quality"]["compilation_provenance"],
         "routing_recall": recall, "false_negative_cases": false_negative_cases, "cost": cost,
     }
 

@@ -33,6 +33,27 @@ audit artifacts.
 
 ## Runtime profiles and artifacts
 
+### Artifact authority
+
+| Artifact | Authoritative? | Snapshot bound? | Can affect clean completion? | Regenerable? |
+|---|---:|---:|---:|---:|
+| feature-map | yes | source/compilation | yes | yes |
+| routing manifest | yes | routing snapshot | yes | yes |
+| code-index | no, navigation hint | source/compilation | no | yes |
+| domain-resolution | yes | routing | yes | yes |
+| domain-context | yes | routing | yes | yes |
+| screen-results | yes | routing | yes | yes |
+| review JSONL | yes | review snapshot | yes | append-only |
+| runtime Markdown | no, generated view | body hash + snapshot | no direct state authority | yes |
+| severity/finding details | reporting input | review-state digest | report only | yes |
+| final report | deliverable | review/report lineage | n/a | yes |
+
+The machine-readable JSON/JSONL artifacts are authoritative. Runtime Markdown
+is paired with a schema-validated `.meta.json` sidecar containing
+`runtime_sha256`; cache reuse hashes the exact Markdown bytes and rejects any
+body, sidecar, or identity mismatch. An invalid code index is reported as an
+unavailable navigation hint and never changes authoritative audit state.
+
 ### Codex model policy
 
 The Codex-only execution policy is stored separately from audit artifacts at
@@ -148,8 +169,9 @@ python3 scripts/review_ledger.py --manifest routing/manifest.json \
 
 Runtime Markdown is a generated model-facing view with only compact stage and
 candidate metadata. Full routing/source/compilation/candidate-set identity is
-kept in the adjacent `.meta.json` sidecar; the renderer validates those
-identities before reading check bodies. Filtered IDs remain in the
+kept in the adjacent `.meta.json` sidecar together with a SHA-256 hash of the
+exact UTF-8 body; the controller verifies both the identity and body before
+reusing a cached view. Filtered IDs remain in the
 manifest and do not generate per-check Markdown records. Completion comes from
 `validate_audit_run.py` rather than an upstream completion flag.
 
@@ -165,10 +187,11 @@ python3 scripts/audit_run.py report --run-dir <run-dir> \
 ```
 
 `next` returns `DEEP_REVIEW` for missing candidate records and `PROOF` for
-latest `SUSPICIOUS` records. `report` always runs `status_run()` first. It
-invalidates old final outputs before current synthesis, writes replacements
-atomically, and exits non-zero if current reporting is incomplete. It never
-trusts a previous `audit-state.json`.
+latest `SUSPICIOUS` records. `report` always runs `status_run()` first,
+validates and synthesizes in memory, then atomically replaces the final
+outputs. A failed report leaves the previous deliverables untouched and exits
+non-zero if current reporting is incomplete. It never trusts a previous
+`audit-state.json`.
 
 Derive completion independently from the manifest, Screen results, Domain
 resolution, and owner-Domain ledgers:

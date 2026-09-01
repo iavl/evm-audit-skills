@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.versions import CODEX_MODEL_PROFILE_VERSION
 
 try:
     from audit_artifacts import atomic_write_json
@@ -28,7 +32,7 @@ REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 
 
 DEFAULT_CODEX_MODEL_PROFILE: dict[str, Any] = {
-    "schema_version": 1,
+    "schema_version": CODEX_MODEL_PROFILE_VERSION,
     "provider": "codex",
     "profile_name": "default-balanced-audit",
     "stages": {
@@ -53,8 +57,8 @@ def validate_profile(value: Any) -> None:
         raise ValueError("Codex model profile must be an object")
     if set(value) != {"schema_version", "provider", "profile_name", "stages"}:
         raise ValueError("Codex model profile has unexpected or missing fields")
-    if isinstance(value["schema_version"], bool) or value["schema_version"] != 1:
-        raise ValueError("Codex model profile schema_version must be 1")
+    if isinstance(value["schema_version"], bool) or value["schema_version"] != CODEX_MODEL_PROFILE_VERSION:
+        raise ValueError(f"Codex model profile schema_version must be {CODEX_MODEL_PROFILE_VERSION}")
     if value["provider"] != "codex":
         raise ValueError("Codex model profile provider must be codex")
     if not isinstance(value["profile_name"], str) or not value["profile_name"].strip():

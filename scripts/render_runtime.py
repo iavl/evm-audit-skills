@@ -4,12 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.versions import DOMAIN_CONTEXT_VERSION, DOMAIN_RESOLUTION_VERSION, RUNTIME_METADATA_VERSION, SCREEN_RESULTS_VERSION
+from evm_audit_runtime.limits import MAX_SCREEN_GATE_LENGTH
+
 try:
     from audit_artifacts import (
+        atomic_write_json,
+        atomic_write_text,
         canonical_sha256,
         check_body_hash,
         derive_review_snapshot_id,
@@ -27,6 +35,8 @@ try:
     )
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
+        atomic_write_json,
+        atomic_write_text,
         canonical_sha256,
         check_body_hash,
         derive_review_snapshot_id,
@@ -122,10 +132,10 @@ def validate_manifest(root: Path, manifest: dict[str, Any], registry: dict[str, 
     return snapshot
 
 
-def _empty_identity(manifest: dict[str, Any]) -> dict[str, Any]:
+def _empty_identity(manifest: dict[str, Any], schema_version: int = SCREEN_RESULTS_VERSION) -> dict[str, Any]:
     audit = manifest["audit_context"]
     return {
-        "schema_version": 2,
+        "schema_version": schema_version,
         "routing_snapshot_id": manifest["routing_snapshot_id"],
         "registry_sha256": audit["registry_sha256"],
         "source_digest": audit["source_digest"],
@@ -135,7 +145,7 @@ def _empty_identity(manifest: dict[str, Any]) -> dict[str, Any]:
 
 def screen_results_template(manifest: dict[str, Any], domain_resolution: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
-        **_empty_identity(manifest),
+        **_empty_identity(manifest, SCREEN_RESULTS_VERSION),
         "results": [
             {"canonical_id": entry["canonical_id"], "result": "CANDIDATE", "scope_complete": False, "evidence": []}
             for entry in selected_entries(manifest, domain_resolution=domain_resolution)
@@ -145,7 +155,7 @@ def screen_results_template(manifest: dict[str, Any], domain_resolution: dict[st
 
 def domain_resolution_template(manifest: dict[str, Any]) -> dict[str, Any]:
     return {
-        **_empty_identity(manifest),
+        **_empty_identity(manifest, DOMAIN_RESOLUTION_VERSION),
         "domains": {
             entry["domain"]: {"status": "UNKNOWN", "scope_complete": False, "evidence": []}
             for entry in manifest["deferred_domains"]
@@ -166,7 +176,7 @@ def domain_context_template(
         }
     return {
         **_empty_identity(manifest),
-        "schema_version": 3,
+        "schema_version": DOMAIN_CONTEXT_VERSION,
         "domains": {
             domain: {
                 key: {"status": "UNKNOWN", "evidence": []}
@@ -202,7 +212,7 @@ def validate_screen_results(root: Path, manifest: dict[str, Any], value: dict[st
     return {entry["canonical_id"] for entry in results if entry["result"] == "CANDIDATE"}
 
 
-def runtime_metadata(
+def runtime_identity(
     manifest: dict[str, Any],
     profile: str,
     candidate_ids: list[str],
@@ -211,6 +221,7 @@ def runtime_metadata(
 ) -> dict[str, Any]:
     audit = manifest["audit_context"]
     return {
+        "schema_version": RUNTIME_METADATA_VERSION,
         "profile": profile,
         "routing_snapshot_id": manifest["routing_snapshot_id"],
         "review_snapshot_id": review_snapshot,
@@ -220,6 +231,20 @@ def runtime_metadata(
         "registry_sha256": audit["registry_sha256"],
         "source_digest": audit["source_digest"],
         "compilation_input_digest": audit["compilation_input_digest"],
+    }
+
+
+def runtime_metadata(
+    manifest: dict[str, Any],
+    profile: str,
+    candidate_ids: list[str],
+    owner_domain: str | None,
+    review_snapshot: str | None,
+    runtime_sha256: str,
+) -> dict[str, Any]:
+    return {
+        **runtime_identity(manifest, profile, candidate_ids, owner_domain, review_snapshot),
+        "runtime_sha256": runtime_sha256,
     }
 
 
@@ -309,7 +334,7 @@ def render(
                 lines.append(f"- **Specific proof:** {one_line(check['proof'])}")
         elif profile == "screen":
             gate = check.get("screen_gate") or one_line((check.get("trigger") or [])[:1])
-            gate = gate[:240]
+            gate = gate[:MAX_SCREEN_GATE_LENGTH]
             lines.append(f"- **Screen gate:** {gate}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
@@ -319,7 +344,7 @@ def write_json(path: Path, value: dict[str, Any], *, overwrite: bool = False) ->
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not overwrite:
         raise ValueError(f"refusing to overwrite existing artifact: {path}")
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(path, value)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -424,30 +449,32 @@ def main(argv: list[str] | None = None) -> int:
             if args.domain_context_out:
                 write_json(args.domain_context_out, domain_context_template(manifest, domain_resolution))
                 info(f"Domain Context template written to {args.domain_context_out}")
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(
-            render(
-                manifest,
-                registry,
-                args.profile,
-                candidates,
-                args.owner_domain,
-                domain_resolution,
-                review_snapshot,
-                proof_records,
-            ),
-            encoding="utf-8",
+        rendered = render(
+            manifest,
+            registry,
+            args.profile,
+            candidates,
+            args.owner_domain,
+            domain_resolution,
+            review_snapshot,
+            proof_records,
         )
+        atomic_write_text(args.output, rendered)
         entries = selected_entries(manifest, args.owner_domain, domain_resolution)
         rendered_ids = sorted(
             entry["canonical_id"] for entry in entries
             if args.profile == "screen" or entry["canonical_id"] in candidates
         )
-        write_json(
-            args.output.with_suffix(".meta.json"),
-            runtime_metadata(manifest, args.profile, rendered_ids, args.owner_domain, review_snapshot),
-            overwrite=True,
+        metadata = runtime_metadata(
+            manifest,
+            args.profile,
+            rendered_ids,
+            args.owner_domain,
+            review_snapshot,
+            hashlib.sha256(rendered.encode("utf-8")).hexdigest(),
         )
+        validate_schema(ROOT, "runtime-metadata.schema.json", metadata)
+        atomic_write_json(args.output.with_suffix(".meta.json"), metadata)
         if args.profile == "screen":
             info(f"Rendered checks: {len(entries)}")
             success("Screen runtime generated")

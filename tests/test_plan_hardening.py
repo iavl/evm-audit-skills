@@ -165,20 +165,25 @@ class PlanHardeningTests(unittest.TestCase):
 
     def test_code_index_lookup_expands_callers_and_callees(self) -> None:
         digest = "a" * 64
+        contract_id = "build://Target.sol::Target"
+        entry_id = f"{contract_id}.entry()"
+        helper_id = f"{contract_id}.helper()"
+        callee_id = f"{contract_id}.callee()"
+        contract = {"file": "build://Target.sol", "start_line": 1, "end_line": 6, "bases": [], "scope_origin": "AUDIT_SCOPE"}
         index = {
-            "schema_version": 1, "target_root": "fixture", "build_root": "fixture",
+            "schema_version": 2, "target_root": "fixture", "build_root": "fixture",
             "source_digest": digest, "compilation_input_digest": "b" * 64,
-            "contracts": {}, "inheritance": {}, "external_calls": [], "storage_writes": [], "modifiers": {},
-            "source_ranges": {key: {"file": "Target.sol", "start_line": 1, "end_line": 2} for key in ("Target.entry()", "Target.helper()", "Target.callee()")},
+            "contracts": {contract_id: contract}, "inheritance": {contract_id: []}, "external_calls": [], "storage_writes": [], "modifiers": {},
+            "source_ranges": {key: {"file": "build://Target.sol", "start_line": 1, "end_line": 2} for key in (entry_id, helper_id, callee_id)},
             "functions": {
-                "Target.entry()": {"contract": "Target", "name": "entry", "file": "Target.sol", "start_line": 1, "end_line": 2, "visibility": "external", "modifiers": [], "reads": [], "writes": [], "internal_calls": ["Target.helper()"], "external_calls": [], "scope_origin": "AUDIT_SCOPE"},
-                "Target.helper()": {"contract": "Target", "name": "helper", "file": "Target.sol", "start_line": 3, "end_line": 4, "visibility": "internal", "modifiers": [], "reads": [], "writes": [], "internal_calls": ["Target.callee()"], "external_calls": [], "scope_origin": "AUDIT_SCOPE"},
-                "Target.callee()": {"contract": "Target", "name": "callee", "file": "Target.sol", "start_line": 5, "end_line": 6, "visibility": "internal", "modifiers": [], "reads": [], "writes": [], "internal_calls": [], "external_calls": [], "scope_origin": "AUDIT_SCOPE"},
+                entry_id: {"function_id": entry_id, "contract_id": contract_id, "contract": "Target", "name": "entry", "file": "build://Target.sol", "start_line": 1, "end_line": 2, "visibility": "external", "modifiers": [], "reads": [], "writes": [], "state_reads": [], "state_writes": [], "local_writes": [], "internal_calls": [helper_id], "external_calls": [], "scope_origin": "AUDIT_SCOPE"},
+                helper_id: {"function_id": helper_id, "contract_id": contract_id, "contract": "Target", "name": "helper", "file": "build://Target.sol", "start_line": 3, "end_line": 4, "visibility": "internal", "modifiers": [], "reads": [], "writes": [], "state_reads": [], "state_writes": [], "local_writes": [], "internal_calls": [callee_id], "external_calls": [], "scope_origin": "AUDIT_SCOPE"},
+                callee_id: {"function_id": callee_id, "contract_id": contract_id, "contract": "Target", "name": "callee", "file": "build://Target.sol", "start_line": 5, "end_line": 6, "visibility": "internal", "modifiers": [], "reads": [], "writes": [], "state_reads": [], "state_writes": [], "local_writes": [], "internal_calls": [], "external_calls": [], "scope_origin": "AUDIT_SCOPE"},
             },
         }
         validate_code_index(ROOT, index)
         result = lookup(index, "Target.helper()", include_callers=True, include_callees=True)
-        self.assertEqual(set(result["functions"]), {"Target.entry()", "Target.helper()", "Target.callee()"})
+        self.assertEqual(set(result["functions"]), {entry_id, helper_id, callee_id})
 
     def test_closure_digest_ignores_uncompiled_unrelated_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

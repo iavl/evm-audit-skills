@@ -17,6 +17,10 @@ from datetime import date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.limits import MAX_SCREEN_GATE_LENGTH
+from evm_audit_runtime.versions import CANONICAL_CHECKS_VERSION, CANONICAL_HISTORY_VERSION, CLAIMS_VERSION, FEATURE_MAP_VERSION, FEATURE_REGISTRY_VERSION
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -59,7 +63,7 @@ URL_VALUE_RE = re.compile(r"^https?://[^\s]+$")
 CHECK_TYPES = {"normative", "semantic", "exploit-pattern", "heuristic"}
 CONFIDENCES = {"high", "medium", "contextual"}
 VERIFICATION_STATUSES = {"verified", "qualified"}
-CLAIMS_SCHEMA_VERSION = 3
+CLAIMS_SCHEMA_VERSION = CLAIMS_VERSION
 CLAIM_EVIDENCE_KINDS = {"official", "executable", "text-regression"}
 FRESHNESS_CLASSES = {"static", "versioned", "time-sensitive"}
 REGISTRY_REQUIRED_FIELDS = {
@@ -214,7 +218,7 @@ def validate_registry(root: Path) -> list[str]:
     else:
         try:
             feature_schema = json.loads(feature_schema_path.read_text(encoding="utf-8"))
-            if not isinstance(feature_schema, dict) or feature_schema.get("properties", {}).get("schema_version", {}).get("const") != 4:
+            if not isinstance(feature_schema, dict) or feature_schema.get("properties", {}).get("schema_version", {}).get("const") != FEATURE_MAP_VERSION:
                 errors.append(f"{feature_schema_path}: invalid feature-map schema")
         except (OSError, json.JSONDecodeError) as error:
             errors.append(f"{feature_schema_path}: cannot parse JSON: {error}")
@@ -226,7 +230,7 @@ def validate_registry(root: Path) -> list[str]:
     else:
         try:
             feature_data = json.loads(feature_path.read_text(encoding="utf-8"))
-            if feature_data.get("schema_version") != 2 or not isinstance(feature_data.get("features"), dict):
+            if feature_data.get("schema_version") != FEATURE_REGISTRY_VERSION or not isinstance(feature_data.get("features"), dict):
                 errors.append(f"{feature_path}: invalid feature registry schema")
             try:
                 feature_names, _ = feature_vocabulary(feature_data)
@@ -253,7 +257,7 @@ def validate_registry(root: Path) -> list[str]:
         registry = load_registry(path)
     except (OSError, json.JSONDecodeError) as error:
         return errors + [f"{path}: cannot parse JSON: {error}"]
-    if registry.get("schema_version") != 5:
+    if registry.get("schema_version") != CANONICAL_CHECKS_VERSION:
         errors.append(f"{path}: unsupported schema_version {registry.get('schema_version')!r}")
     source_catalog = registry.get("source_catalog")
     if not isinstance(source_catalog, dict) or not source_catalog:
@@ -309,8 +313,8 @@ def validate_registry(root: Path) -> list[str]:
             value = check.get(field)
             if not isinstance(value, list) or not value or any(not isinstance(part, str) or not part.strip() for part in value):
                 errors.append(f"{prefix}: {field} must be a non-empty string list")
-        if "screen_gate" in check and (not isinstance(check["screen_gate"], str) or not check["screen_gate"].strip() or len(check["screen_gate"].strip()) > 200):
-            errors.append(f"{prefix}: screen_gate must be a non-empty string of at most 200 characters")
+        if "screen_gate" in check and (not isinstance(check["screen_gate"], str) or not check["screen_gate"].strip() or len(check["screen_gate"].strip()) > MAX_SCREEN_GATE_LENGTH):
+            errors.append(f"{prefix}: screen_gate must be a non-empty string of at most {MAX_SCREEN_GATE_LENGTH} characters")
         for policy_field, content_field, generic in (
             ("fp_policy", "false_positive_gates", GENERIC_FP),
             ("proof_policy", "proof", GENERIC_PROOF),
@@ -452,8 +456,8 @@ def validate_registry(root: Path) -> list[str]:
     else:
         try:
             history = json.loads(history_path.read_text(encoding="utf-8"))
-            if not isinstance(history, dict) or history.get("schema_version") != 1:
-                errors.append(f"{history_path}: schema_version must be 1")
+            if not isinstance(history, dict) or history.get("schema_version") != CANONICAL_HISTORY_VERSION:
+                errors.append(f"{history_path}: schema_version must be {CANONICAL_HISTORY_VERSION}")
             aliases = history.get("aliases") if isinstance(history, dict) else None
             if not isinstance(aliases, list):
                 errors.append(f"{history_path}: aliases must be a list")

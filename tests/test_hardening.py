@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from scripts.audit_artifacts import canonical_sha256, check_body_hash, derive_review_snapshot_id
-from scripts.audit_run import _ensure_reporting_templates
-from scripts.render_runtime import domain_context_template, domain_resolution_template, screen_results_template
+from scripts.audit_run import _ensure_reporting_templates, _runtime_view_current
+from scripts.render_runtime import domain_context_template, domain_resolution_template, render, runtime_identity, runtime_metadata, screen_results_template
 from scripts.review_ledger import append
 from scripts.scope_context import compilation_digests, resolve_build_root, scope_inventory
 from scripts.synthesize_report import main as synthesize_main, synthesize
@@ -227,6 +228,50 @@ class HardeningTests(unittest.TestCase):
         context["domains"][domain][key] = {"status": "UNKNOWN", "evidence": []}
         with self.assertRaisesRegex(ValueError, "remains UNKNOWN"):
             validate_domain_context(ROOT, manifest, context, require_complete=True)
+
+    def test_runtime_view_requires_matching_body_and_sidecar_hash(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        candidate_ids = {manifest["selected"][0]["canonical_id"]}
+        body = render(manifest, registry, "deep", candidate_ids)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "deep.md"
+            metadata_path = output.with_suffix(".meta.json")
+            output.write_bytes(body.encode("utf-8"))
+            metadata = runtime_metadata(
+                manifest,
+                "deep",
+                sorted(candidate_ids),
+                None,
+                None,
+                hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            )
+            write_json(metadata_path, metadata)
+            expected = runtime_identity(manifest, "deep", sorted(candidate_ids), None, None)
+            self.assertTrue(_runtime_view_current(output, expected))
+
+            output.write_bytes(body[: len(body) // 2].encode("utf-8"))
+            self.assertFalse(_runtime_view_current(output, expected))
+            output.write_bytes(body.encode("utf-8"))
+
+            metadata_path.write_text("{\n", encoding="utf-8")
+            self.assertFalse(_runtime_view_current(output, expected))
+            write_json(metadata_path, metadata)
+            metadata["runtime_sha256"] = "0" * 64
+            write_json(metadata_path, metadata)
+            self.assertFalse(_runtime_view_current(output, expected))
+            write_json(metadata_path, runtime_metadata(
+                manifest,
+                "deep",
+                sorted(candidate_ids),
+                None,
+                None,
+                hashlib.sha256(body.encode("utf-8")).hexdigest(),
+            ))
+
+            output.write_text(body + "interrupted", encoding="utf-8")
+            self.assertFalse(_runtime_view_current(output, expected))
+            output.write_bytes(body.encode("utf-8"))
+            self.assertTrue(_runtime_view_current(output, expected))
 
     def test_single_file_compilation_scope_and_lib_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -492,7 +537,7 @@ class HardeningTests(unittest.TestCase):
             self.assertIn("**Severity:** Medium", report)
             self.assertIn("updated description", report)
 
-    def test_failed_direct_synthesis_removes_stale_final_outputs(self) -> None:
+    def test_failed_direct_synthesis_preserves_previous_final_outputs(self) -> None:
         registry, _, _, manifest = build_manifest()
         domain_context = self.context(manifest)
         screen, candidate_id = self.screen(manifest, candidate=False)
@@ -518,6 +563,8 @@ class HardeningTests(unittest.TestCase):
                 0,
             )
             self.assertIn("COMPLETE_CLEAN", report_path.read_text(encoding="utf-8"))
+            previous_report = report_path.read_text(encoding="utf-8")
+            previous_issues = issues_path.read_text(encoding="utf-8")
 
             screen, candidate_id = self.screen(manifest, candidate=True)
             write_json(screen_path, screen)
@@ -539,8 +586,8 @@ class HardeningTests(unittest.TestCase):
                 ]),
                 1,
             )
-            self.assertFalse(report_path.exists())
-            self.assertFalse(issues_path.exists())
+            self.assertEqual(report_path.read_text(encoding="utf-8"), previous_report)
+            self.assertEqual(issues_path.read_text(encoding="utf-8"), previous_issues)
 
 
 if __name__ == "__main__":

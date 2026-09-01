@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:code-context-query:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_digest", "compilation_input_digest", "functions", "source_ranges", "caller_edges", "callee_edges", "unresolved_edges", "depth", "max_nodes", "truncated"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "source_digest": {"$ref": "#/$defs/hash"},
+    "compilation_input_digest": {"$ref": "#/$defs/hash"},
+    "functions": {"type": "object", "additionalProperties": {"$ref": "#/$defs/function"}},
+    "source_ranges": {"type": "object", "additionalProperties": {"$ref": "#/$defs/range"}},
+    "caller_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "callee_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "unresolved_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "depth": {"type": "integer", "minimum": 0},
+    "max_nodes": {"type": "integer", "minimum": 1},
+    "truncated": {"type": "boolean"}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "range": {
+      "type": "object",
+      "required": ["file", "start_line", "end_line"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1}
+      }
+    },
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function_id", "contract_id", "contract", "name", "file", "start_line", "end_line", "visibility", "modifiers", "reads", "writes", "state_reads", "state_writes", "local_writes", "internal_calls", "external_calls", "scope_origin"],
+      "properties": {
+        "function_id": {"type": "string", "minLength": 1},
+        "contract_id": {"type": "string", "minLength": 1},
+        "contract": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "visibility": {"type": "string"},
+        "modifiers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "reads": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "writes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "state_reads": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "state_writes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "local_writes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "internal_calls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "external_calls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "scope_origin": {"enum": ["AUDIT_SCOPE", "DEPENDENCY", "UNKNOWN"]}
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caller", "target", "kind", "file", "start_line"],
+      "properties": {
+        "caller": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "file": {"type": "string", "minLength": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "location_fallback": {"type": "boolean"}
+      }
+    }
+  }
+}

@@ -5,8 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.versions import KNOWLEDGE_METRICS_VERSION
 
 try:
     from audit_artifacts import registry_sha256, validate_schema
@@ -64,7 +68,7 @@ def metrics(registry: dict[str, Any], claims: list[dict[str, Any]]) -> dict[str,
         domain_metric["checks_with_claim_evidence"] = sum(bool(by_claim.get(check["canonical_id"])) for check in domain_checks)
         per_domain[domain] = domain_metric
     return {
-        "schema_version": 1,
+        "schema_version": KNOWLEDGE_METRICS_VERSION,
         **_metrics(checks, claims),
         "registry_sha256": registry_sha256(registry),
         "per_domain": per_domain,

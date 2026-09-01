@@ -34,7 +34,8 @@
             "compilation_complete": {"type": "boolean"},
             "absence_filtering_complete": {"type": "boolean"},
             "mode": {"enum": ["COMPLETE", "CONSERVATIVE_DEGRADED"]},
-            "uncompiled_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+            "uncompiled_paths": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+            "compilation_provenance": {"enum": ["EXACT_COMPILATION_CLOSURE", "CONSERVATIVE_BUILD_ROOT_FALLBACK"]}
           }
         },
         "slither_version": {"type": "string", "minLength": 1},
