@@ -91,6 +91,22 @@ def write_default_profile(path: Path) -> dict[str, Any]:
     return write_profile(path, default_profile())
 
 
+def global_profile_path() -> Path:
+    return Path.home() / ".codex" / "evm-audit-model-profile.json"
+
+
+def load_global_profile(path: Path | None = None) -> dict[str, Any] | None:
+    path = path or global_profile_path()
+    return load_profile(path) if path.exists() else None
+
+
+def init_global_profile(path: Path | None = None) -> dict[str, Any]:
+    path = path or global_profile_path()
+    if path.exists():
+        raise ValueError(f"refusing to overwrite existing global Codex profile: {path}")
+    return write_default_profile(path)
+
+
 def stage_model(profile: dict[str, Any], stage: str) -> dict[str, str]:
     validate_profile(profile)
     if stage not in STAGES:

@@ -2,24 +2,27 @@
 
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 from helpers import EMPTY_TARGET, ROOT, build_manifest, review_inputs
 from scripts.audit_artifacts import review_state_digest
-from scripts.audit_run import recommended_execution
+from scripts.audit_run import main as audit_run_main, recommended_execution
 from scripts.codex_model_profile import (
     DEFAULT_CODEX_MODEL_PROFILE,
     STAGES,
     default_profile,
+    load_global_profile,
     validate_profile,
     write_profile,
 )
-
 
 class CodexModelProfileTests(unittest.TestCase):
     def run_cli(self, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -29,6 +32,14 @@ class CodexModelProfileTests(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+
+    @staticmethod
+    def run_audit_run(arguments: list[str], home: Path) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch("scripts.codex_model_profile.Path.home", return_value=home):
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = audit_run_main(arguments)
+        return code, stdout.getvalue(), stderr.getvalue()
 
     def test_default_profile_is_exact_and_schema_valid(self) -> None:
         expected = {
@@ -86,6 +97,94 @@ class CodexModelProfileTests(unittest.TestCase):
                 payload["next"]["recommended_execution"],
                 {"provider": "codex", "model": "gpt-5.6-terra", "reasoning_effort": "medium"},
             )
+
+    def test_global_profile_is_explicitly_initialized_and_loaded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            code, _, stderr = self.run_audit_run(["models", "--init-global", "--quiet"], home)
+            self.assertEqual(code, 0, stderr)
+            global_path = home / ".codex/evm-audit-model-profile.json"
+            self.assertEqual(json.loads(global_path.read_text(encoding="utf-8")), default_profile())
+            self.assertEqual(load_global_profile(global_path), default_profile())
+            from scripts.audit_artifacts import validate_schema
+
+            validate_schema(ROOT, "codex-model-profile.schema.json", load_global_profile(global_path))
+            code, _, stderr = self.run_audit_run(["models", "--init-global", "--quiet"], home)
+            self.assertNotEqual(code, 0)
+            self.assertIn("refusing to overwrite", stderr)
+
+    def test_init_copies_global_profile_and_later_global_edits_do_not_change_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            global_path = home / ".codex/evm-audit-model-profile.json"
+            custom = default_profile()
+            custom["profile_name"] = "user-default"
+            custom["stages"]["SCREEN"] = {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"}
+            write_profile(global_path, custom)
+            run_dir = root / "run"
+            code, _, stderr = self.run_audit_run(
+                [
+                    "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
+                    "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general", "--quiet",
+                ],
+                home,
+            )
+            self.assertEqual(code, 0, stderr)
+            run_profile = run_dir / "config/codex-model-profile.json"
+            self.assertEqual(json.loads(run_profile.read_text(encoding="utf-8")), custom)
+            changed = default_profile()
+            changed["stages"]["SCREEN"] = {"model": "gpt-5.6-luna", "reasoning_effort": "low"}
+            write_profile(global_path, changed)
+            self.assertEqual(
+                recommended_execution(run_dir, "SCREEN"),
+                {"provider": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
+            )
+
+    def test_explicit_init_sources_override_global_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            global_profile = default_profile()
+            global_profile["stages"]["PROOF"] = {"model": "gpt-5.6-sol", "reasoning_effort": "high"}
+            write_profile(home / ".codex/evm-audit-model-profile.json", global_profile)
+            explicit = default_profile()
+            explicit["stages"]["PROOF"] = {"model": "gpt-5.6-luna", "reasoning_effort": "max"}
+            source = root / "explicit.json"
+            write_profile(source, explicit)
+            for run_dir, option in ((root / "explicit-run", "--model-profile"), (root / "default-run", "--accept-default-models")):
+                arguments = [
+                    "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
+                    "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general", option,
+                ]
+                if option == "--model-profile":
+                    arguments.append(str(source))
+                arguments.append("--quiet")
+                code, _, stderr = self.run_audit_run(arguments, home)
+                self.assertEqual(code, 0, stderr)
+            self.assertEqual(json.loads((root / "explicit-run/config/codex-model-profile.json").read_text())["stages"]["PROOF"], explicit["stages"]["PROOF"])
+            self.assertEqual(json.loads((root / "default-run/config/codex-model-profile.json").read_text())["stages"]["PROOF"], default_profile()["stages"]["PROOF"])
+
+    def test_invalid_global_profile_is_rejected_without_creating_run_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            invalid = default_profile()
+            invalid["stages"]["SCREEN"]["model"] = "gpt-5.5"
+            write_profile_path = home / ".codex/evm-audit-model-profile.json"
+            write_profile_path.parent.mkdir(parents=True)
+            write_profile_path.write_text(json.dumps(invalid) + "\n", encoding="utf-8")
+            run_dir = root / "run"
+            code, _, stderr = self.run_audit_run(
+                [
+                    "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
+                    "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general", "--quiet",
+                ],
+                home,
+            )
+            self.assertNotEqual(code, 0)
+            self.assertIn("unsupported Codex model", stderr)
+            self.assertFalse((run_dir / "config/codex-model-profile.json").exists())
 
     def test_custom_profile_is_copied_and_models_reset_restores_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -171,28 +270,34 @@ class CodexModelProfileTests(unittest.TestCase):
 
     def test_legacy_run_without_profile_stays_valid(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            run_dir = Path(directory) / "run"
-            result = self.run_cli(
-                "scripts/audit_run.py",
-                "init",
-                str(EMPTY_TARGET),
-                "--run-dir",
-                str(run_dir),
-                "--audit-root",
-                str(EMPTY_TARGET),
-                "--domain",
-                "evm-audit-general",
-                "--quiet",
+            root = Path(directory)
+            home = root / "home"
+            run_dir = root / "run"
+            code, _, stderr = self.run_audit_run(
+                [
+                    "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
+                    "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general", "--quiet",
+                ],
+                home,
             )
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(code, 0, stderr)
             profile_path = run_dir / "config/codex-model-profile.json"
-            self.assertFalse(profile_path.exists())
-            status = self.run_cli("scripts/audit_run.py", "status", "--run-dir", str(run_dir), "--quiet")
-            self.assertEqual(status.returncode, 0, status.stderr)
-            payload = json.loads(status.stdout)
+            self.assertTrue(profile_path.exists())
+            self.assertEqual(json.loads(profile_path.read_text(encoding="utf-8")), default_profile())
+            profile_path.unlink()
+            global_profile = default_profile()
+            global_profile["stages"]["DOMAIN_CONTEXT"] = {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"}
+            write_profile(home / ".codex/evm-audit-model-profile.json", global_profile)
+            code, stdout, stderr = self.run_audit_run(
+                ["status", "--run-dir", str(run_dir), "--quiet"], home
+            )
+            self.assertEqual(code, 0, stderr)
+            payload = json.loads(stdout)
             self.assertEqual(payload["recommended_execution"]["model"], "gpt-5.6-terra")
-            report = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir), "--quiet")
-            self.assertNotEqual(report.returncode, 0)
+            code, _, _ = self.run_audit_run(
+                ["report", "--run-dir", str(run_dir), "--quiet"], home
+            )
+            self.assertNotEqual(code, 0)
             state = json.loads((run_dir / "audit-state.json").read_text(encoding="utf-8"))
             self.assertNotEqual(state["status"], "INVALID_SNAPSHOT")
 

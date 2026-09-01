@@ -18,14 +18,20 @@ except ImportError:  # pragma: no cover
 try:
     from codex_model_profile import (
         default_profile,
+        global_profile_path,
+        init_global_profile,
         load_profile,
+        load_global_profile,
         stage_model,
         write_profile,
     )
 except ImportError:  # pragma: no cover
     from scripts.codex_model_profile import (
         default_profile,
+        global_profile_path,
+        init_global_profile,
         load_profile,
+        load_global_profile,
         stage_model,
         write_profile,
     )
@@ -407,7 +413,7 @@ def _init_model_profile(args: argparse.Namespace, run_dir: Path) -> None:
     elif args.accept_default_models:
         profile = default_profile()
     else:
-        return
+        profile = load_global_profile() or default_profile()
     write_profile(paths(run_dir)["model_profile"], profile)
 
 
@@ -816,13 +822,27 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
 
 def models_run(
     root: Path,
-    run_dir: Path,
+    run_dir: Path | None,
     *,
     model_profile_path: Path | None = None,
     reset_defaults: bool = False,
+    init_global: bool = False,
 ) -> dict[str, Any]:
+    if init_global:
+        if run_dir is not None or model_profile_path is not None or reset_defaults:
+            raise ValueError("--init-global cannot be combined with run-scoped model options")
+        profile = init_global_profile()
+        return {
+            "stage": "MODELS",
+            "scope": "global",
+            "profile_path": str(global_profile_path()),
+            "persisted": True,
+            "profile": profile,
+        }
     if model_profile_path is not None and reset_defaults:
         raise ValueError("--model-profile and --reset-defaults are mutually exclusive")
+    if run_dir is None:
+        raise ValueError("--run-dir is required unless --init-global is used")
     run_dir = run_dir.resolve()
     values, _, _ = _load_run(root, run_dir)
     if model_profile_path is not None:
@@ -950,8 +970,13 @@ def main(argv: list[str] | None = None) -> int:
     _add_logging_flags(report)
 
     models = subparsers.add_parser("models")
-    models.add_argument("--run-dir", type=Path, required=True)
+    models.add_argument("--run-dir", type=Path)
     models.add_argument("--root", type=Path, default=ROOT)
+    models.add_argument(
+        "--init-global",
+        action="store_true",
+        help="create the user-level Codex profile if it does not exist",
+    )
     model_options = models.add_mutually_exclusive_group()
     model_options.add_argument(
         "--reset-defaults",
@@ -981,6 +1006,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.run_dir,
                 model_profile_path=args.model_profile,
                 reset_defaults=args.reset_defaults,
+                init_global=args.init_global,
             )
         else:
             result = report_run(root, args.run_dir, args.severity_decisions, args.finding_details)

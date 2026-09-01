@@ -63,7 +63,8 @@ The default stage profile is:
 
 Use the defaults unless you explicitly customize the profile. The model
 profile is confirmed once at audit startup and can be customized. See the
-[Codex model profile](docs/codex-model-profile.md) for details.
+[Codex model profile](docs/codex-model-profile.md) for details. Future audits
+can use the editable user default at `~/.codex/evm-audit-model-profile.json`.
 
 ## How It Works
 
@@ -115,34 +116,41 @@ Use an individual Domain Skill when the audit scope is already known. Browse
 the [Skill Catalog](skills/README.md) for the available domains; use
 `evm-audit-master` when the scope is not known in advance.
 
-## Architecture & Documentation
+## Development & Internals
+
+For maintainers, contributors, and users who want to understand or extend the
+runtime.
+
+### Architecture & Documentation
 
 - [Architecture](docs/architecture.md)
 - [Audit Runtime](docs/audit-runtime.md)
 - [Recon and Routing](docs/recon-and-routing.md)
-- [Evidence and verification policy](docs/knowledge-evidence.md)
-- [Codex model profile](docs/codex-model-profile.md)
+- [Knowledge Evidence](docs/knowledge-evidence.md)
+- [Knowledge Lineage](docs/knowledge-lineage.md)
 
-## Repository Layout
+### Repository Layout
 
-- `skills/` — directly usable Skill packages.
-- `data/` — canonical security knowledge and feature vocabulary.
-- `domains/` — Domain definitions and routing configuration.
-- `scripts/` and `evm_audit_runtime/` — audit engine and pure runtime decisions.
-- `schemas/` — runtime artifact schemas.
-- `docs/` — architecture, runtime, and maintenance documentation.
-- `development/` — benchmarks and development-only validation material.
-- `tests/` — repository development tests.
+- `skills/` — directly usable Skill packages
+- `data/` — canonical security knowledge
+- `domains/` — Domain configuration
+- `scripts/` — audit runtime and maintenance tooling
+- `evm_audit_runtime/` — shared pure runtime logic
+- `schemas/` — artifact schemas
+- `docs/` — architecture and runtime documentation
+- `development/` — benchmarks and maintenance fixtures
+- `tests/` — runtime and regression tests
 
-## Development / Knowledge Base
+### Knowledge Base
 
-`data/canonical-checks.json` is the single editable source of checklist
-knowledge. Generated Skill checklists and Markdown views are derived from it
-and must not be edited directly. Domain metadata lives in `domains/*.json`.
+`data/canonical-checks.json` is the authoritative checklist source. Generated
+Skill Markdown is derived output and should not be edited directly. See
+[Knowledge Maintenance](docs/knowledge-maintenance.md) for editing and
+generation rules.
 
-- [Knowledge maintenance](docs/knowledge-maintenance.md)
-- [Knowledge sources and lineage](docs/knowledge-lineage.md)
-- [Development and validation](development/README.md)
+### Development & Validation
+
+See [Development Guide](development/README.md).
 
 ## License
 

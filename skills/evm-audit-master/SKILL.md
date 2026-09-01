@@ -56,8 +56,14 @@ Use this default profile?
 2. Customize
 ```
 
-Use `--accept-default-models` for confirmation, or build one validated profile
-with selective stage edits and pass it with `--model-profile`. Persist it in
+If `~/.codex/evm-audit-model-profile.json` exists, display that validated
+user-level profile in this prompt instead of the built-in table. On confirmation
+the controller snapshots the selected values into the run.
+Use the user-level default at `~/.codex/evm-audit-model-profile.json` when it
+exists; `python3 <suite-root>/scripts/audit_run.py models --init-global`
+creates it once with canonical defaults. For confirmation, use
+`--accept-default-models`, or build one validated profile with selective stage
+edits and pass it with `--model-profile`. Persist the resolved choice in
 `<run-dir>/config/codex-model-profile.json`; once present, do not ask again.
 For customization, show the full current profile once and accept only changed
 lines such as `SCREEN = gpt-5.6-sol/high`, preserving omitted stages.

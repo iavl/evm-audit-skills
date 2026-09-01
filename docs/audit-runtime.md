@@ -23,9 +23,12 @@ stage and its `report` command always re-derives the current state.
 
 The Codex-only execution policy is stored separately from audit artifacts at
 `<run-dir>/config/codex-model-profile.json`. Confirm it once in the Master Skill,
-then persist either the canonical profile or a validated custom profile:
+then persist either the canonical profile or a validated custom profile. New
+runs use the user-level default at `~/.codex/evm-audit-model-profile.json` when
+it exists:
 
 ```bash
+python3 scripts/audit_run.py models --init-global
 python3 scripts/audit_run.py init <target> --run-dir <run-dir> \
   --domain <domain> --accept-default-models
 python3 scripts/audit_run.py init <target> --run-dir <run-dir> \
@@ -37,7 +40,8 @@ python3 scripts/audit_run.py models --run-dir <run-dir> --reset-defaults
 `next` and `status` expose `recommended_execution` for the next stage, and
 stderr gives the same compact model handoff. The controller does not switch the
 active Codex conversation model. An absent profile on an older run resolves to
-the canonical default in memory and does not change audit state.
+the canonical default in memory and does not change audit state. The global
+file is read only during `init`; the run-scoped copy wins afterward.
 
 Recon, routing, validation, hashing, and report admission remain deterministic
 controller logic; the recommendation applies only to Codex model judgment.
