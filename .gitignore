@@ -7,3 +7,4 @@ tests/semantics/cache/
 tests/semantics-eip6780/out/
 tests/semantics-eip6780/cache/
 audits/
+plan.md
