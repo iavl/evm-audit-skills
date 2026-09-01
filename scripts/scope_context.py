@@ -179,20 +179,26 @@ def _compilation_digest(
 
 
 def _submodule_commits(root: Path, dependency_roots: Iterable[str]) -> str:
-    probe = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        probe = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise ValueError("cannot inspect Git dependency lineage: git executable is unavailable") from error
     if probe.returncode != 0 or probe.stdout.strip().lower() != "true":
         return "NO_GIT_WORKTREE"
-    result = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "-s", "--", *sorted(dependency_roots)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-s", "--", *sorted(dependency_roots)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as error:
+        raise ValueError("cannot inspect Git dependency lineage: git executable is unavailable") from error
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip() or f"exit={result.returncode}"
         raise ValueError(f"cannot inspect Git submodule entries under build root {root}: {detail}")

@@ -12,30 +12,19 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from evm_audit_runtime.code_index import lookup
-from evm_audit_runtime.limits import MAX_CODE_CONTEXT_NODES
+from evm_audit_runtime.code_index import lookup, validate_code_index
+from evm_audit_runtime.limits import MAX_CODE_CONTEXT_EDGES, MAX_CODE_CONTEXT_NODES
 from evm_audit_runtime.versions import CODE_INDEX_VERSION
 
 try:
-    from audit_artifacts import load_json, validate_schema
+    from audit_artifacts import load_json, validate_bound_code_index, validate_schema
     from scope_context import relative_scope_path
 except ImportError:  # pragma: no cover
-    from scripts.audit_artifacts import load_json, validate_schema
+    from scripts.audit_artifacts import load_json, validate_bound_code_index, validate_schema
     from scripts.scope_context import relative_scope_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-UNRESOLVED_TARGET_PREFIXES = (
-    "internal-unresolved:",
-    "high-level-getter:",
-    "high-level-unresolved:",
-    "library-unresolved:",
-    "low-level:",
-    "solidity:",
-    "unresolved:",
-)
-
-
 def _slither_api() -> dict[str, Any]:
     try:
         from slither.core.declarations import Contract, Function
@@ -504,104 +493,46 @@ def build_code_index(
     }
 
 
-def validate_code_index(
-    root: Path,
-    value: dict[str, Any],
-    *,
-    source_digest: str | None = None,
-    compilation_input_digest: str | None = None,
-) -> None:
-    validate_schema(root, "code-index.schema.json", value)
-    if source_digest is not None and value["source_digest"] != source_digest:
-        raise ValueError("code index source_digest does not match Recon")
-    if compilation_input_digest is not None and value["compilation_input_digest"] != compilation_input_digest:
-        raise ValueError("code index compilation_input_digest does not match Recon")
-    functions = value["functions"]
-    contracts = value["contracts"]
-    source_ranges = value["source_ranges"]
-    modifiers = value["modifiers"]
-    inheritance = value["inheritance"]
-    if set(functions) != set(source_ranges):
-        raise ValueError("code index functions and source_ranges must have the same keys")
-    if set(functions) != set(modifiers):
-        raise ValueError("code index functions and modifiers must have the same keys")
-    if set(contracts) != set(inheritance):
-        raise ValueError("code index contracts and inheritance must have the same keys")
-
-    for contract_id, contract in contracts.items():
-        if contract["start_line"] > contract["end_line"]:
-            raise ValueError(f"code index contract range is inverted: {contract_id}")
-        if contract["bases"] != inheritance[contract_id]:
-            raise ValueError(f"code index inheritance does not match contract bases: {contract_id}")
-        for base_id in inheritance[contract_id]:
-            if base_id not in contracts:
-                raise ValueError(f"code index inheritance references missing contract: {base_id}")
-
-    for function_id, function in functions.items():
-        if function["function_id"] != function_id:
-            raise ValueError(f"code index function_id does not match key: {function_id}")
-        contract_id = function["contract_id"]
-        if contract_id not in contracts:
-            raise ValueError(f"code index function references missing contract: {function_id}")
-        if function["start_line"] > function["end_line"]:
-            raise ValueError(f"code index function range is inverted: {function_id}")
-        expected_range = {
-            "file": function["file"],
-            "start_line": function["start_line"],
-            "end_line": function["end_line"],
-        }
-        if source_ranges[function_id] != expected_range:
-            raise ValueError(f"code index source range does not match function: {function_id}")
-        if function["modifiers"] != modifiers[function_id]:
-            raise ValueError(f"code index modifiers do not match function: {function_id}")
-        for target in function["internal_calls"]:
-            if target not in functions:
-                raise ValueError(f"code index internal call references missing function: {target}")
-        for target in function["external_calls"]:
-            if target not in functions and not _is_unresolved_target(target):
-                raise ValueError(f"code index external call references unknown concrete function: {target}")
-
-    events_by_caller: dict[str, list[dict[str, Any]]] = {function_id: [] for function_id in functions}
-    for event in value["external_calls"]:
-        caller = event["caller"]
-        if caller not in functions:
-            raise ValueError(f"code index call event references missing caller: {caller}")
-        target = event["target"]
-        if target not in functions and not _is_unresolved_target(target):
-            raise ValueError(f"code index call event references unknown concrete function: {target}")
-        events_by_caller[caller].append(event)
-
-    for function_id, function in functions.items():
-        events = events_by_caller[function_id]
-        internal_targets = {event["target"] for event in events if event["kind"] == "internal" and event["target"] in functions}
-        external_targets = {event["target"] for event in events if event["kind"] != "internal"}
-        if set(function["internal_calls"]) != internal_targets:
-            raise ValueError(f"code index internal call list is inconsistent with call events: {function_id}")
-        if set(function["external_calls"]) != external_targets:
-            raise ValueError(f"code index external call list is inconsistent with call events: {function_id}")
-
-    for write in value["storage_writes"]:
-        if write["function"] not in functions:
-            raise ValueError(f"code index storage write references missing function: {write['function']}")
-
-
-def _is_unresolved_target(target: str) -> bool:
-    return target.startswith(UNRESOLVED_TARGET_PREFIXES)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--index", type=Path, required=True)
+    parser.add_argument("--run-dir", type=Path, help="query the run-bound Recon code index")
+    parser.add_argument("--index", type=Path, help="code index path for bound or explicit development use")
+    parser.add_argument("--manifest", type=Path, help="routing manifest bound to --index")
+    parser.add_argument(
+        "--allow-unbound-index",
+        action="store_true",
+        help="explicitly inspect an unbound development index",
+    )
     parser.add_argument("--function", required=True)
     parser.add_argument("--include-callers", action="store_true")
     parser.add_argument("--include-callees", action="store_true")
     parser.add_argument("--depth", type=int, default=1)
     parser.add_argument("--max-nodes", type=int, default=MAX_CODE_CONTEXT_NODES)
+    parser.add_argument("--max-edges", type=int, default=MAX_CODE_CONTEXT_EDGES)
     parser.add_argument("--root", type=Path, default=ROOT)
     args = parser.parse_args(argv)
     try:
-        index = load_json(args.index)
-        validate_code_index(args.root.resolve(), index)
+        root = args.root.resolve()
+        if args.run_dir is not None:
+            if args.index is not None or args.manifest is not None or args.allow_unbound_index:
+                raise ValueError("--run-dir cannot be combined with --index, --manifest, or --allow-unbound-index")
+            run_dir = args.run_dir.resolve()
+            manifest_path = run_dir / "routing/manifest.json"
+            index_path = run_dir / "recon/code-index.json"
+            index = validate_bound_code_index(root, load_json(manifest_path), index_path)
+        elif args.manifest is not None:
+            if args.index is None:
+                raise ValueError("--manifest requires --index")
+            if args.allow_unbound_index:
+                raise ValueError("--manifest cannot be combined with --allow-unbound-index")
+            index = validate_bound_code_index(root, load_json(args.manifest), args.index)
+        elif args.index is not None:
+            if not args.allow_unbound_index:
+                raise ValueError("--index requires --run-dir or --manifest; use --allow-unbound-index for development")
+            index = load_json(args.index)
+            validate_code_index(root, index)
+        else:
+            raise ValueError("one of --run-dir or --index is required")
         result = lookup(
             index,
             args.function,
@@ -609,8 +540,9 @@ def main(argv: list[str] | None = None) -> int:
             include_callees=args.include_callees,
             depth=args.depth,
             max_nodes=args.max_nodes,
+            max_edges=args.max_edges,
         )
-        validate_schema(args.root.resolve(), "code-context-query.schema.json", result)
+        validate_schema(root, "code-context-query.schema.json", result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:

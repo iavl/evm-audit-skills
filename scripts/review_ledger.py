@@ -161,7 +161,7 @@ def _record_key(canonical_id: Any) -> str:
     return canonical_id if isinstance(canonical_id, str) else repr(canonical_id)
 
 
-def validate_record(
+def validate_record_contents(
     record: dict[str, Any],
     manifest: dict[str, Any],
     registry: dict[str, Any],
@@ -169,6 +169,7 @@ def validate_record(
     domain_resolution: dict[str, Any] | None = None,
     review_snapshot_id: str | None = None,
 ) -> list[str]:
+    """Validate one record without applying history-dependent lifecycle rules."""
     errors: list[str] = []
     try:
         validate_schema(ROOT, "review-record.schema.json", record)
@@ -254,6 +255,28 @@ def validate_record(
     return errors
 
 
+def validate_record(
+    record: dict[str, Any],
+    manifest: dict[str, Any],
+    registry: dict[str, Any],
+    expected_ids: set[str] | None = None,
+    domain_resolution: dict[str, Any] | None = None,
+    review_snapshot_id: str | None = None,
+) -> list[str]:
+    """Compatibility alias; use validate_records for authoritative history validation."""
+    return validate_record_contents(
+        record, manifest, registry, expected_ids, domain_resolution, review_snapshot_id
+    )
+
+
+def validate_record_transition(
+    previous: dict[str, Any] | None,
+    current: dict[str, Any],
+) -> list[str]:
+    """Validate lifecycle rules between adjacent records."""
+    return review_lifecycle_errors(previous, current)
+
+
 def validate_records(
     records: list[dict[str, Any]],
     manifest: dict[str, Any],
@@ -289,7 +312,7 @@ def validate_records(
         if record.get("record_type") == "checkpoint":
             errors.append("checkpoint is only allowed as the first JSONL record")
             continue
-        record_errors = validate_record(record, manifest, registry, expected_ids, domain_resolution, review_snapshot_id)
+        record_errors = validate_record_contents(record, manifest, registry, expected_ids, domain_resolution, review_snapshot_id)
         errors.extend(record_errors)
         previous = latest.get(record_key)
         revision = record.get("revision")
@@ -300,7 +323,7 @@ def validate_records(
             errors.append(
                 f"{canonical_id}: revision must be {previous.get('revision', 0) + 1}, got {revision}"
             )
-        errors.extend(review_lifecycle_errors(previous, record))
+        errors.extend(validate_record_transition(previous, record))
         latest[record_key] = record
     return errors
 
@@ -432,12 +455,12 @@ def append(
             raise ValueError(
                 f"append revision for {record.get('canonical_id')} must be {expected_revision}"
             )
-        errors = validate_record(
+        errors = validate_record_contents(
             record, manifest, registry_value, expected_ids, domain_resolution, current_snapshot
         )
         if errors:
             raise ValueError("; ".join(errors))
-        lifecycle_errors = review_lifecycle_errors(history[-1] if history else None, record)
+        lifecycle_errors = validate_record_transition(history[-1] if history else None, record)
         if lifecycle_errors:
             raise ValueError("; ".join(lifecycle_errors))
         lines = []

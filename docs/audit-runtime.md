@@ -43,9 +43,9 @@ audit artifacts.
 | Screen results | yes | review inputs | block downstream |
 | Review JSONL | yes | checkpoint + review snapshot/state digest | block completion |
 | runtime Markdown | no, generated view | sidecar identity + body SHA-256 | regenerate |
-| code-index | no, navigation hint | Recon `navigation_artifacts.code_index.sha256` | disable navigation |
+| code-index | no, navigation hint | Recon `navigation_artifacts.code_index.sha256` plus current target snapshot | disable navigation |
 | severity/finding details | reporting input | review-state digest | report admission error |
-| final report + issue candidates | derived outputs | report-bundle marker + both body hashes | stale/incomplete |
+| final report + issue candidates | derived outputs | report-bundle v2 marker, body hashes, and finding-input hashes | stale/incomplete |
 
 The machine-readable JSON/JSONL artifacts are authoritative. Runtime Markdown
 is paired with a schema-validated `.meta.json` sidecar containing
@@ -53,8 +53,11 @@ is paired with a schema-validated `.meta.json` sidecar containing
 body, sidecar, or identity mismatch. The non-authoritative code index is still
 integrity-bound: Recon records its exact serialized body hash, and a changed or
 unbound index is reported as unavailable without changing authoritative audit
-state. `report-bundle.json` is written after both final bodies and is current
-only when its identity and both body hashes match the current state.
+state. Bound code-index queries validate the routing manifest, target snapshot,
+Recon binding, exact body hash, schema version, and index lineage before lookup;
+an unbound `--index` query requires explicit development opt-in. `report-bundle.json`
+is written after both final bodies and is current only when its identity, body
+hashes, and (for finding reports) exact report-input hashes match the current state.
 
 `non-authoritative != integrity-unchecked`.
 
@@ -98,6 +101,20 @@ python3 scripts/select_checks.py --feature-map recon/feature-map.json \
   --target-root <target-root> --manifest-out routing/manifest.json \
   --context-out context.json
 ```
+
+Query the optional navigation hint only after binding it to the run:
+
+```bash
+python3 scripts/code_context.py --run-dir <run-dir> --function <function-id> \
+  --include-callers --include-callees --depth 2 --max-nodes 25 --max-edges 200
+```
+
+`MISSING`, `TAMPERED`, and `UNAVAILABLE` disable navigation; they do not
+invalidate authoritative audit state. `edge_count` is the deterministic number
+of available returned-category edges before the cap, while
+`returned_edge_count` and `edges_truncated` expose any omitted edges. Capped
+edges are returned in deterministic priority order: unresolved, selected
+caller, selected callee, then boundary edges.
 
 Render the runtime views from the immutable manifest:
 
@@ -197,6 +214,10 @@ outputs. A failed report leaves the previous deliverables untouched and exits
 non-zero if current reporting is incomplete. It never trusts a previous
 `audit-state.json`.
 
+The low-level `synthesize_report.py --audit-state` argument is an optional
+derived cache for compatibility; synthesis re-derives the current state from
+the authoritative inputs and uses that same state for any report bundle.
+
 Derive completion independently from the manifest, Screen results, Domain
 resolution, and owner-Domain ledgers:
 
@@ -256,6 +277,13 @@ Each confirmed ID must occur exactly once with non-empty `location`,
 `description`, and `recommendation`. Category is derived from `owner_domain`.
 Missing severity or details is a report admission error (`INCOMPLETE_SEVERITY`
 or `INCOMPLETE_REPORTING`), not a new audit-state status.
+
+The controller copies the exact validated UTF-8 reporting inputs into
+`report-inputs/severity-decisions.json` and
+`report-inputs/finding-details.json` before committing a finding report. The
+report-bundle v2 marker hashes those snapshots; clean reports record `null` for
+both input hashes. A body hash proves marker/body consistency, not that a
+hand-edited body was generated from the expected inputs.
 
 Severity is assigned only after confirmation using the dimensions and mapping
 in [`severity-scoring.md`](../skills/evm-audit-master/references/severity-scoring.md).

@@ -1,15 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:report-bundle:v1",
+  "$id": "urn:evm-audit-skills:report-bundle:v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "artifact_type", "schema_version", "routing_snapshot_id", "review_snapshot_id", "review_state_digest",
-    "registry_sha256", "source_digest", "compilation_input_digest", "report_sha256", "issue_candidates_sha256"
+    "registry_sha256", "source_digest", "compilation_input_digest", "report_sha256", "issue_candidates_sha256",
+    "severity_decisions_sha256", "finding_details_sha256"
   ],
   "properties": {
     "artifact_type": {"const": "report-bundle"},
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "routing_snapshot_id": {"$ref": "#/$defs/hash"},
     "review_snapshot_id": {"anyOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]},
     "review_state_digest": {"anyOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]},
@@ -17,7 +18,9 @@
     "source_digest": {"$ref": "#/$defs/hash"},
     "compilation_input_digest": {"$ref": "#/$defs/hash"},
     "report_sha256": {"$ref": "#/$defs/hash"},
-    "issue_candidates_sha256": {"$ref": "#/$defs/hash"}
+    "issue_candidates_sha256": {"$ref": "#/$defs/hash"},
+    "severity_decisions_sha256": {"anyOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]},
+    "finding_details_sha256": {"anyOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]}
   },
   "$defs": {
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}

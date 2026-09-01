@@ -26,9 +26,9 @@ except ImportError:  # pragma: no cover - supports importing from another cwd
     from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 
 try:
-    from audit_artifacts import atomic_write_text, sha256_bytes, validate_schema
+    from audit_artifacts import atomic_write_text, require_distinct_paths, sha256_bytes, validate_schema
 except ImportError:  # pragma: no cover - supports importing from another cwd
-    from scripts.audit_artifacts import atomic_write_text, sha256_bytes, validate_schema
+    from scripts.audit_artifacts import atomic_write_text, require_distinct_paths, sha256_bytes, validate_schema
 
 try:
     from code_context import build_code_index
@@ -464,6 +464,10 @@ def main(argv: list[str] | None = None) -> int:
     configure(quiet=args.quiet)
 
     try:
+        require_distinct_paths(
+            ("feature-map", args.output),
+            ("code-index", args.code_index_out),
+        )
         stage("RECON", step=1, total=7, detail="Building scope-bound Feature Map")
         payload = build_feature_map(
             args.root.resolve(),

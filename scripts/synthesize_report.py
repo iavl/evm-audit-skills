@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,9 @@ try:
         atomic_write_text,
         load_json,
         has_unresolved_marker,
+        json_text,
+        load_json_bytes,
+        require_distinct_paths,
         report_bundle_metadata,
         review_state_digest,
         validate_artifact_identity,
@@ -38,6 +42,9 @@ except ImportError:  # pragma: no cover
         atomic_write_text,
         load_json,
         has_unresolved_marker,
+        json_text,
+        load_json_bytes,
+        require_distinct_paths,
         report_bundle_metadata,
         review_state_digest,
         validate_artifact_identity,
@@ -68,6 +75,41 @@ SEVERITY_DIMENSIONS = (
     "protocol_exposure",
     "recoverability",
 )
+
+
+@dataclass(frozen=True)
+class ReportSynthesisResult:
+    """One current audit state and the outputs derived from it."""
+
+    state: dict[str, Any]
+    report: str
+    issue_candidates: dict[str, Any]
+    severity_decisions_bytes: bytes | None = None
+    finding_details_bytes: bytes | None = None
+
+    def __iter__(self):
+        yield self.report
+        yield self.issue_candidates
+
+
+def _consumed_input_bytes(
+    value: dict[str, Any] | None,
+    raw: bytes | None,
+    label: str,
+) -> bytes | None:
+    if value is None:
+        if raw is not None:
+            raise ValueError(f"{label} bytes were supplied without an artifact")
+        return None
+    if raw is None:
+        return json_text(value).encode("utf-8")
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{label} bytes are not valid UTF-8 JSON") from error
+    if parsed != value:
+        raise ValueError(f"{label} bytes do not match the consumed artifact")
+    return raw
 
 
 def _provenance(check: dict[str, Any]) -> str:
@@ -148,12 +190,14 @@ def synthesize(
     severity_decisions: dict[str, Any] | None = None,
     *,
     finding_details: dict[str, Any] | None = None,
+    severity_decisions_bytes: bytes | None = None,
+    finding_details_bytes: bytes | None = None,
     allow_incomplete: bool = False,
     domain_resolution: dict[str, Any] | None = None,
     screen_results: dict[str, Any] | None = None,
     domain_context: dict[str, Any] | None = None,
     context: dict[str, Any] | None = None,
-) -> tuple[str, dict[str, Any]]:
+) -> ReportSynthesisResult:
     validate_manifest(root, manifest, registry)
     validate_target_snapshot(manifest)
     try:
@@ -211,6 +255,12 @@ def synthesize(
     if state["status"] == "COMPLETE_WITH_FINDINGS" and state["clean"]:
         raise ValueError("COMPLETE_WITH_FINDINGS must set clean=false")
 
+    severity_decisions_bytes = _consumed_input_bytes(
+        severity_decisions, severity_decisions_bytes, "severity decisions"
+    )
+    finding_details_bytes = _consumed_input_bytes(
+        finding_details, finding_details_bytes, "finding details"
+    )
     decisions: dict[str, dict[str, Any]] = {}
     if severity_decisions is not None:
         try:
@@ -259,7 +309,13 @@ def synthesize(
             *[f"- {reason}" for reason in state["reasons"]],
             "",
         ])
-        return report, _issue_artifact(root, manifest, state, [])
+        return ReportSynthesisResult(
+            state,
+            report,
+            _issue_artifact(root, manifest, state, []),
+            severity_decisions_bytes,
+            finding_details_bytes,
+        )
 
     if confirmed and severity_decisions is None:
         raise ValueError(f"INCOMPLETE_SEVERITY: missing severity decisions for {sorted(confirmed)}")
@@ -353,13 +409,19 @@ def synthesize(
         if issue_candidate(severity):
             issue_findings.append({"canonical_id": canonical_id, "severity": severity})
     report_lines.append("")
-    return "\n".join(report_lines), _issue_artifact(root, manifest, state, issue_findings)
+    return ReportSynthesisResult(
+        state,
+        "\n".join(report_lines),
+        _issue_artifact(root, manifest, state, issue_findings),
+        severity_decisions_bytes,
+        finding_details_bytes,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--audit-state", type=Path, required=True)
+    parser.add_argument("--audit-state", type=Path, help="derived state cache; never used as report authority")
     parser.add_argument("--registry", type=Path, default=ROOT / "data/canonical-checks.json")
     parser.add_argument("--ledger", type=Path, action="append", default=[])
     parser.add_argument("--domain-resolution", type=Path)
@@ -376,16 +438,26 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure(quiet=args.quiet)
     try:
+        bundle_path = args.bundle_metadata_out or (args.output.with_name("report-bundle.json") if args.output and args.issue_candidates_out else None)
+        require_distinct_paths(
+            ("report", args.output),
+            ("issue-candidates", args.issue_candidates_out),
+            ("report-bundle", bundle_path),
+        )
         manifest = load_json(args.manifest)
         registry = load_json(args.registry)
-        state = load_json(args.audit_state)
-        severity = load_json(args.severity_decisions) if args.severity_decisions else None
-        finding_details = load_json(args.finding_details) if args.finding_details else None
+        state = load_json(args.audit_state) if args.audit_state else {}
+        severity = severity_bytes = None
+        if args.severity_decisions:
+            severity, severity_bytes = load_json_bytes(args.severity_decisions)
+        finding_details = finding_details_bytes = None
+        if args.finding_details:
+            finding_details, finding_details_bytes = load_json_bytes(args.finding_details)
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
         screen_results = load_json(args.screen_results)
         domain_context = load_json(args.domain_context)
         context = load_json(args.context)
-        report, issues = synthesize(
+        synthesis = synthesize(
             ROOT,
             manifest,
             registry,
@@ -393,18 +465,30 @@ def main(argv: list[str] | None = None) -> int:
             args.ledger,
             severity,
             finding_details=finding_details,
+            severity_decisions_bytes=severity_bytes,
+            finding_details_bytes=finding_details_bytes,
             allow_incomplete=args.allow_incomplete,
             domain_resolution=domain_resolution,
             screen_results=screen_results,
             domain_context=domain_context,
             context=context,
         )
-        bundle_path = args.bundle_metadata_out or (args.output.with_name("report-bundle.json") if args.output and args.issue_candidates_out else None)
+        current_state = synthesis.state
+        report = synthesis.report
+        issues = synthesis.issue_candidates
         bundle = None
         if bundle_path is not None:
             if not args.output or not args.issue_candidates_out:
                 raise ValueError("report bundle requires --output and --issue-candidates-out")
-            bundle = report_bundle_metadata(manifest, state, report, issues)
+            bundle = report_bundle_metadata(
+                manifest,
+                current_state,
+                report,
+                issues,
+                issue_candidates_bytes=json_text(issues).encode("utf-8"),
+                severity_decisions_bytes=synthesis.severity_decisions_bytes,
+                finding_details_bytes=synthesis.finding_details_bytes,
+            )
             validate_schema(ROOT, "report-bundle.schema.json", bundle)
         if args.output:
             atomic_write_text(args.output, report)

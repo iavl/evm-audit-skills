@@ -31,6 +31,8 @@ jobs:
         run: python3 scripts/build_info.py > build-info.json
       - name: Run routing benchmark and Recon-to-Selector E2E
         run: python3 scripts/benchmark_routing.py --e2e > routing-benchmark.jsonl
+      - name: Run code-context size benchmark
+        run: python3 scripts/benchmark_code_context.py > code-context-benchmark.jsonl
       - name: Run EIP-6780 cross-transaction differential semantics
         run: |
           bash tests/semantics/test_eip6780_differential.sh paris
@@ -45,3 +47,4 @@ jobs:
             build-info.json
             knowledge-metrics.json
             routing-benchmark.jsonl
+            code-context-benchmark.jsonl

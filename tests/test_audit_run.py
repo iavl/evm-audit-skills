@@ -11,8 +11,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from helpers import EMPTY_TARGET, ROOT
+from helpers import EMPTY_TARGET, ROOT, build_manifest
 import scripts.audit_run as audit_controller
+from scripts.audit_artifacts import check_body_hash
+from scripts.render_runtime import domain_context_template, screen_results_template
 from scripts.review_ledger import append
 
 
@@ -71,7 +73,8 @@ class AuditRunTests(unittest.TestCase):
             values = audit_controller.paths(run_dir)
             manifest = self.read(values["manifest"])
             state = self.read(values["audit_state"])
-            self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+            bundle_status = audit_controller._report_bundle_status(ROOT, values, manifest, state)
+            self.assertTrue(bundle_status["current"], bundle_status)
             original_report = values["report"].read_text(encoding="utf-8")
             original_issues = values["issue_candidates"].read_text(encoding="utf-8")
             original_bundle = values["report_bundle"].read_text(encoding="utf-8")
@@ -311,7 +314,122 @@ class AuditRunTests(unittest.TestCase):
             code_index.unlink()
             result = self.run_cli("scripts/audit_run.py", "status", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout)["navigation"]["status"], "ABSENT")
+            self.assertEqual(json.loads(result.stdout)["navigation"]["status"], "MISSING")
+
+    def test_unbound_missing_code_index_is_reported_absent(self) -> None:
+        _, _, _, manifest = build_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            values = {"code_index": Path(directory) / "recon/code-index.json"}
+            status = audit_controller._optional_code_index_status(ROOT, values, manifest)
+        self.assertEqual(status["status"], "ABSENT")
+        self.assertFalse(status["available"])
+
+    def test_finding_report_snapshots_inputs_and_requires_both_for_current_bundle(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        screen = screen_results_template(manifest)
+        candidate_id = screen["results"][0]["canonical_id"]
+        evidence = [
+            {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+            {"kind": "inheritance", "location": "fixture", "reason": "screen disposition"},
+        ]
+        for item in screen["results"]:
+            if item["canonical_id"] == candidate_id:
+                item.update(result="CANDIDATE", scope_complete=False, evidence=[])
+            else:
+                item.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
+        domain_context = domain_context_template(manifest)
+        for requirements in domain_context["domains"].values():
+            for item in requirements.values():
+                item.update(status="KNOWN", value="fixture", evidence=[evidence[0]])
+        context = {**manifest["audit_context"], "routing_snapshot_id": manifest["routing_snapshot_id"]}
+        route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate_id)
+        check = next(item for item in registry["checks"] if item["canonical_id"] == candidate_id)
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            values = audit_controller.paths(run_dir)
+            values["manifest"].parent.mkdir(parents=True)
+            values["domain_context"].parent.mkdir(parents=True, exist_ok=True)
+            values["context"].write_text(json.dumps(context) + "\n", encoding="utf-8")
+            values["manifest"].write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            values["domain_context"].write_text(json.dumps(domain_context) + "\n", encoding="utf-8")
+            values["screen_results"].write_text(json.dumps(screen) + "\n", encoding="utf-8")
+            deep = {
+                "record_type": "review",
+                "schema_version": 7,
+                "canonical_id": candidate_id,
+                "owner_domain": route["owner_domain"],
+                "check_body_hash": check_body_hash(check),
+                "review_stage": "DEEP_REVIEW",
+                "status": "SUSPICIOUS",
+                "code_path": "fixture entry",
+                "unresolved_reason": "proof pending",
+                "evidence": [{"kind": "manual", "location": "fixture", "reason": "deep review"}],
+            }
+            ledger = run_dir / "reviews/review-evm-audit-general.jsonl"
+            append(ledger, manifest, deep, registry, {candidate_id}, domain_context=domain_context, screen_results=screen)
+            proof = {
+                **deep,
+                "review_stage": "PROOF",
+                "status": "CONFIRMED",
+                "applicability": "APPLICABLE - fixture",
+                "preconditions": "fixture state",
+                "exploitability": "fixture path is reachable",
+                "impact": "fixture impact",
+                "proof": "deterministic fixture trace",
+                "evidence": [{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
+            }
+            append(ledger, manifest, proof, registry, {candidate_id}, domain_context=domain_context, screen_results=screen)
+            state = audit_controller.status_run(ROOT, run_dir, emit=False)
+            self.assertEqual(state["status"], "COMPLETE_WITH_FINDINGS")
+            identity = {
+                "schema_version": 2,
+                "routing_snapshot_id": manifest["routing_snapshot_id"],
+                "review_state_digest": state["review_state_digest"],
+                **{
+                    key: manifest["audit_context"][key]
+                    for key in ("registry_sha256", "source_digest", "compilation_input_digest")
+                },
+            }
+            severity = {
+                **identity,
+                "decisions": {
+                    candidate_id: {
+                        "severity": "High",
+                        "rationale": "fixture proof",
+                        "dimensions": {
+                            "impact": "fund_loss", "exploitability": "permissionless", "privileges": "none",
+                            "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
+                            "loss_bound": "single_user", "protocol_exposure": "single_position", "recoverability": "irreversible",
+                        },
+                    }
+                },
+            }
+            details = {
+                **identity,
+                "findings": [{
+                    "canonical_id": candidate_id,
+                    "location": "Fixture.sol:1",
+                    "description": "fixture finding",
+                    "recommendation": "fix fixture",
+                }],
+            }
+            severity_path = run_dir / "external-severity.json"
+            details_path = run_dir / "external-details.json"
+            severity_path.write_text(json.dumps(severity, indent=2) + "\n", encoding="utf-8")
+            details_path.write_text(json.dumps(details, indent=2) + "\n", encoding="utf-8")
+            report = audit_controller.report_run(ROOT, run_dir, severity_path, details_path)
+            self.assertTrue(report["complete"])
+            self.assertEqual(values["report_input_severity"].read_bytes(), severity_path.read_bytes())
+            self.assertEqual(values["report_input_details"].read_bytes(), details_path.read_bytes())
+            bundle_status = audit_controller._report_bundle_status(ROOT, values, manifest, state)
+            self.assertTrue(bundle_status["current"], bundle_status)
+            details_bytes = values["report_input_details"].read_bytes()
+            values["report_input_details"].write_bytes(details_bytes + b"\n")
+            self.assertFalse(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+            values["report_input_details"].write_bytes(details_bytes)
+            self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+            values["report_input_details"].unlink()
+            self.assertFalse(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
 
     def test_report_rederives_state_after_current_ledger_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +14,8 @@ from pathlib import Path
 from slither import Slither
 
 from helpers import ROOT
-from scripts.audit_artifacts import sha256_bytes, validate_schema
+import scripts.audit_run as audit_controller
+from scripts.audit_artifacts import bind_routing_snapshot, bound_code_index_status, sha256_bytes, validate_schema
 from scripts.code_context import _concrete_function, _slither_api, build_code_index, lookup, validate_code_index
 from scripts.scope_context import scope_inventory
 
@@ -21,6 +24,144 @@ FIXTURE = ROOT / "tests/fixtures/code_context"
 
 
 class CodeContextIntegrationTests(unittest.TestCase):
+    def test_bound_query_and_controller_share_navigation_integrity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target_root = root / "fixture"
+            shutil.copytree(FIXTURE, target_root)
+            run_dir = root / "run"
+            initialized = subprocess.run(
+                [
+                    sys.executable,
+                    "scripts/audit_run.py",
+                    "init",
+                    str(target_root / "Main.sol"),
+                    "--run-dir",
+                    str(run_dir),
+                    "--audit-root",
+                    str(target_root),
+                    "--domain",
+                    "evm-audit-general",
+                    "--accept-default-models",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(initialized.returncode, 0, initialized.stderr)
+            index_path = run_dir / "recon/code-index.json"
+            original = index_path.read_bytes()
+            index = json.loads(original)
+            entry = next(key for key in index["functions"] if key.endswith("::Main.entry(uint256)"))
+            values = audit_controller.paths(run_dir)
+            manifest = json.loads(values["manifest"].read_text(encoding="utf-8"))
+
+            def query(*extra: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    [
+                        sys.executable,
+                        "scripts/code_context.py",
+                        "--run-dir",
+                        str(run_dir),
+                        "--function",
+                        entry,
+                        "--depth",
+                        "1",
+                        *extra,
+                    ],
+                    cwd=ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+
+            self.assertEqual(query("--include-callees").returncode, 0)
+            self.assertEqual(
+                audit_controller._optional_code_index_status(ROOT, values, manifest)["status"],
+                "CURRENT",
+            )
+
+            changed = json.loads(original)
+            changed["external_calls"][0]["start_line"] += 1
+            index_path.write_text(json.dumps(changed) + "\n", encoding="utf-8")
+            self.assertNotEqual(query("--include-callees").returncode, 0)
+            self.assertEqual(
+                audit_controller._optional_code_index_status(ROOT, values, manifest)["status"],
+                "TAMPERED",
+            )
+
+            index_path.write_bytes(original)
+            changed = json.loads(original)
+            changed["functions"][entry]["start_line"] += 1
+            changed["source_ranges"][entry]["start_line"] += 1
+            index_path.write_text(json.dumps(changed) + "\n", encoding="utf-8")
+            self.assertNotEqual(query("--include-callees").returncode, 0)
+            self.assertEqual(
+                audit_controller._optional_code_index_status(ROOT, values, manifest)["status"],
+                "TAMPERED",
+            )
+
+            index_path.write_bytes(original)
+            self.assertEqual(query("--include-callees").returncode, 0)
+            index_path.unlink()
+            self.assertEqual(
+                audit_controller._optional_code_index_status(ROOT, values, manifest)["status"],
+                "MISSING",
+            )
+            self.assertNotEqual(query("--include-callees").returncode, 0)
+
+            index_path.write_bytes(original)
+            source_path = target_root / "Main.sol"
+            source = source_path.read_bytes()
+            try:
+                source_path.write_bytes(source + b"\n// changed after Recon\n")
+                self.assertNotEqual(query("--include-callees").returncode, 0)
+            finally:
+                source_path.write_bytes(source)
+
+            invalid = json.loads(original)
+            invalid["source_ranges"][entry]["start_line"] += 1
+            invalid_raw = (json.dumps(invalid) + "\n").encode("utf-8")
+            bound_manifest = json.loads(json.dumps(manifest))
+            bound_manifest["feature_map"]["recon_context"]["navigation_artifacts"]["code_index"]["sha256"] = sha256_bytes(invalid_raw)
+            bound_manifest = bind_routing_snapshot(bound_manifest)
+            index_path.write_bytes(invalid_raw)
+            self.assertEqual(
+                bound_code_index_status(ROOT, bound_manifest, index_path)["status"],
+                "UNAVAILABLE",
+            )
+            binding = bound_manifest["feature_map"]["recon_context"]["navigation_artifacts"]["code_index"]
+            binding["sha256"] = sha256_bytes(original)
+            binding["schema_version"] = 999
+            bound_manifest = bind_routing_snapshot(bound_manifest)
+            index_path.write_bytes(original)
+            self.assertEqual(
+                bound_code_index_status(ROOT, bound_manifest, index_path)["status"],
+                "UNAVAILABLE",
+            )
+            index_path.write_bytes(original)
+
+            unbound = root / "unbound-code-index.json"
+            unbound.write_bytes(original)
+            unbound_command = [
+                sys.executable,
+                "scripts/code_context.py",
+                "--index",
+                str(unbound),
+                "--function",
+                entry,
+                "--root",
+                str(ROOT),
+            ]
+            rejected = subprocess.run(unbound_command, cwd=ROOT, capture_output=True, text=True)
+            self.assertNotEqual(rejected.returncode, 0)
+            accepted = subprocess.run(
+                [*unbound_command, "--allow-unbound-index"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
     def test_code_index_query_shapes_stay_strict_and_aligned(self) -> None:
         index_schema = json.loads((ROOT / "schemas/code-index.schema.json").read_text(encoding="utf-8"))
         query_schema = json.loads((ROOT / "schemas/code-context-query.schema.json").read_text(encoding="utf-8"))

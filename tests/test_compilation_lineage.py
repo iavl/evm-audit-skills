@@ -57,6 +57,15 @@ class CompilationLineageTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "cannot inspect Git submodule entries"):
                     _submodule_commits(git_root, ("lib",))
 
+    def test_submodule_provenance_reports_unavailable_git_executable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("scripts.scope_context.subprocess.run", side_effect=FileNotFoundError("git")):
+                with self.assertRaisesRegex(ValueError, "git executable is unavailable"):
+                    _submodule_commits(Path(directory), ("lib",))
+            with patch("scripts.scope_context.subprocess.run", side_effect=PermissionError("git")):
+                with self.assertRaisesRegex(ValueError, "git executable is unavailable"):
+                    _submodule_commits(Path(directory), ("lib",))
+
     def test_exact_closure_is_returned_and_missing_api_uses_none(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

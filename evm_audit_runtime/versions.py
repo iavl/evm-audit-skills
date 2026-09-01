@@ -7,7 +7,8 @@ SCHEMA_VERSIONS = {
     "audit-context": 1,
     "audit-state": 2,
     "benchmark-routing-fixture": 1,
-    "code-context-query": 2,
+    "code-context-query": 3,
+    "code-context-benchmark": 1,
     "code-index": 2,
     "codex-model-profile": 1,
     "domain-context": 3,
@@ -20,7 +21,7 @@ SCHEMA_VERSIONS = {
     "knowledge-metrics": 1,
     "review-record": 7,
     "routing-manifest": 7,
-    "report-bundle": 1,
+    "report-bundle": 2,
     "runtime-metadata": 1,
     "screen-results": 2,
     "severity-decisions": 2,
@@ -29,6 +30,7 @@ SCHEMA_VERSIONS = {
 AUDIT_STATE_VERSION = SCHEMA_VERSIONS["audit-state"]
 BENCHMARK_ROUTING_FIXTURE_VERSION = SCHEMA_VERSIONS["benchmark-routing-fixture"]
 CODE_CONTEXT_QUERY_VERSION = SCHEMA_VERSIONS["code-context-query"]
+CODE_CONTEXT_BENCHMARK_VERSION = SCHEMA_VERSIONS["code-context-benchmark"]
 CODE_INDEX_VERSION = SCHEMA_VERSIONS["code-index"]
 CODEX_MODEL_PROFILE_VERSION = SCHEMA_VERSIONS["codex-model-profile"]
 DOMAIN_CONTEXT_VERSION = SCHEMA_VERSIONS["domain-context"]

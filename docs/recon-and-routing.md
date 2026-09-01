@@ -74,13 +74,23 @@ remains selected. This allows keyword inference to improve recall without
 proving non-applicability.
 
 The optional `code-index.json` is a compact Slither-derived navigation hint
-bound to the source and compilation digests. Use `scripts/code_context.py` to
-expand callers/callees, for example
-`--include-callers --include-callees --depth 2 --max-nodes 25`. Query v2 keeps
-selected caller/callee edges separate from explicit `boundary_edges`; unresolved
-calls remain in `unresolved_edges` because uncertainty is not absence. Expansion
-is deterministic and cycle-safe; verify every returned range against source
-because the index is never authoritative. The actual compilation closure is used for the compilation
+bound to the source and compilation digests. Normal audit queries must bind it
+to the run:
+
+```bash
+python3 scripts/code_context.py --run-dir <run-dir> --function <function-id> \
+  --include-callers --include-callees --depth 2 --max-nodes 25 --max-edges 200
+```
+
+Development-only standalone inspection requires `--allow-unbound-index`.
+Query v3 keeps selected caller/callee edges separate from explicit
+`boundary_edges`; unresolved calls remain in `unresolved_edges` because
+uncertainty is not absence. Expansion is deterministic and cycle-safe; verify
+every returned range against source because the index is never authoritative.
+`edges_truncated` and `truncated` mean the graph is incomplete and require
+direct source inspection. When the edge cap applies, deterministic priority is
+unresolved edges, selected caller edges, selected callee edges, then boundary
+edges; each category is already stably sorted. The actual compilation closure is used for the compilation
 digest when Slither exposes it, with the conservative full-source fallback
 otherwise; `recon_quality.compilation_provenance` records which mode was used.
 Older v4 Feature Maps without that additive field are treated as the

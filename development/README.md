@@ -56,6 +56,7 @@ the ordinary benchmark fixtures before the Solidity E2E fixtures:
 ```bash
 python3 scripts/benchmark_routing.py
 python3 scripts/benchmark_routing.py --e2e
+python3 scripts/benchmark_code_context.py
 python3 scripts/knowledge_metrics.py
 bash tests/semantics/test_eip6780_differential.sh paris
 bash tests/semantics/test_eip6780_differential.sh cancun
@@ -65,6 +66,9 @@ Benchmark JSONL records include selected/deferred/filtered counts, Screen and
 Deep byte sizes, aggregate Domain `SKILL.md` bytes, `routing_recall`, and
 `false_negative_cases`. Recall is never traded for prompt reduction: a missing
 must-select check fails the fixture before any size result is accepted.
+
+The separate code-context benchmark records exact index/query bytes, selected
+nodes, total/returned edges, unresolved edges, and explicit truncation flags.
 
 The scheduled `knowledge-health.yml` workflow owns freshness/official-source
 checks and the base executable semantic suite:

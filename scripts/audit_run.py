@@ -45,37 +45,45 @@ except ImportError:  # pragma: no cover
 
 try:
     from audit_artifacts import (
+        atomic_write_bytes,
         atomic_write_json,
         atomic_write_text,
+        bound_code_index_status,
         derive_review_snapshot_id,
+        json_text,
         load_json,
+        load_json_bytes,
         report_bundle_metadata,
-        sha256_bytes,
         validate_domain_context,
         validate_domain_resolution,
+        validate_issue_candidates,
+        validate_reporting_inputs,
         validate_schema,
         validate_target_snapshot,
     )
     from render_runtime import runtime_identity, selected_entries, validate_manifest, validate_screen_results
-    from code_context import validate_code_index
     from review_ledger import collect_review_records
     from synthesize_report import synthesize
     from validate_audit_run import validate_run
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
+        atomic_write_bytes,
         atomic_write_json,
         atomic_write_text,
+        bound_code_index_status,
         derive_review_snapshot_id,
+        json_text,
         load_json,
+        load_json_bytes,
         report_bundle_metadata,
-        sha256_bytes,
         validate_domain_context,
         validate_domain_resolution,
+        validate_issue_candidates,
+        validate_reporting_inputs,
         validate_schema,
         validate_target_snapshot,
     )
     from scripts.render_runtime import runtime_identity, selected_entries, validate_manifest, validate_screen_results
-    from scripts.code_context import validate_code_index
     from scripts.review_ledger import collect_review_records
     from scripts.synthesize_report import synthesize
     from scripts.validate_audit_run import validate_run
@@ -109,6 +117,10 @@ def paths(run_dir: Path) -> dict[str, Any]:
         "report": run_dir / "AUDIT-REPORT.md",
         "issue_candidates": run_dir / "issue-candidates.json",
         "report_bundle": run_dir / "report-bundle.json",
+        "severity_decisions": run_dir / "reviews/severity-decisions.json",
+        "finding_details": run_dir / "reviews/finding-details.json",
+        "report_input_severity": run_dir / "report-inputs/severity-decisions.json",
+        "report_input_details": run_dir / "report-inputs/finding-details.json",
         "model_profile": run_dir / "config/codex-model-profile.json",
     }
 
@@ -687,38 +699,9 @@ def _optional_code_index_status(
     root: Path,
     values: dict[str, Any],
     manifest: dict[str, Any],
+    registry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    path = values["code_index"]
-    if not path.exists():
-        return {"available": False, "status": "ABSENT", "message": "code-index navigation was not generated"}
-    try:
-        binding = manifest.get("feature_map", {}).get("recon_context", {}).get("navigation_artifacts", {}).get("code_index")
-        if not isinstance(binding, dict):
-            raise ValueError("code-index has no authoritative Recon digest")
-        actual_digest = sha256_bytes(path.read_bytes())
-        if actual_digest != binding.get("sha256"):
-            return {
-                "available": False,
-                "status": "TAMPERED",
-                "message": "code-index navigation unavailable: body digest does not match authoritative Recon",
-            }
-        index = load_json(path)
-        audit = manifest["audit_context"]
-        if index.get("schema_version") != binding.get("schema_version"):
-            raise ValueError("code-index schema_version does not match authoritative Recon")
-        validate_code_index(
-            root,
-            index,
-            source_digest=audit["source_digest"],
-            compilation_input_digest=audit["compilation_input_digest"],
-        )
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
-        return {
-            "available": False,
-            "status": "UNAVAILABLE",
-            "message": f"code-index navigation unavailable: {error}",
-        }
-    return {"available": True, "status": "CURRENT", "message": "code-index navigation is current"}
+    return bound_code_index_status(root, manifest, values["code_index"], registry=registry)
 
 
 def _report_bundle_status(
@@ -733,12 +716,27 @@ def _report_bundle_status(
     try:
         metadata = load_json(marker)
         validate_schema(root, "report-bundle.schema.json", metadata)
+        issue_candidates, issue_candidates_bytes = load_json_bytes(values["issue_candidates"])
+        validate_issue_candidates(root, manifest, state, issue_candidates)
+        severity_decisions_bytes = finding_details_bytes = None
+        if state.get("status") == "COMPLETE_WITH_FINDINGS":
+            severity_decisions, severity_decisions_bytes = load_json_bytes(values["report_input_severity"])
+            finding_details, finding_details_bytes = load_json_bytes(values["report_input_details"])
+            validate_reporting_inputs(
+                root,
+                manifest,
+                state,
+                severity_decisions,
+                finding_details,
+            )
         expected = report_bundle_metadata(
             manifest,
             state,
             values["report"].read_bytes(),
-            load_json(values["issue_candidates"]),
-            issue_candidates_bytes=values["issue_candidates"].read_bytes(),
+            issue_candidates,
+            issue_candidates_bytes=issue_candidates_bytes,
+            severity_decisions_bytes=severity_decisions_bytes,
+            finding_details_bytes=finding_details_bytes,
         )
         if metadata != expected:
             raise ValueError("report bundle marker or body hashes do not match current audit state")
@@ -755,7 +753,7 @@ def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Any], dict[str, Any]
     registry = load_json(root / "data/canonical-checks.json")
     validate_manifest(root, manifest, registry)
     validate_target_snapshot(manifest)
-    values["code_index_status"] = _optional_code_index_status(root, values, manifest)
+    values["code_index_status"] = _optional_code_index_status(root, values, manifest, registry)
     if values["code_index_status"]["status"] not in {"ABSENT", "CURRENT"}:
         warning(values["code_index_status"]["message"])
     return values, manifest, registry
@@ -1259,13 +1257,21 @@ def report_run(
     values, manifest, registry = _load_run(root, run_dir)
     state = status_run(root, run_dir, emit=False)
     _log_report(state, finished=False, run_dir=run_dir)
-    severity = load_json(severity_path) if state["complete"] and severity_path else None
-    finding_details = load_json(finding_details_path) if state["complete"] and finding_details_path else None
+    severity = severity_bytes = None
+    finding_details = finding_details_bytes = None
+    if state["complete"]:
+        if state["status"] == "COMPLETE_WITH_FINDINGS":
+            severity_path = severity_path or values["severity_decisions"]
+            finding_details_path = finding_details_path or values["finding_details"]
+        if severity_path is not None:
+            severity, severity_bytes = load_json_bytes(severity_path)
+        if finding_details_path is not None:
+            finding_details, finding_details_bytes = load_json_bytes(finding_details_path)
     resolution = load_json(values["resolution"]) if values["resolution"].exists() else None
     screen = load_json(values["screen_results"]) if values["screen_results"].exists() else None
     domain_context = load_json(values["domain_context"]) if values["domain_context"].exists() else None
     context = load_json(values["context"]) if values["context"].exists() else None
-    report, issues = synthesize(
+    synthesis = synthesize(
         root,
         manifest,
         registry,
@@ -1273,31 +1279,55 @@ def report_run(
         _ledger_paths(run_dir),
         severity,
         finding_details=finding_details,
+        severity_decisions_bytes=severity_bytes,
+        finding_details_bytes=finding_details_bytes,
         allow_incomplete=not state["complete"],
         domain_resolution=resolution,
         screen_results=screen,
         domain_context=domain_context,
         context=context,
     )
-    bundle = report_bundle_metadata(manifest, state, report, issues)
+    if hasattr(synthesis, "state"):
+        current_state = synthesis.state
+        report = synthesis.report
+        issues = synthesis.issue_candidates
+        severity_bytes = synthesis.severity_decisions_bytes
+        finding_details_bytes = synthesis.finding_details_bytes
+    else:  # Keep tests and downstream wrappers that return the legacy two-tuple working.
+        report, issues = synthesis
+        current_state = state
+    if current_state["status"] == "COMPLETE_WITH_FINDINGS":
+        if severity_bytes is None or finding_details_bytes is None:
+            raise ValueError("finding report is missing exact reporting input bytes")
+        atomic_write_bytes(values["report_input_severity"], severity_bytes)
+        atomic_write_bytes(values["report_input_details"], finding_details_bytes)
+    bundle = report_bundle_metadata(
+        manifest,
+        current_state,
+        report,
+        issues,
+        issue_candidates_bytes=json_text(issues).encode("utf-8"),
+        severity_decisions_bytes=severity_bytes,
+        finding_details_bytes=finding_details_bytes,
+    )
     validate_schema(root, "report-bundle.schema.json", bundle)
     atomic_write_text(values["report"], report)
     atomic_write_json(values["issue_candidates"], issues)
     atomic_write_json(values["report_bundle"], bundle)
-    if state["complete"]:
+    if current_state["complete"]:
         success("Audit complete")
     else:
         warning("Audit remains incomplete")
     return _stage_result(
         run_dir,
         "REPORT",
-        summary=f"Audit state: {state['status']}",
+        summary=f"Audit state: {current_state['status']}",
         navigation=values["code_index_status"],
-        status=state["status"],
-        complete=state["complete"],
+        status=current_state["status"],
+        complete=current_state["complete"],
         report=str(values["report"]),
         issue_candidates=str(values["issue_candidates"]),
-        report_bundle=_report_bundle_status(root, values, manifest, state),
+        report_bundle=_report_bundle_status(root, values, manifest, current_state),
     )
 
 

@@ -16,13 +16,24 @@ from scripts.audit_artifacts import check_body_hash, derive_review_snapshot_id, 
 from scripts.code_context import lookup, validate_code_index
 from scripts.recon import actual_compiler_versions
 from scripts.render_runtime import domain_resolution_template, render, screen_results_template, validate_screen_results
-from scripts.review_ledger import append, checkpoint, validate_record, validate_records
+from scripts.review_ledger import append, checkpoint, validate_record, validate_record_contents, validate_record_transition, validate_records
 from scripts.validate_audit_run import validate_run
 from scripts.scope_context import compilation_digests
 from scripts.select_checks import audit_context, evaluate_domains, load_domains, normalize_feature_map, select
 
 
 class PlanHardeningTests(unittest.TestCase):
+    def test_record_content_and_lifecycle_validation_are_separate(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        record, snapshot = self._record(registry, manifest, "REVIEWED_SAFE")
+        record["review_stage"] = "PROOF"
+        self.assertEqual(
+            validate_record_contents(record, manifest, registry, {record["canonical_id"]}, review_snapshot_id=snapshot),
+            [],
+        )
+        self.assertTrue(validate_record_transition(None, record))
+        self.assertTrue(validate_records([checkpoint(manifest, snapshot), record], manifest, registry, {record["canonical_id"]}, review_snapshot_id=snapshot))
+
     def _record(self, registry: dict, manifest: dict, status: str = "NOT_APPLICABLE") -> tuple[dict, str]:
         _, _, snapshot = review_inputs(manifest)
         entry = manifest["selected"][0]
@@ -379,6 +390,25 @@ class PlanHardeningTests(unittest.TestCase):
         })
         result = lookup(unresolved, entry_id, depth=0)
         self.assertEqual([edge["target"] for edge in result["unresolved_edges"]], [unresolved_target])
+        hub = json.loads(json.dumps(index))
+        unresolved_targets = [f"unresolved:target-{number}" for number in range(5)]
+        hub["functions"][entry_id]["external_calls"] = unresolved_targets
+        hub["external_calls"] = [
+            {
+                "caller": entry_id,
+                "target": target,
+                "kind": "external",
+                "file": "build://Target.sol",
+                "start_line": 2,
+            }
+            for target in unresolved_targets
+        ]
+        bounded = lookup(hub, entry_id, depth=0, max_edges=2)
+        self.assertEqual(bounded["edge_count"], 6)
+        self.assertEqual(bounded["returned_edge_count"], 2)
+        self.assertEqual(bounded["max_edges"], 2)
+        self.assertTrue(bounded["edges_truncated"])
+        self.assertEqual(bounded, lookup(hub, entry_id, depth=0, max_edges=2))
         for depth in (0, 1):
             for include_callers in (False, True):
                 for include_callees in (False, True):

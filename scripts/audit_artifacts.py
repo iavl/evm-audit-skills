@@ -16,6 +16,7 @@ _SUITE_ROOT = str(Path(__file__).resolve().parents[1])
 if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
 from evm_audit_runtime.routing import effective_owner_domain, resolved_routes
+from evm_audit_runtime.code_index import validate_code_index
 from evm_audit_runtime.versions import REPORT_BUNDLE_VERSION
 
 
@@ -35,10 +36,16 @@ ABSENCE_EVIDENCE_KINDS = {
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
+    value, _ = load_json_bytes(path)
+    return value
+
+
+def load_json_bytes(path: Path) -> tuple[dict[str, Any], bytes]:
+    raw = path.read_bytes()
+    value = json.loads(raw.decode("utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain an object")
-    return value
+    return value, raw
 
 
 def canonical_sha256(value: Any) -> str:
@@ -48,6 +55,18 @@ def canonical_sha256(value: Any) -> str:
 
 def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def require_distinct_paths(*paths: tuple[str, Path | None]) -> None:
+    seen: dict[Path, str] = {}
+    for label, path in paths:
+        if path is None:
+            continue
+        resolved = path.resolve()
+        previous = seen.get(resolved)
+        if previous is not None:
+            raise ValueError(f"output paths for {previous} and {label} must be distinct: {resolved}")
+        seen[resolved] = label
 
 
 def json_text(value: Any) -> str:
@@ -61,13 +80,28 @@ def report_bundle_metadata(
     issue_candidates: dict[str, Any],
     *,
     issue_candidates_bytes: bytes | None = None,
+    severity_decisions_bytes: bytes | None = None,
+    finding_details_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     audit = manifest["audit_context"]
-    if any(
-        issue_candidates.get(key) != state.get(key)
-        for key in ("review_snapshot_id", "review_state_digest")
-    ):
+    expected_identity = {
+        "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "review_snapshot_id": state.get("review_snapshot_id"),
+        "review_state_digest": state.get("review_state_digest"),
+        "registry_sha256": audit["registry_sha256"],
+        "source_digest": audit["source_digest"],
+        "compilation_input_digest": audit["compilation_input_digest"],
+    }
+    if any(issue_candidates.get(key) != value for key, value in expected_identity.items()):
         raise ValueError("report bundle inputs do not match current audit state")
+    if issue_candidates_bytes is not None:
+        _validate_json_bytes(issue_candidates, issue_candidates_bytes, "issue candidates")
+    if state.get("status") == "COMPLETE_WITH_FINDINGS":
+        if severity_decisions_bytes is None or finding_details_bytes is None:
+            raise ValueError("report bundle requires exact severity and finding-details inputs")
+    else:
+        severity_decisions_bytes = None
+        finding_details_bytes = None
     return {
         "artifact_type": "report-bundle",
         "schema_version": REPORT_BUNDLE_VERSION,
@@ -83,7 +117,22 @@ def report_bundle_metadata(
             if issue_candidates_bytes is not None
             else json_text(issue_candidates).encode("utf-8")
         ),
+        "severity_decisions_sha256": (
+            sha256_bytes(severity_decisions_bytes) if severity_decisions_bytes is not None else None
+        ),
+        "finding_details_sha256": (
+            sha256_bytes(finding_details_bytes) if finding_details_bytes is not None else None
+        ),
     }
+
+
+def _validate_json_bytes(value: dict[str, Any], raw: bytes, label: str) -> None:
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{label} bytes are not valid UTF-8 JSON") from error
+    if parsed != value:
+        raise ValueError(f"{label} bytes do not match the consumed artifact")
 
 
 def canonicalize_json(value: Any) -> Any:
@@ -214,13 +263,13 @@ def validate_review_state_binding(value: dict[str, Any], digest: str | None) -> 
         raise ValueError("artifact has mismatched review_state_digest")
 
 
-def atomic_write_text(path: Path, content: str) -> None:
+def atomic_write_bytes(path: Path, content: bytes) -> None:
     """Replace a file atomically, leaving no stale partial output."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: str | None = None
     try:
         descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as output:
+        with os.fdopen(descriptor, "wb") as output:
             output.write(content)
             output.flush()
             os.fsync(output.fileno())
@@ -240,6 +289,10 @@ def atomic_write_text(path: Path, content: str) -> None:
                 os.unlink(temporary)
             except FileNotFoundError:
                 pass
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    atomic_write_bytes(path, content.encode("utf-8"))
 
 
 def atomic_write_json(path: Path, value: Any) -> None:
@@ -323,6 +376,92 @@ def validate_artifact_identity(value: dict[str, Any], manifest: dict[str, Any]) 
     for key, wanted in expected.items():
         if value.get(key) != wanted:
             raise ValueError(f"artifact has mismatched {key}")
+
+
+def validate_issue_candidates(
+    root: Path,
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+    value: dict[str, Any],
+) -> set[str]:
+    """Validate an issue artifact against the current confirmed review IDs."""
+    validate_schema(root, "issue-candidates.schema.json", value)
+    validate_artifact_identity(value, manifest)
+    for key in ("review_snapshot_id", "review_state_digest"):
+        if value.get(key) != state.get(key):
+            raise ValueError(f"issue candidates have mismatched {key}")
+    findings = value["findings"]
+    ids = [finding["canonical_id"] for finding in findings]
+    if len(ids) != len(set(ids)):
+        raise ValueError("issue candidates contain duplicate canonical IDs")
+    coverage = state.get("coverage")
+    confirmed = coverage.get("confirmed") if isinstance(coverage, dict) else None
+    if not isinstance(confirmed, list):
+        raise ValueError("current confirmed coverage is unavailable")
+    unknown = set(ids) - set(confirmed)
+    if unknown:
+        raise ValueError(f"issue candidates contain non-confirmed canonical IDs: {sorted(unknown)}")
+    return set(ids)
+
+
+def validate_reporting_inputs(
+    root: Path,
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+    severity_decisions: dict[str, Any],
+    finding_details: dict[str, Any],
+) -> None:
+    """Validate snapshot copies of the exact reporting inputs for a finding report."""
+    for kind, value in (
+        ("severity-decisions.schema.json", severity_decisions),
+        ("finding-details.schema.json", finding_details),
+    ):
+        validate_schema(root, kind, value)
+        validate_artifact_identity(value, manifest)
+        for key in ("review_state_digest",):
+            if value.get(key) != state.get(key):
+                raise ValueError(f"{kind} has mismatched {key}")
+        if value.get("artifact_state") == "TEMPLATE":
+            raise ValueError(f"{kind} is still a TEMPLATE")
+    coverage = state.get("coverage")
+    confirmed = coverage.get("confirmed") if isinstance(coverage, dict) else None
+    if not isinstance(confirmed, list):
+        raise ValueError("current confirmed coverage is unavailable")
+    decisions = severity_decisions.get("decisions")
+    findings = finding_details.get("findings")
+    if not isinstance(decisions, dict) or not isinstance(findings, list):
+        raise ValueError("reporting inputs have invalid ID collections")
+    finding_ids = [finding["canonical_id"] for finding in findings]
+    if len(finding_ids) != len(set(finding_ids)):
+        raise ValueError("finding-details contains duplicate canonical IDs")
+    if set(decisions) != set(confirmed) or set(finding_ids) != set(confirmed):
+        raise ValueError("reporting input IDs do not match current confirmed coverage")
+    if has_unresolved_marker(
+        *[
+            field
+            for item in decisions.values()
+            if isinstance(item, dict)
+            for field in (
+                item.get("severity"),
+                item.get("rationale"),
+                *(
+                    item.get("dimensions", {}).values()
+                    if isinstance(item.get("dimensions"), dict)
+                    else ()
+                ),
+            )
+        ],
+        *[
+            field
+            for finding in findings
+            for field in (
+                finding.get("location"),
+                finding.get("description"),
+                finding.get("recommendation"),
+            )
+        ],
+    ):
+        raise ValueError("reporting inputs contain unresolved field markers")
 
 
 
@@ -597,3 +736,94 @@ def validate_target_snapshot(manifest: dict[str, Any]) -> None:
         or any(actual[key] != expected[key] for key in expected)
     ):
         raise ValueError("Target source/build inputs changed after routing. Rerun Recon and Selector.")
+
+
+def code_index_binding(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    navigation = manifest.get("feature_map", {}).get("recon_context", {}).get("navigation_artifacts")
+    if navigation is None:
+        return None
+    if not isinstance(navigation, dict) or set(navigation) != {"code_index"}:
+        raise ValueError("recon_context.navigation_artifacts has an invalid shape")
+    binding = navigation["code_index"]
+    if binding is not None and not isinstance(binding, dict):
+        raise ValueError("recon_context.navigation_artifacts.code_index has an invalid shape")
+    return binding
+
+
+def validate_bound_code_index(
+    root: Path,
+    manifest: dict[str, Any],
+    index_path: Path,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate the exact code index bound to the current routing snapshot."""
+    try:
+        from render_runtime import validate_manifest
+    except ImportError:  # pragma: no cover - package-style import
+        from scripts.render_runtime import validate_manifest
+
+    registry = registry or load_json(root / "data/canonical-checks.json")
+    validate_manifest(root, manifest, registry)
+    validate_target_snapshot(manifest)
+    binding = code_index_binding(manifest)
+    if binding is None:
+        raise ValueError("code-index is not bound to Recon")
+    raw = index_path.read_bytes()
+    if sha256_bytes(raw) != binding["sha256"]:
+        raise ValueError("code-index body digest does not match authoritative Recon")
+    index, _ = load_json_bytes(index_path)
+    if index.get("schema_version") != binding["schema_version"]:
+        raise ValueError("code-index schema_version does not match authoritative Recon")
+    audit = manifest["audit_context"]
+    validate_code_index(
+        root,
+        index,
+        source_digest=audit["source_digest"],
+        compilation_input_digest=audit["compilation_input_digest"],
+    )
+    return index
+
+
+def bound_code_index_status(
+    root: Path,
+    manifest: dict[str, Any],
+    index_path: Path,
+    *,
+    registry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a diagnostic status without making the optional index authoritative."""
+    try:
+        binding = code_index_binding(manifest)
+    except ValueError as error:
+        return {"available": False, "status": "UNAVAILABLE", "message": f"code-index navigation unavailable: {error}"}
+    try:
+        exists = index_path.exists()
+    except OSError as error:
+        return {
+            "available": False,
+            "status": "UNAVAILABLE",
+            "message": f"code-index navigation unavailable: {error}",
+        }
+    if not exists:
+        if binding is None:
+            return {"available": False, "status": "ABSENT", "message": "code-index navigation was not generated"}
+        return {"available": False, "status": "MISSING", "message": "code-index navigation is missing its bound artifact"}
+    if binding is None:
+        return {"available": False, "status": "UNAVAILABLE", "message": "code-index navigation exists without an authoritative Recon binding"}
+    try:
+        raw = index_path.read_bytes()
+        if sha256_bytes(raw) != binding.get("sha256"):
+            return {
+                "available": False,
+                "status": "TAMPERED",
+                "message": "code-index navigation unavailable: body digest does not match authoritative Recon",
+            }
+        validate_bound_code_index(root, manifest, index_path, registry=registry)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
+        return {
+            "available": False,
+            "status": "UNAVAILABLE",
+            "message": f"code-index navigation unavailable: {error}",
+        }
+    return {"available": True, "status": "CURRENT", "message": "code-index navigation is current"}

@@ -16,7 +16,8 @@ from scripts.scope_context import compilation_digests, resolve_build_root, scope
 from scripts.synthesize_report import main as synthesize_main, synthesize
 from scripts.validate_audit_run import validate_run
 
-from helpers import ROOT, build_manifest
+from helpers import EMPTY_TARGET, ROOT, build_manifest
+from scripts.recon import main as recon_main
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -24,6 +25,45 @@ def write_json(path: Path, value: dict) -> None:
 
 
 class HardeningTests(unittest.TestCase):
+    def test_multi_output_clis_reject_exact_and_symlink_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "output.json"
+            self.assertEqual(
+                recon_main([
+                    str(EMPTY_TARGET), "--output", str(output), "--code-index-out", str(output), "--quiet",
+                ]),
+                1,
+            )
+            link = root / "link.json"
+            link.symlink_to(output)
+            self.assertEqual(
+                recon_main([
+                    str(EMPTY_TARGET), "--output", str(output), "--code-index-out", str(link), "--quiet",
+                ]),
+                1,
+            )
+            self.assertEqual(
+                synthesize_main([
+                    "--manifest", str(root / "missing-manifest.json"),
+                    "--screen-results", str(root / "missing-screen.json"),
+                    "--domain-context", str(root / "missing-context.json"),
+                    "--context", str(root / "missing-audit-context.json"),
+                    "--output", str(output), "--issue-candidates-out", str(output),
+                ]),
+                1,
+            )
+            self.assertEqual(
+                synthesize_main([
+                    "--manifest", str(root / "missing-manifest.json"),
+                    "--screen-results", str(root / "missing-screen.json"),
+                    "--domain-context", str(root / "missing-context.json"),
+                    "--context", str(root / "missing-audit-context.json"),
+                    "--output", str(output), "--issue-candidates-out", str(link),
+                ]),
+                1,
+            )
+
     def context(self, manifest: dict, resolution: dict | None = None) -> dict:
         value = domain_context_template(manifest, resolution)
         for requirements in value["domains"].values():
@@ -502,6 +542,7 @@ class HardeningTests(unittest.TestCase):
             state_path, ledger = root / "audit-state.json", root / "review.jsonl"
             severity_path, details_path = root / "severity.json", root / "details.json"
             report_path, issues_path = root / "AUDIT-REPORT.md", root / "issue-candidates.json"
+            bundle_path = root / "report-bundle.json"
             for path, value in ((manifest_path, manifest), (context_path, context), (domain_context_path, domain_context), (screen_path, screen)):
                 write_json(path, value)
             self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
@@ -526,16 +567,23 @@ class HardeningTests(unittest.TestCase):
                 "--domain-context", str(domain_context_path), "--screen-results", str(screen_path), "--ledger", str(ledger),
                 "--severity-decisions", str(severity_path), "--finding-details", str(details_path),
                 "--output", str(report_path), "--issue-candidates-out", str(issues_path),
+                "--bundle-metadata-out", str(bundle_path),
             ]
             self.assertEqual(synthesize_main(command), 0)
+            first_bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
             severity["decisions"][candidate_id]["severity"] = "Medium"
             details["findings"][0]["description"] = "updated description"
             write_json(severity_path, severity)
             write_json(details_path, details)
+            write_json(state_path, {**state, "status": "INCOMPLETE_REVIEW", "complete": False, "review_state_digest": "0" * 64})
             self.assertEqual(synthesize_main(command), 0)
+            second_bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
             report = report_path.read_text(encoding="utf-8")
             self.assertIn("**Severity:** Medium", report)
             self.assertIn("updated description", report)
+            self.assertEqual(second_bundle["review_state_digest"], state["review_state_digest"])
+            self.assertNotEqual(first_bundle["severity_decisions_sha256"], second_bundle["severity_decisions_sha256"])
+            self.assertNotEqual(first_bundle["finding_details_sha256"], second_bundle["finding_details_sha256"])
 
     def test_report_bundle_rejects_tampered_bodies_and_stale_digest(self) -> None:
         registry, _, _, manifest = build_manifest()
@@ -548,6 +596,7 @@ class HardeningTests(unittest.TestCase):
             domain_context_path, screen_path = root / "domain-context.json", root / "screen-results.json"
             state_path = root / "audit-state.json"
             report_path, issues_path = root / "AUDIT-REPORT.md", root / "issue-candidates.json"
+            bundle_path = root / "report-bundle.json"
             for path, value in ((manifest_path, manifest), (context_path, context), (domain_context_path, domain_context), (screen_path, screen)):
                 write_json(path, value)
             state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [])
@@ -556,10 +605,14 @@ class HardeningTests(unittest.TestCase):
                 "--manifest", str(manifest_path), "--audit-state", str(state_path), "--context", str(context_path),
                 "--domain-context", str(domain_context_path), "--screen-results", str(screen_path),
                 "--output", str(report_path), "--issue-candidates-out", str(issues_path),
+                "--bundle-metadata-out", str(bundle_path),
             ]
             self.assertEqual(synthesize_main(command), 0)
             values = audit_paths(root)
             self.assertTrue(_report_bundle_status(ROOT, values, manifest, state)["current"])
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+            self.assertIsNone(bundle["severity_decisions_sha256"])
+            self.assertIsNone(bundle["finding_details_sha256"])
 
             report = report_path.read_text(encoding="utf-8")
             report_path.write_text(report + "tampered\n", encoding="utf-8")
@@ -571,6 +624,28 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(_report_bundle_status(ROOT, values, manifest, state)["status"], "STALE")
             stale_state = {**state, "review_state_digest": "0" * 64}
             self.assertEqual(_report_bundle_status(ROOT, values, manifest, stale_state)["status"], "STALE")
+
+            base_issues = json.loads(issues_path.read_text(encoding="utf-8"))
+            mutations = {
+                "wrong registry": lambda value: value.update(registry_sha256="0" * 64),
+                "wrong source": lambda value: value.update(source_digest="0" * 64),
+                "wrong compilation": lambda value: value.update(compilation_input_digest="0" * 64),
+                "unknown ID": lambda value: value.update(findings=[{"canonical_id": "UNKNOWN-001", "severity": "High"}]),
+                "non-confirmed ID": lambda value: value.update(findings=[{"canonical_id": manifest["selected"][0]["canonical_id"], "severity": "High"}]),
+                "duplicate ID": lambda value: value.update(findings=[{"canonical_id": "UNKNOWN-001", "severity": "High"}, {"canonical_id": "UNKNOWN-001", "severity": "High"}]),
+                "invalid schema": lambda value: value.pop("findings"),
+            }
+            for name, mutate in mutations.items():
+                changed = json.loads(json.dumps(base_issues))
+                mutate(changed)
+                raw = (json.dumps(changed, separators=(",", ":")) + "\n").encode("utf-8")
+                issues_path.write_bytes(raw)
+                changed_bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+                changed_bundle["issue_candidates_sha256"] = hashlib.sha256(raw).hexdigest()
+                bundle_path.write_text(json.dumps(changed_bundle) + "\n", encoding="utf-8")
+                with self.subTest(case=name):
+                    self.assertFalse(_report_bundle_status(ROOT, values, manifest, state)["current"])
+                self.assertEqual(synthesize_main(command), 0)
 
     def test_failed_direct_synthesis_preserves_previous_final_outputs(self) -> None:
         registry, _, _, manifest = build_manifest()
