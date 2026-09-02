@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from scripts.audit_artifacts import check_body_hash
-from evm_audit_runtime.reporting import derive_issue_candidates
+from evm_audit_runtime.reporting import derive_issue_candidates, derive_poc_required_ids, poc_required
 from scripts.render_runtime import domain_context_template, screen_results_template
 from scripts.review_ledger import append
 from scripts.synthesize_report import ReportSynthesisResult, synthesize
@@ -18,6 +18,32 @@ from helpers import ROOT, build_manifest
 
 
 class ReportingTests(unittest.TestCase):
+    def test_poc_required_policy_threshold(self) -> None:
+        self.assertEqual([poc_required(level) for level in ("Info", "Low", "Medium", "High", "Critical")], [False, False, False, True, True])
+
+    def test_poc_required_ids_are_deterministic(self) -> None:
+        decisions = {
+            "C": {"severity": "Critical"},
+            "A": {"severity": "Medium"},
+            "B": {"severity": "High"},
+        }
+        self.assertEqual(derive_poc_required_ids(["C", "A", "B"], decisions), ["B", "C"])
+
+    def test_medium_does_not_require_poc(self) -> None:
+        self.assertFalse(poc_required("Medium"))
+
+    def test_low_does_not_require_poc(self) -> None:
+        self.assertFalse(poc_required("Low"))
+
+    def test_info_does_not_require_poc(self) -> None:
+        self.assertFalse(poc_required("Info"))
+
+    def test_high_requires_poc(self) -> None:
+        self.assertTrue(poc_required("High"))
+
+    def test_critical_requires_poc(self) -> None:
+        self.assertTrue(poc_required("Critical"))
+
     def test_issue_candidates_are_exact_projection_of_severity(self) -> None:
         decisions = {
             "INFO": {"severity": "Info"},
