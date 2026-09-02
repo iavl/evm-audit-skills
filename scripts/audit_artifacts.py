@@ -18,7 +18,7 @@ if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
 from evm_audit_runtime.routing import effective_owner_domain, resolved_routes
 from evm_audit_runtime.code_index import validate_code_index
-from evm_audit_runtime.reporting import derive_issue_candidates
+from evm_audit_runtime.reporting import derive_issue_candidates, derive_poc_required_ids
 from evm_audit_runtime.versions import REPORT_BUNDLE_VERSION
 
 
@@ -516,6 +516,120 @@ def validate_reporting_inputs(
         raise ValueError("reporting inputs contain unresolved field markers")
 
 
+
+
+def _poc_allowed_roots(manifest: dict[str, Any], run_dir: Path | None) -> list[Path]:
+    recon = manifest.get("feature_map", {}).get("recon_context", {})
+    roots: list[Path] = []
+    for key in ("target_root", "build_root"):
+        value = recon.get(key)
+        if isinstance(value, str) and value:
+            path = Path(value).expanduser().resolve()
+            if path.is_file():
+                path = path.parent
+            if path not in roots:
+                roots.append(path)
+    if run_dir is not None:
+        roots.append((run_dir / "poc").resolve())
+    return roots
+
+
+def _resolve_poc_source(path: str, manifest: dict[str, Any], run_dir: Path | None) -> Path:
+    candidate_path = Path(path)
+    if not candidate_path.parts or ".." in candidate_path.parts:
+        raise ValueError(f"PoC source path traversal is not allowed: {path}")
+    roots = _poc_allowed_roots(manifest, run_dir)
+    if not roots:
+        raise ValueError("PoC source validation has no allowed roots")
+    if candidate_path.is_absolute():
+        candidate = candidate_path
+    elif run_dir is not None and candidate_path.parts[0] == "poc":
+        candidate = run_dir / candidate_path
+    else:
+        candidate = roots[0] / candidate_path
+    resolved = candidate.resolve(strict=False)
+    if not any(resolved == root or root in resolved.parents for root in roots):
+        raise ValueError(f"PoC source path escapes allowed roots: {path}")
+    if not resolved.exists() or not resolved.is_file():
+        raise ValueError(f"PoC source is missing: {path}")
+    return resolved
+
+
+def validate_poc_evidence(
+    root: Path,
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+    severity_decisions: dict[str, Any],
+    severity_decisions_bytes: bytes,
+    poc_evidence: dict[str, Any],
+    *,
+    run_dir: Path | None = None,
+) -> list[str]:
+    """Validate completed, lineage-bound runnable PoC evidence."""
+    validate_schema(root, "poc-evidence.schema.json", poc_evidence)
+    if state.get("status") != "COMPLETE_WITH_FINDINGS":
+        raise ValueError("PoC evidence is only valid for COMPLETE_WITH_FINDINGS")
+    if poc_evidence.get("artifact_state") != "COMPLETED":
+        raise ValueError("poc-evidence is still a TEMPLATE")
+    validate_artifact_identity(poc_evidence, manifest)
+    validate_review_state_binding(poc_evidence, state.get("review_state_digest"))
+    if poc_evidence.get("review_snapshot_id") != state.get("review_snapshot_id"):
+        raise ValueError("poc-evidence has mismatched review_snapshot_id")
+
+    validate_schema(root, "severity-decisions.schema.json", severity_decisions)
+    validate_artifact_identity(severity_decisions, manifest)
+    validate_review_state_binding(severity_decisions, state.get("review_state_digest"))
+    if severity_decisions.get("artifact_state") == "TEMPLATE":
+        raise ValueError("severity-decisions is still a TEMPLATE")
+    _validate_json_bytes(severity_decisions, severity_decisions_bytes, "severity decisions")
+    if poc_evidence["severity_decisions_sha256"] != sha256_bytes(severity_decisions_bytes):
+        raise ValueError("poc-evidence has mismatched severity_decisions_sha256")
+
+    coverage = state.get("coverage")
+    confirmed = coverage.get("confirmed") if isinstance(coverage, dict) else None
+    if not isinstance(confirmed, list):
+        raise ValueError("current confirmed coverage is unavailable")
+    decisions = severity_decisions.get("decisions")
+    if not isinstance(decisions, dict):
+        raise ValueError("severity decisions must contain a decisions object")
+    required = derive_poc_required_ids(confirmed, decisions)
+    findings = poc_evidence.get("findings")
+    if not isinstance(findings, list):
+        raise ValueError("poc-evidence must contain a findings array")
+    ids = [item.get("canonical_id") for item in findings if isinstance(item, dict)]
+    if len(ids) != len(findings) or len(ids) != len(set(ids)):
+        raise ValueError("poc-evidence contains duplicate or malformed canonical IDs")
+    if ids != sorted(required):
+        raise ValueError(
+            "poc-evidence IDs do not match the current High/Critical projection: "
+            f"expected={sorted(required)} actual={ids}"
+        )
+
+    seen_sources: set[Path] = set()
+    for finding in findings:
+        canonical_id = finding["canonical_id"]
+        if finding["severity"] != decisions[canonical_id]["severity"]:
+            raise ValueError(f"poc-evidence severity does not match severity decisions: {canonical_id}")
+        if not isinstance(finding.get("command"), str) or not finding["command"].strip():
+            raise ValueError(f"poc-evidence command is empty: {canonical_id}")
+        if has_unresolved_marker(
+            finding.get("command"), finding.get("entrypoint"),
+            finding.get("expected_result"), finding.get("result_summary"),
+        ):
+            raise ValueError(f"poc-evidence contains unresolved fields: {canonical_id}")
+        sources = finding.get("sources")
+        if not isinstance(sources, list) or not sources:
+            raise ValueError(f"poc-evidence has no source: {canonical_id}")
+        for source in sources:
+            source_path = _resolve_poc_source(source["path"], manifest, run_dir)
+            if source_path in seen_sources:
+                raise ValueError(f"poc-evidence repeats a source: {source['path']}")
+            seen_sources.add(source_path)
+            if not SHA256_RE.fullmatch(source["sha256"]):
+                raise ValueError(f"poc-evidence source has a bad SHA-256: {source['path']}")
+            if sha256_bytes(source_path.read_bytes()) != source["sha256"]:
+                raise ValueError(f"poc-evidence source hash does not match: {source['path']}")
+    return required
 
 
 def validate_context(root: Path, manifest: dict[str, Any], value: dict[str, Any]) -> list[str]:

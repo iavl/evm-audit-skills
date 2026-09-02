@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.audit_artifacts import check_body_hash
+from scripts.audit_artifacts import check_body_hash, json_text, sha256_bytes, validate_poc_evidence
 from evm_audit_runtime.reporting import derive_issue_candidates, derive_poc_required_ids, poc_required
 from scripts.render_runtime import domain_context_template, screen_results_template
 from scripts.review_ledger import append
@@ -173,6 +174,97 @@ class ReportingTests(unittest.TestCase):
                 "recommendation": "Add the missing guard before applying the state transition.",
             }],
         }
+
+    def poc_evidence(
+        self,
+        manifest: dict,
+        state: dict,
+        candidate_id: str,
+        severity: dict,
+        source_path: str,
+        source_sha256: str,
+    ) -> dict:
+        return {
+            "artifact_type": "poc-evidence",
+            "schema_version": 1,
+            "artifact_state": "COMPLETED",
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "review_snapshot_id": state["review_snapshot_id"],
+            "review_state_digest": state["review_state_digest"],
+            **{
+                key: manifest["audit_context"][key]
+                for key in ("registry_sha256", "source_digest", "compilation_input_digest")
+            },
+            "severity_decisions_sha256": sha256_bytes(json_text(severity).encode("utf-8")),
+            "findings": [{
+                "canonical_id": candidate_id,
+                "severity": severity["decisions"][candidate_id]["severity"],
+                "runner": "foundry",
+                "command": "forge test --match-test testExploit -vvv",
+                "sources": [{"path": source_path, "sha256": source_sha256}],
+                "entrypoint": "testExploit",
+                "expected_result": "The exploit reproduces the confirmed defect.",
+                "result_summary": "The fixture reproduced the confirmed defect.",
+            }],
+        }
+
+    def test_poc_evidence_validates_lineage_and_source_hash(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            severity = self.severity_artifact(manifest, candidate_id, state["review_state_digest"])
+            severity_bytes = json_text(severity).encode("utf-8")
+            source = Path(directory) / "poc/Exploit.t.sol"
+            source.parent.mkdir()
+            source.write_text("contract Exploit {}\n", encoding="utf-8")
+            poc = self.poc_evidence(
+                manifest, state, candidate_id, severity, "poc/Exploit.t.sol",
+                hashlib.sha256(source.read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                validate_poc_evidence(
+                    ROOT, manifest, state, severity, severity_bytes, poc, run_dir=Path(directory)
+                ),
+                [candidate_id],
+            )
+
+    def test_poc_source_hash_tamper_is_rejected(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            severity = self.severity_artifact(manifest, candidate_id, state["review_state_digest"])
+            severity_bytes = json_text(severity).encode("utf-8")
+            source = Path(directory) / "poc/Exploit.t.sol"
+            source.parent.mkdir()
+            source.write_text("contract Exploit {}\n", encoding="utf-8")
+            poc = self.poc_evidence(
+                manifest, state, candidate_id, severity, "poc/Exploit.t.sol",
+                hashlib.sha256(source.read_bytes()).hexdigest(),
+            )
+            source.write_text("contract Exploit { uint256 changed; }\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "source hash does not match"):
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=Path(directory))
+
+    def test_poc_source_cannot_escape_allowed_roots(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            severity = self.severity_artifact(manifest, candidate_id, state["review_state_digest"])
+            severity_bytes = json_text(severity).encode("utf-8")
+            outside = Path(directory).parent / "outside-poc.t.sol"
+            outside.write_text("contract Outside {}\n", encoding="utf-8")
+            poc = self.poc_evidence(
+                manifest, state, candidate_id, severity, "../outside-poc.t.sol",
+                hashlib.sha256(outside.read_bytes()).hexdigest(),
+            )
+            with self.assertRaisesRegex(ValueError, "path traversal"):
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=Path(directory))
 
     def run_synthesis(
         self,
