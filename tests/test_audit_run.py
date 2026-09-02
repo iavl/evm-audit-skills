@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import json
 import hashlib
+import multiprocessing
+import queue
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +20,23 @@ import scripts.audit_run as audit_controller
 from scripts.audit_artifacts import check_body_hash
 from scripts.render_runtime import domain_context_template, screen_results_template
 from scripts.review_ledger import append
+
+
+def _report_worker(run_dir: str, result_queue: object) -> None:
+    try:
+        audit_controller.report_run(ROOT, Path(run_dir))
+        result_queue.put(("ok", ""))
+    except BaseException as exc:  # pragma: no cover - asserted by the parent
+        result_queue.put(("error", repr(exc)))
+
+
+def _publication_lock_worker(run_dir: str, ready: object, result_queue: object) -> None:
+    ready.wait(10)
+    try:
+        with audit_controller._report_publication_lock(Path(run_dir)):
+            result_queue.put(("acquired", time.monotonic()))
+    except BaseException as exc:  # pragma: no cover - asserted by the parent
+        result_queue.put(("error", repr(exc)))
 
 
 class AuditRunTests(unittest.TestCase):
@@ -181,6 +201,91 @@ class AuditRunTests(unittest.TestCase):
             self.assertEqual(authority["issue_candidates"], str(generation / "issue-candidates.json"))
             self.assertEqual(authority["bundle"], str(generation / "report-bundle.json"))
             self.assertEqual(authority["current_pointer"], str(run_dir / "report-current.json"))
+
+    def test_report_lock_is_cross_process(self) -> None:
+        context = multiprocessing.get_context("spawn")
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            ready = context.Event()
+            result_queue = context.Queue()
+            process = context.Process(target=_publication_lock_worker, args=(str(run_dir), ready, result_queue))
+            with audit_controller._report_publication_lock(run_dir):
+                process.start()
+                ready.set()
+                with self.assertRaises(queue.Empty):
+                    result_queue.get(timeout=0.25)
+            kind, detail = result_queue.get(timeout=10)
+            process.join(10)
+            self.assertEqual(process.exitcode, 0)
+            self.assertEqual(kind, "acquired", detail)
+
+    def test_report_lock_does_not_silently_disable_on_windows(self) -> None:
+        import scripts.review_ledger as review_ledger
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(review_ledger, "fcntl", None), patch.object(review_ledger, "msvcrt", None):
+                with self.assertRaisesRegex(RuntimeError, "locking is unavailable"):
+                    with audit_controller._report_publication_lock(Path(directory)):
+                        pass
+
+    def test_concurrent_report_publications_leave_pointer_and_convenience_copies_consistent(self) -> None:
+        context = multiprocessing.get_context("spawn")
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            result_queue = context.Queue()
+            processes = [
+                context.Process(target=_report_worker, args=(str(run_dir), result_queue))
+                for _ in range(2)
+            ]
+            for process in processes:
+                process.start()
+            outcomes = [result_queue.get(timeout=30) for _ in processes]
+            for process in processes:
+                process.join(30)
+                self.assertEqual(process.exitcode, 0)
+            self.assertEqual([kind for kind, _ in outcomes], ["ok", "ok"])
+            pointer = self.read(run_dir / "report-current.json")
+            generation = run_dir / "report-generations" / pointer["generation"]
+            for name in ("AUDIT-REPORT.md", "issue-candidates.json", "report-bundle.json"):
+                self.assertEqual((run_dir / name).read_bytes(), (generation / name).read_bytes())
+
+    def test_report_aborts_if_review_state_changes_before_pointer_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            values = audit_controller.paths(run_dir)
+            original_status = audit_controller.status_run
+            calls = 0
+
+            def changed_status(*args: object, **kwargs: object) -> dict:
+                nonlocal calls
+                calls += 1
+                state = original_status(*args, **kwargs)
+                if calls == 2:
+                    return {**state, "review_state_digest": "0" * 64}
+                return state
+
+            with patch.object(audit_controller, "status_run", side_effect=changed_status):
+                with self.assertRaisesRegex(ValueError, "changed during report publication"):
+                    audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse(values["report_current"].exists())
+            self.assertFalse(any(values["report_generations"].glob("generation-*")))
+
+    def test_complete_report_cannot_return_success_with_stale_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            original = audit_controller._report_bundle_status
+
+            def stale(*args: object, **kwargs: object) -> dict:
+                result = original(*args, **kwargs)
+                return {**result, "status": "STALE", "current": False, "message": "changed after commit"}
+
+            with patch.object(audit_controller, "_report_bundle_status", side_effect=stale):
+                with self.assertRaisesRegex(ValueError, "report publication is stale"):
+                    audit_controller.report_run(ROOT, run_dir)
 
     def test_first_report_failure_does_not_create_fake_current_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +65,7 @@ try:
         validate_target_snapshot,
     )
     from render_runtime import runtime_identity, selected_entries, validate_manifest, validate_screen_results
-    from review_ledger import collect_review_records
+    from review_ledger import _ledger_lock, collect_review_records
     from synthesize_report import synthesize
     from validate_audit_run import validate_run
 except ImportError:  # pragma: no cover
@@ -87,7 +88,7 @@ except ImportError:  # pragma: no cover
         validate_target_snapshot,
     )
     from scripts.render_runtime import runtime_identity, selected_entries, validate_manifest, validate_screen_results
-    from scripts.review_ledger import collect_review_records
+    from scripts.review_ledger import _ledger_lock, collect_review_records
     from scripts.synthesize_report import synthesize
     from scripts.validate_audit_run import validate_run
 
@@ -717,6 +718,29 @@ def _report_generation_paths(base: Path) -> dict[str, Path]:
         "report_input_severity": base / "severity-decisions.json",
         "report_input_details": base / "finding-details.json",
     }
+
+
+@contextmanager
+def _report_publication_lock(run_dir: Path):
+    """Serialize report publication using the ledger's portable lock protocol."""
+    with _ledger_lock(run_dir / "report-publication", shared=False):
+        yield
+
+
+def _publication_identity(manifest: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "routing_snapshot_id": manifest["routing_snapshot_id"],
+        "review_snapshot_id": state.get("review_snapshot_id"),
+        "review_state_digest": state.get("review_state_digest"),
+        "status": state.get("status"),
+    }
+
+
+def _pointer_references_generation(path: Path, generation: str) -> bool:
+    try:
+        return load_json(path).get("generation") == generation
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
 
 
 def _current_report_generation(
@@ -1473,51 +1497,72 @@ def report_run(
     report_generations = values["report_generations"]
     report_generations.mkdir(parents=True, exist_ok=True)
     generation_id = uuid.uuid4().hex
-    staging = Path(tempfile.mkdtemp(prefix=f".tmp-{generation_id}-", dir=report_generations))
     generation = report_generations / f"generation-{generation_id}"
-    artifacts = _report_generation_paths(staging)
-    try:
-        if current_state["status"] == "COMPLETE_WITH_FINDINGS":
-            atomic_write_bytes(artifacts["report_input_severity"], severity_bytes)
-            atomic_write_bytes(artifacts["report_input_details"], finding_details_bytes)
-        atomic_write_text(artifacts["report"], report)
-        atomic_write_json(artifacts["issue_candidates"], issues)
-        atomic_write_json(artifacts["report_bundle"], bundle)
-        bundle_bytes = artifacts["report_bundle"].read_bytes()
-        candidate_issues, _ = load_json_bytes(artifacts["issue_candidates"])
-        candidate_severity = None
-        if current_state["status"] == "COMPLETE_WITH_FINDINGS":
-            candidate_severity = load_json(artifacts["report_input_severity"])
-        validate_issue_candidates(root, manifest, current_state, candidate_issues, candidate_severity)
-        validate_report_generation(
-            report,
-            issues,
-            artifacts["report"].read_bytes(),
-            candidate_issues,
-            artifacts["issue_candidates"].read_bytes(),
-        )
-        validate_schema(root, "report-bundle.schema.json", load_json(artifacts["report_bundle"]))
-        staging.replace(generation)
-        staging = generation
-        pointer = {
-            "artifact_type": "report-current",
-            "schema_version": REPORT_CURRENT_VERSION,
-            "generation": generation.name,
-            "report_bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
-        }
-        validate_schema(root, "report-current.schema.json", pointer)
-        atomic_write_json(values["report_current"], pointer)
-        convenience = _sync_report_convenience_copies(
-            values,
-            _report_generation_paths(generation),
-            finding_report=current_state["status"] == "COMPLETE_WITH_FINDINGS",
-        )
-    finally:
-        if staging.exists() and staging == generation:
-            # The renamed generation is intentionally retained for history.
-            pass
-        elif staging.exists():
-            shutil.rmtree(staging)
+    staging: Path | None = None
+    generation_created = False
+    pointer_committed = False
+    convenience: dict[str, Any] = {"synced": False, "failed_paths": [], "warnings": []}
+    bundle_status: dict[str, Any]
+    with _report_publication_lock(values["manifest"].parent.parent):
+        try:
+            try:
+                _current_report_generation(root, values)
+            except ValueError as exc:
+                warning(f"replacing stale or legacy report pointer: {exc}")
+            staging = Path(tempfile.mkdtemp(prefix=f".tmp-{generation_id}-", dir=report_generations))
+            artifacts = _report_generation_paths(staging)
+            if current_state["status"] == "COMPLETE_WITH_FINDINGS":
+                atomic_write_bytes(artifacts["report_input_severity"], severity_bytes)
+                atomic_write_bytes(artifacts["report_input_details"], finding_details_bytes)
+            atomic_write_text(artifacts["report"], report)
+            atomic_write_json(artifacts["issue_candidates"], issues)
+            atomic_write_json(artifacts["report_bundle"], bundle)
+            bundle_bytes = artifacts["report_bundle"].read_bytes()
+            candidate_issues, _ = load_json_bytes(artifacts["issue_candidates"])
+            candidate_severity = None
+            if current_state["status"] == "COMPLETE_WITH_FINDINGS":
+                candidate_severity = load_json(artifacts["report_input_severity"])
+            validate_issue_candidates(root, manifest, current_state, candidate_issues, candidate_severity)
+            validate_report_generation(
+                report,
+                issues,
+                artifacts["report"].read_bytes(),
+                candidate_issues,
+                artifacts["issue_candidates"].read_bytes(),
+            )
+            validate_schema(root, "report-bundle.schema.json", load_json(artifacts["report_bundle"]))
+            fresh_state = status_run(root, values["manifest"].parent.parent, emit=False)
+            if _publication_identity(manifest, fresh_state) != _publication_identity(manifest, current_state):
+                raise ValueError("audit state changed during report publication; retry the report")
+            staging.replace(generation)
+            staging = generation
+            generation_created = True
+            pointer = {
+                "artifact_type": "report-current",
+                "schema_version": REPORT_CURRENT_VERSION,
+                "generation": generation.name,
+                "report_bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
+            }
+            validate_schema(root, "report-current.schema.json", pointer)
+            atomic_write_json(values["report_current"], pointer)
+            pointer_committed = True
+            convenience = _sync_report_convenience_copies(
+                values,
+                _report_generation_paths(generation),
+                finding_report=current_state["status"] == "COMPLETE_WITH_FINDINGS",
+            )
+            bundle_status = _report_bundle_status(root, values, manifest, current_state)
+            if not bundle_status["current"]:
+                raise ValueError(f"report publication is stale: {bundle_status.get('message', 'validation failed')}")
+        finally:
+            if staging is not None and staging.exists():
+                if staging == generation and pointer_committed:
+                    # The renamed generation is intentionally retained for history.
+                    pass
+                else:
+                    shutil.rmtree(staging)
+            if generation_created and not pointer_committed and generation.exists() and not _pointer_references_generation(values["report_current"], generation.name):
+                shutil.rmtree(generation)
     if current_state["complete"]:
         success("Audit complete")
     else:
