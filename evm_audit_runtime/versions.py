@@ -22,7 +22,7 @@ SCHEMA_VERSIONS = {
     "review-record": 7,
     "routing-manifest": 7,
     "report-bundle": 2,
-    "report-current": 1,
+    "report-current": 2,
     "runtime-metadata": 1,
     "screen-results": 2,
     "severity-decisions": 2,

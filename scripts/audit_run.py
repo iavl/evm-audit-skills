@@ -52,6 +52,7 @@ try:
         atomic_write_text,
         bound_code_index_status,
         derive_review_snapshot_id,
+        durable_replace_directory,
         json_text,
         load_json,
         load_json_bytes,
@@ -75,6 +76,7 @@ except ImportError:  # pragma: no cover
         atomic_write_text,
         bound_code_index_status,
         derive_review_snapshot_id,
+        durable_replace_directory,
         json_text,
         load_json,
         load_json_bytes,
@@ -765,6 +767,30 @@ def _report_generation_inventory(
         "orphaned_generations": orphaned_generations,
         "staging_artifacts": staging_artifacts,
     }
+
+
+def _validate_existing_generation(
+    staging: Path,
+    generation: Path,
+    *,
+    finding_report: bool,
+) -> None:
+    expected = {path.name: path for path in staging.iterdir()}
+    expected_names = {
+        "AUDIT-REPORT.md",
+        "issue-candidates.json",
+        "report-bundle.json",
+    }
+    if finding_report:
+        expected_names.update({"severity-decisions.json", "finding-details.json"})
+    if set(expected) != expected_names or any(path.is_symlink() or not path.is_file() for path in expected.values()):
+        raise ValueError(f"content-addressed generation has mismatched contents: {generation}")
+    actual = {path.name: path for path in generation.iterdir()}
+    if set(actual) != expected_names or any(path.is_symlink() or not path.is_file() for path in actual.values()):
+        raise ValueError(f"content-addressed generation has mismatched contents: {generation}")
+    for name in expected_names:
+        if actual[name].read_bytes() != expected[name].read_bytes():
+            raise ValueError(f"content-addressed generation has mismatched contents: {generation}")
 
 
 def _current_report_generation(
@@ -1530,10 +1556,11 @@ def report_run(
     report_generations = values["report_generations"]
     report_generations.mkdir(parents=True, exist_ok=True)
     generation_id = uuid.uuid4().hex
-    generation = report_generations / f"generation-{generation_id}"
+    generation: Path | None = None
     staging: Path | None = None
     generation_created = False
     pointer_committed = False
+    generation_parent_fsync = None
     convenience: dict[str, Any] = {"synced": False, "failed_paths": [], "warnings": []}
     bundle_status: dict[str, Any]
     with _report_publication_lock(values["manifest"].parent.parent):
@@ -1567,17 +1594,38 @@ def report_run(
             fresh_state = status_run(root, values["manifest"].parent.parent, emit=False)
             if _publication_identity(manifest, fresh_state) != _publication_identity(manifest, current_state):
                 raise ValueError("audit state changed during report publication; retry the report")
-            staging.replace(generation)
-            staging = generation
-            generation_created = True
+            bundle_digest = hashlib.sha256(bundle_bytes).hexdigest()
+            generation = report_generations / f"generation-{bundle_digest}"
+            if generation.exists():
+                if not generation.is_dir() or generation.is_symlink():
+                    raise ValueError(f"content-addressed generation is not a directory: {generation}")
+                _validate_existing_generation(
+                    artifacts["report"].parent,
+                    generation,
+                    finding_report=current_state["status"] == "COMPLETE_WITH_FINDINGS",
+                )
+                shutil.rmtree(staging)
+                staging = None
+            else:
+                generation_parent_fsync = durable_replace_directory(staging, generation)
+                staging = generation
+                generation_created = True
+                if not generation_parent_fsync:
+                    warning("generation parent-directory durability barrier is unavailable; pointer remains atomic")
             pointer = {
                 "artifact_type": "report-current",
                 "schema_version": REPORT_CURRENT_VERSION,
                 "generation": generation.name,
-                "report_bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
+                "report_bundle_sha256": bundle_digest,
             }
             validate_schema(root, "report-current.schema.json", pointer)
-            atomic_write_json(values["report_current"], pointer)
+            existing_pointer = None
+            try:
+                existing_pointer = _current_report_generation(root, values)
+            except ValueError:
+                pass
+            if existing_pointer is None or existing_pointer[1] != pointer:
+                atomic_write_json(values["report_current"], pointer)
             pointer_committed = True
             convenience = _sync_report_convenience_copies(
                 values,
@@ -1589,12 +1637,12 @@ def report_run(
                 raise ValueError(f"report publication is stale: {bundle_status.get('message', 'validation failed')}")
         finally:
             if staging is not None and staging.exists():
-                if staging == generation and pointer_committed:
+                if generation is not None and staging == generation and pointer_committed:
                     # The renamed generation is intentionally retained for history.
                     pass
                 else:
                     shutil.rmtree(staging)
-            if generation_created and not pointer_committed and generation.exists() and not _pointer_references_generation(values["report_current"], generation.name):
+            if generation is not None and generation_created and not pointer_committed and generation.exists() and not _pointer_references_generation(values["report_current"], generation.name):
                 shutil.rmtree(generation)
     if current_state["complete"]:
         success("Audit complete")
@@ -1614,6 +1662,7 @@ def report_run(
         issue_candidates=str(generation_artifacts["issue_candidates"]),
         report_bundle_path=str(generation_artifacts["report_bundle"]),
         report_current=str(values["report_current"]),
+        generation_parent_fsync=generation_parent_fsync,
         convenience={
             **convenience,
             "report": str(values["report"]),

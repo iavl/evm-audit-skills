@@ -144,7 +144,7 @@ class AuditRunTests(unittest.TestCase):
             self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
 
             audit_controller.report_run(ROOT, run_dir)
-            self.assertNotEqual(values["report_current"].read_bytes(), original_pointer)
+            self.assertEqual(values["report_current"].read_bytes(), original_pointer)
 
     def test_report_result_points_to_current_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -337,6 +337,76 @@ class AuditRunTests(unittest.TestCase):
             self.assertTrue(status["current"], status)
             self.assertIn(orphan.name, status["orphaned_generations"])
             self.assertNotEqual(status["generation"], orphan.name)
+
+    def test_identical_report_reuses_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            first = audit_controller.report_run(ROOT, run_dir)
+            pointer = (run_dir / "report-current.json").read_bytes()
+            pointer_value = json.loads(pointer)
+            self.assertEqual(pointer_value["generation"], f"generation-{pointer_value['report_bundle_sha256']}")
+            generations = sorted(path.name for path in (run_dir / "report-generations").glob("generation-*"))
+            second = audit_controller.report_run(ROOT, run_dir)
+            self.assertEqual((run_dir / "report-current.json").read_bytes(), pointer)
+            self.assertEqual(
+                sorted(path.name for path in (run_dir / "report-generations").glob("generation-*")),
+                generations,
+            )
+            self.assertEqual(first["generation"], second["generation"])
+
+    def test_changed_report_inputs_create_new_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            before = self.read(run_dir / "report-current.json")
+            screen_path = run_dir / "reviews/screen-results.json"
+            screen = self.read(screen_path)
+            screen["results"][0].update(result="CANDIDATE", scope_complete=False, evidence=[])
+            screen_path.write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
+            result = audit_controller.report_run(ROOT, run_dir)
+            after = self.read(run_dir / "report-current.json")
+            self.assertNotEqual(after["generation"], before["generation"])
+            self.assertEqual(result["generation"], after["generation"])
+
+    def test_existing_content_address_with_mismatched_contents_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            pointer_path = run_dir / "report-current.json"
+            pointer = self.read(pointer_path)
+            bundle_path = run_dir / "report-generations" / pointer["generation"] / "report-bundle.json"
+            bundle_path.write_bytes(b"{}\n")
+            with self.assertRaisesRegex(ValueError, "mismatched contents"):
+                audit_controller.report_run(ROOT, run_dir)
+            self.assertEqual(self.read(pointer_path), pointer)
+
+    def test_generation_rename_is_durable_before_pointer_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            run_dir = run_dir.resolve()
+            events: list[str] = []
+            original_json = audit_controller.atomic_write_json
+
+            def durable(source: Path, destination: Path) -> bool:
+                events.append("rename")
+                source.replace(destination)
+                return True
+
+            def write_json(path: Path, value: dict) -> None:
+                if path == run_dir / "report-current.json":
+                    self.assertEqual(events, ["rename"])
+                    events.append("pointer")
+                original_json(path, value)
+
+            with patch.object(audit_controller, "durable_replace_directory", side_effect=durable), patch.object(
+                audit_controller, "atomic_write_json", side_effect=write_json
+            ):
+                audit_controller.report_run(ROOT, run_dir)
+            self.assertEqual(events, ["rename", "pointer"])
 
     def test_first_report_failure_does_not_create_fake_current_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import errno
 import os
 import re
 import sys
@@ -313,6 +314,29 @@ def atomic_write_text(path: Path, content: str) -> None:
 
 def atomic_write_json(path: Path, value: Any) -> None:
     atomic_write_text(path, json_text(value))
+
+
+def durable_replace_directory(source: Path, destination: Path) -> bool:
+    """Rename a generation and fsync its parent when the platform supports it."""
+    source.replace(destination)
+    if os.name == "nt":
+        return False
+    try:
+        descriptor = os.open(destination.parent, os.O_RDONLY)
+    except OSError as error:
+        if error.errno in {errno.EINVAL, errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}:
+            return False
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as error:
+            if error.errno in {errno.EINVAL, errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}:
+                return False
+            raise
+    finally:
+        os.close(descriptor)
+    return True
 
 
 def invalidate_final_outputs(*paths: Path) -> None:
