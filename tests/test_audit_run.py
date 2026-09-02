@@ -410,6 +410,56 @@ class AuditRunTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "report publication is stale"):
                     audit_controller.report_run(ROOT, run_dir)
 
+    def test_post_pointer_poc_source_change_rolls_back_previous_current_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["High"])
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            original_pointer = values["report_current"].read_bytes()
+            original_details = values["finding_details"].read_bytes()
+            source = next((run_dir / "poc").rglob("*.t.sol"))
+            original_source = source.read_bytes()
+            details = self.read(values["finding_details"])
+            details["findings"][0]["description"] += " changed"
+            values["finding_details"].write_text(json_text(details), encoding="utf-8")
+            original_write = audit_controller.atomic_write_json
+
+            def write_and_tamper(path: Path, value: dict) -> None:
+                original_write(path, value)
+                if path.resolve() == values["report_current"].resolve():
+                    source.write_bytes(original_source + b"// changed after pointer\n")
+
+            with patch.object(audit_controller, "atomic_write_json", side_effect=write_and_tamper):
+                with self.assertRaisesRegex(ValueError, "report publication is stale"):
+                    audit_controller.report_run(ROOT, run_dir)
+            self.assertEqual(values["report_current"].read_bytes(), original_pointer)
+            values["finding_details"].write_bytes(original_details)
+            source.write_bytes(original_source)
+            self.assertTrue(audit_controller._report_bundle_status(
+                ROOT, values, self.read(values["manifest"]), self.read(values["audit_state"])
+            )["current"])
+
+    def test_post_pointer_failure_removes_first_report_pointer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["High"])
+            values = audit_controller.paths(run_dir)
+            source = next((run_dir / "poc").rglob("*.t.sol"))
+            original_source = source.read_bytes()
+            original_write = audit_controller.atomic_write_json
+
+            def write_and_tamper(path: Path, value: dict) -> None:
+                original_write(path, value)
+                if path.resolve() == values["report_current"].resolve():
+                    source.write_bytes(original_source + b"// changed after pointer\n")
+
+            with patch.object(audit_controller, "atomic_write_json", side_effect=write_and_tamper):
+                with self.assertRaisesRegex(ValueError, "report publication is stale"):
+                    audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse(values["report_current"].exists())
+            source.write_bytes(original_source)
+
     def test_tmp_generation_without_pointer_is_ignored_as_uncommitted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
@@ -1470,6 +1520,8 @@ contract RetainedPoC {
             payload = json.loads(result.stdout)
             self.assertTrue(payload["complete"])
             pointer = self.read(run_dir / "report-current.json")
+            self.assertEqual(pointer["schema_version"], 3)
+            self.assertIsNotNone(pointer["reporting_inputs_sha256"])
             self.assertEqual(payload["report_generation"]["status"], "CURRENT")
             report = (run_dir / "report-generations" / pointer["generation"] / "AUDIT-REPORT.md").read_text(encoding="utf-8")
             self.assertIn("**Severity:** Medium", report)
@@ -1618,6 +1670,17 @@ contract RetainedPoC {
             self.assertEqual(result["template_status"]["poc_evidence"], "ARCHIVED_STALE_ARTIFACT")
             self.assertTrue(any((run_dir / "reviews").glob("poc-evidence.stale-*.json")))
             self.assertEqual(self.read(run_dir / "reviews/poc-evidence.json")["artifact_state"], "TEMPLATE")
+
+    def test_invalid_completed_poc_is_not_reported_as_current_completed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, _, _, _ = self.prepare_finding_run(run_dir, ["High"])
+            source = next((run_dir / "poc").rglob("*.t.sol"))
+            source.write_text(source.read_text(encoding="utf-8") + "// invalidated\n", encoding="utf-8")
+            result = audit_controller.next_step(ROOT, run_dir, emit=False)
+            self.assertEqual(result["template_status"]["poc_evidence"], "INVALID_COMPLETED")
+            self.assertNotEqual(result["template_status"]["poc_evidence"], "CURRENT_COMPLETED")
+            self.assertTrue(result["poc_policy"]["pending_ids"])
 
     def test_mixed_severity_report_requires_exact_high_critical_pocs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

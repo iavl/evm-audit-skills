@@ -18,7 +18,7 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 - Deep reviews consume only Screen candidates. Every candidate needs one owner-Domain append-only JSONL event stream with valid revisions, typed evidence, and a terminal status.
 - `SUSPICIOUS` has no severity and must go through a later `PROOF` event. Only `CONFIRMED` records enter the final report.
 - `CONFIRMED` requires strong proof of reachability, satisfiable preconditions, exploitability, and impact. A runnable PoC is a separate reporting requirement: only confirmed `High` and `Critical` findings require one; confirmed `Info`, `Low`, and `Medium` findings remain reportable without it.
-- Solidity POC source is user-owned evidence: keep audit-created or modified tests, helpers, and mocks in the target tree or archive temporary copies under `<run-dir>/poc/` before proof, record the durable path in `proof` or `evidence.location`, and never delete or overwrite them after `PROOF` or report generation.
+- Solidity POC source is user-owned evidence: archive audit-created or modified tests, helpers, and mocks under `<run-dir>/poc/` before proof, record the durable path in `proof` or `evidence.location`, and never delete or overwrite them after `PROOF` or report generation. Do not add new PoC files to the audited target after routing.
 
 ## Controller
 

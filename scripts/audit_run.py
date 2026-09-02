@@ -1592,6 +1592,20 @@ def _ensure_reporting_templates(manifest: dict[str, Any], state: dict[str, Any],
                 "poc",
                 identity_keys=POC_IDENTITY_KEYS,
             )
+            if status == "CURRENT_COMPLETED":
+                try:
+                    current_poc, _ = load_json_bytes(poc_path)
+                    validate_poc_evidence(
+                        ROOT,
+                        manifest,
+                        state,
+                        severity,
+                        severity_bytes,
+                        current_poc,
+                        run_dir=run_dir,
+                    )
+                except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+                    status = "INVALID_COMPLETED"
             result["templates"]["poc_evidence"] = str(poc_path)
             result["template_status"]["poc_evidence"] = status
             if archived is not None:
@@ -2030,17 +2044,6 @@ def report_run(
     if current_state["status"] == "COMPLETE_WITH_FINDINGS":
         if severity_bytes is None or finding_details_bytes is None:
             raise ValueError("finding report is missing exact reporting input bytes")
-        if severity_override and severity_path.resolve() != values["severity_decisions"].resolve():
-            atomic_write_bytes(values["severity_decisions"], severity_bytes)
-        if finding_details_override and finding_details_path.resolve() != values["finding_details"].resolve():
-            atomic_write_bytes(values["finding_details"], finding_details_bytes)
-        if (
-            poc_evidence_override
-            and required_poc_ids
-            and poc_evidence_bytes is not None
-            and poc_evidence_path.resolve() != values["poc_evidence"].resolve()
-        ):
-            atomic_write_bytes(values["poc_evidence"], poc_evidence_bytes)
     consumed_reporting_digest = reporting_inputs_digest(
         severity_bytes=(severity_bytes if current_state["status"] == "COMPLETE_WITH_FINDINGS" else None),
         finding_details_bytes=(finding_details_bytes if current_state["status"] == "COMPLETE_WITH_FINDINGS" else None),
@@ -2067,11 +2070,17 @@ def report_run(
     generation: Path | None = None
     staging: Path | None = None
     generation_created = False
+    pointer_attempted = False
     pointer_committed = False
     generation_parent_fsync = None
     convenience: dict[str, Any] = {"synced": False, "failed_paths": [], "warnings": []}
     bundle_status: dict[str, Any]
     with _report_publication_lock(values["manifest"].parent.parent):
+        previous_pointer = (
+            values["report_current"].read_bytes()
+            if values["report_current"].exists()
+            else None
+        )
         try:
             try:
                 _current_report_generation(root, values)
@@ -2103,9 +2112,26 @@ def report_run(
             if required_poc_ids and artifacts["poc_evidence"].read_bytes() != synthesis.poc_evidence_bytes:
                 raise ValueError("generation PoC evidence does not match the consumed artifact")
             validate_schema(root, "report-bundle.schema.json", load_json(artifacts["report_bundle"]))
+            if current_state["status"] == "COMPLETE_WITH_FINDINGS":
+                if severity_override and severity_path.resolve() != values["severity_decisions"].resolve():
+                    atomic_write_bytes(values["severity_decisions"], severity_bytes)
+                if finding_details_override and finding_details_path.resolve() != values["finding_details"].resolve():
+                    atomic_write_bytes(values["finding_details"], finding_details_bytes)
+                if (
+                    poc_evidence_override
+                    and required_poc_ids
+                    and poc_evidence_bytes is not None
+                    and poc_evidence_path.resolve() != values["poc_evidence"].resolve()
+                ):
+                    atomic_write_bytes(values["poc_evidence"], poc_evidence_bytes)
             fresh_state = status_run(root, values["manifest"].parent.parent, emit=False)
             if _publication_identity(manifest, fresh_state) != _publication_identity(manifest, current_state):
                 raise ValueError("audit state changed during report publication; retry the report")
+            fresh_inputs = load_current_reporting_inputs(
+                root, values, manifest, fresh_state, require_complete=True
+            )
+            if fresh_inputs.digest != consumed_reporting_digest:
+                raise ValueError("reporting inputs changed during report publication; retry the report")
             bundle_digest = hashlib.sha256(bundle_bytes).hexdigest()
             generation = report_generations / f"generation-{bundle_digest}"
             if generation.exists():
@@ -2139,8 +2165,12 @@ def report_run(
             except ValueError:
                 pass
             if existing_pointer is None or existing_pointer[1] != pointer:
+                pointer_attempted = True
                 atomic_write_json(values["report_current"], pointer)
             pointer_committed = True
+            bundle_status = _report_bundle_status(root, values, manifest, current_state)
+            if not bundle_status["current"]:
+                raise ValueError(f"report publication is stale: {bundle_status.get('message', 'validation failed')}")
             convenience = _sync_report_convenience_copies(
                 values,
                 _report_generation_paths(generation),
@@ -2150,6 +2180,16 @@ def report_run(
             bundle_status = _report_bundle_status(root, values, manifest, current_state)
             if not bundle_status["current"]:
                 raise ValueError(f"report publication is stale: {bundle_status.get('message', 'validation failed')}")
+        except Exception:
+            if pointer_committed or pointer_attempted:
+                try:
+                    if previous_pointer is None:
+                        values["report_current"].unlink(missing_ok=True)
+                    else:
+                        atomic_write_bytes(values["report_current"], previous_pointer)
+                except Exception as rollback_error:
+                    warning(f"could not roll back report-current.json: {rollback_error}")
+            raise
         finally:
             if staging is not None and staging.exists():
                 if generation is not None and staging == generation and pointer_committed:

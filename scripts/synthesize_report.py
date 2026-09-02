@@ -472,6 +472,7 @@ def synthesize(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--run-dir", type=Path, help="audit run directory used to resolve durable PoC sources")
     parser.add_argument("--audit-state", type=Path, help="derived state cache; never used as report authority")
     parser.add_argument("--registry", type=Path, default=ROOT / "data/canonical-checks.json")
     parser.add_argument("--ledger", type=Path, action="append", default=[])
@@ -507,6 +508,8 @@ def main(argv: list[str] | None = None) -> int:
             finding_details, finding_details_bytes = load_json_bytes(args.finding_details)
         poc_evidence = poc_evidence_bytes = None
         if args.poc_evidence:
+            if args.run_dir is None:
+                raise ValueError("--run-dir is required when validating --poc-evidence")
             poc_evidence, poc_evidence_bytes = load_json_bytes(args.poc_evidence)
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
         screen_results = load_json(args.screen_results)
@@ -539,7 +542,7 @@ def main(argv: list[str] | None = None) -> int:
                 severity,
                 severity_bytes,
                 poc_evidence,
-                run_dir=args.poc_evidence.parent.parent if args.poc_evidence else None,
+                run_dir=args.run_dir.resolve() if args.run_dir else None,
             )
         report = synthesis.report
         issues = synthesis.issue_candidates

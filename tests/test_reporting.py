@@ -4,15 +4,18 @@
 from __future__ import annotations
 
 import hashlib
+import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.audit_artifacts import check_body_hash, json_text, sha256_bytes, validate_poc_evidence
+from scripts.audit_artifacts import check_body_hash, json_text, sha256_bytes, validate_poc_evidence, validate_target_snapshot
 from evm_audit_runtime.reporting import derive_issue_candidates, derive_poc_required_ids, poc_required
 from scripts.render_runtime import domain_context_template, screen_results_template
 from scripts.review_ledger import append
-from scripts.synthesize_report import ReportSynthesisResult, synthesize
+from scripts.scope_context import compilation_digests, scope_inventory
+from scripts.synthesize_report import ReportSynthesisResult, main as synthesize_main, synthesize
 from scripts.validate_audit_run import validate_run
 
 from helpers import ROOT, build_manifest
@@ -208,6 +211,93 @@ class ReportingTests(unittest.TestCase):
             }],
         }
 
+    def poc_case(self, directory: Path) -> tuple[dict, dict, dict, bytes, dict, Path]:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        ledger = directory / "review.jsonl"
+        self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+        state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+        severity = self.severity_artifact(manifest, candidate_id, state["review_state_digest"])
+        severity_bytes = json_text(severity).encode("utf-8")
+        source = directory / "poc/Exploit.t.sol"
+        source.parent.mkdir()
+        source.write_text("contract Exploit {}\n", encoding="utf-8")
+        poc = self.poc_evidence(
+            manifest,
+            state,
+            candidate_id,
+            severity,
+            source.relative_to(directory).as_posix(),
+            hashlib.sha256(source.read_bytes()).hexdigest(),
+        )
+        return manifest, state, severity, severity_bytes, poc, source
+
+    def low_level_poc_case(self, root: Path) -> tuple[list[str], Path, Path]:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        ledger = root / "review.jsonl"
+        self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+        state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+        severity = self.severity_artifact(manifest, candidate_id, state["review_state_digest"])
+        severity_bytes = json_text(severity).encode("utf-8")
+        details = self.finding_details(manifest, candidate_id, state["review_state_digest"])
+        source = root / "poc/Exploit.t.sol"
+        source.parent.mkdir()
+        source.write_text("contract Exploit {}\n", encoding="utf-8")
+        poc = self.poc_evidence(
+            manifest,
+            state,
+            candidate_id,
+            severity,
+            source.relative_to(root).as_posix(),
+            sha256_bytes(source.read_bytes()),
+        )
+        manifest_path = root / "manifest.json"
+        state_path = root / "audit-state.json"
+        screen_path = root / "screen-results.json"
+        domain_context_path = root / "domain-context.json"
+        context_path = root / "context.json"
+        severity_path = root / "severity.json"
+        details_path = root / "details.json"
+        poc_path = root / "external/deep/nested/poc-evidence.json"
+        poc_path.parent.mkdir(parents=True)
+        for path, value in (
+            (manifest_path, manifest),
+            (state_path, state),
+            (screen_path, screen),
+            (domain_context_path, domain_context),
+            (context_path, context),
+            (severity_path, severity),
+            (details_path, details),
+            (poc_path, poc),
+        ):
+            path.write_text(json_text(value), encoding="utf-8")
+        output = root / "out/AUDIT-REPORT.md"
+        issues = root / "out/issue-candidates.json"
+        bundle = root / "out/report-bundle.json"
+        command = [
+            "--manifest", str(manifest_path), "--audit-state", str(state_path),
+            "--context", str(context_path), "--domain-context", str(domain_context_path),
+            "--screen-results", str(screen_path), "--ledger", str(ledger),
+            "--severity-decisions", str(severity_path), "--finding-details", str(details_path),
+            "--poc-evidence", str(poc_path), "--output", str(output),
+            "--issue-candidates-out", str(issues), "--bundle-metadata-out", str(bundle),
+        ]
+        return command, root, output
+
+    def test_synthesize_report_poc_validation_uses_explicit_run_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            command, run_dir, output = self.low_level_poc_case(Path(directory))
+            result = synthesize_main([*command, "--run-dir", str(run_dir)])
+            self.assertEqual(result, 0)
+            self.assertIn("**Severity:** High", output.read_text(encoding="utf-8"))
+
+    def test_synthesize_report_poc_metadata_location_does_not_change_source_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            command, run_dir, output = self.low_level_poc_case(Path(directory))
+            self.assertEqual(synthesize_main(command), 1)
+            self.assertFalse(output.exists())
+            self.assertEqual(synthesize_main([*command, "--run-dir", str(run_dir)]), 0)
+            self.assertTrue(output.exists())
+
     def test_poc_evidence_validates_lineage_and_source_hash(self) -> None:
         registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
         with tempfile.TemporaryDirectory() as directory:
@@ -325,6 +415,101 @@ class ReportingTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "escapes allowed roots"):
                 validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=Path(directory))
+
+    def test_high_poc_durable_source_must_be_under_run_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            manifest, state, severity, severity_bytes, poc, source = self.poc_case(run_dir)
+            target_source = run_dir / "TargetPoC.t.sol"
+            target_source.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            poc["findings"][0]["sources"][0] = {
+                "path": target_source.name,
+                "sha256": sha256_bytes(target_source.read_bytes()),
+            }
+            with self.assertRaisesRegex(ValueError, "run-dir/poc"):
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=run_dir)
+
+    def test_absolute_poc_source_path_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            manifest, state, severity, severity_bytes, poc, source = self.poc_case(run_dir)
+            poc["findings"][0]["sources"][0]["path"] = str(source)
+            with self.assertRaisesRegex(ValueError, "relative to run-dir/poc"):
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=run_dir)
+
+    def test_target_tree_source_cannot_satisfy_final_poc_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            manifest, state, severity, severity_bytes, poc, source = self.poc_case(run_dir)
+            target_root = run_dir / "target"
+            target_root.mkdir()
+            target_source = target_root / "TargetPoC.t.sol"
+            target_source.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            manifest = copy.deepcopy(manifest)
+            manifest["feature_map"]["recon_context"]["target_root"] = str(target_root)
+            poc["findings"][0]["sources"] = [{
+                "path": target_source.name,
+                "sha256": sha256_bytes(target_source.read_bytes()),
+            }]
+            with self.assertRaisesRegex(ValueError, "run-dir/poc"):
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=run_dir)
+
+    def test_build_root_source_cannot_satisfy_final_poc_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            manifest, state, severity, severity_bytes, poc, source = self.poc_case(run_dir)
+            build_root = run_dir / "build"
+            build_root.mkdir()
+            build_source = build_root / "BuildPoC.t.sol"
+            build_source.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+            manifest = copy.deepcopy(manifest)
+            manifest["feature_map"]["recon_context"]["build_root"] = str(build_root)
+            poc["findings"][0]["sources"] = [{
+                "path": build_source.name,
+                "sha256": sha256_bytes(build_source.read_bytes()),
+            }]
+            with self.assertRaisesRegex(ValueError, "run-dir/poc"):
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=run_dir)
+
+    def test_run_poc_source_survives_target_snapshot_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            manifest, state, severity, severity_bytes, poc, _ = self.poc_case(run_dir)
+            foundry_root = run_dir / "foundry-repository"
+            target = foundry_root / "src/Target.sol"
+            target.parent.mkdir(parents=True)
+            target.write_text("pragma solidity ^0.8.24; contract Target {}\n", encoding="utf-8")
+            (foundry_root / "foundry.toml").write_text(
+                '[profile.default]\nsrc = "src"\n', encoding="utf-8"
+            )
+            files, excluded = scope_inventory(foundry_root, dependency_roots=())
+            digests = compilation_digests(
+                foundry_root,
+                files,
+                "0.8.24",
+                build_root=foundry_root,
+                dependency_roots=(),
+            )
+            manifest = copy.deepcopy(manifest)
+            recon = manifest["feature_map"]["recon_context"]
+            recon.update(
+                target_root=str(foundry_root.resolve()),
+                build_root=str(foundry_root.resolve()),
+                files_analyzed=files,
+                excluded_paths=excluded,
+                dependency_roots=[],
+                source_digest=digests["audit_source_digest"],
+                audit_source_digest=digests["audit_source_digest"],
+                dependency_digest=digests["dependency_digest"],
+                build_config_digest=digests["build_config_digest"],
+                compilation_input_digest=digests["compilation_input_digest"],
+            )
+            validate_target_snapshot(manifest)
+            self.assertEqual(
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=run_dir),
+                [state["coverage"]["confirmed"][0]],
+            )
+            validate_target_snapshot(manifest)
 
     def run_synthesis(
         self,

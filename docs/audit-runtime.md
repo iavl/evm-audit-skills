@@ -280,6 +280,8 @@ is reconstructed from the immutable run inputs and ledger.
 The low-level `synthesize_report.py --audit-state` argument is an optional
 derived cache for compatibility; synthesis re-derives the current state from
 the authoritative inputs and uses that same state for any report bundle.
+When `--poc-evidence` is supplied, pass `--run-dir <run-dir>` explicitly; the
+low-level CLI never infers the audit run from the PoC metadata file location.
 
 Derive completion independently from the manifest, Screen results, Domain
 resolution, and owner-Domain ledgers:
@@ -355,9 +357,10 @@ required audit evidence.
 For a completed PoC, `poc-evidence.json` contains only the exact current
 High/Critical projection. Each entry records its runner, non-empty reproduction
 command, entrypoint, expected result, result summary, durable source path, and
-SHA-256. Sources must resolve inside the audited target/build tree or
-`<run-dir>/poc/`; symlink escapes, missing files, changed bytes, stale severity
-bytes, and `TEMPLATE` artifacts are rejected.
+SHA-256. Final PoC sources must be stored under `<run-dir>/poc/` and resolve
+inside that directory; absolute, traversal, target/build-only, and symlink
+escape paths, missing files, changed bytes, stale severity bytes, and
+`TEMPLATE` artifacts are rejected.
 
 Severity is assigned only after confirmation using the dimensions and mapping
 in [`severity-scoring.md`](../skills/evm-audit-master/references/severity-scoring.md).

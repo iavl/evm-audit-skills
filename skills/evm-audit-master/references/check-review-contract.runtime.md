@@ -37,9 +37,11 @@ calculation evidence.
 Solidity test/POC source used during Deep Review or `PROOF`, including supporting
 helpers and mocks, is user-owned audit evidence and remains a deliverable.
 
-- Keep POC source at its original target-project path when possible.
-- If it was created in a disposable directory, copy it to `<run-dir>/poc/`
-  before running the proof.
+- Archive the exact PoC source and any helpers or mocks under `<run-dir>/poc/`
+  before running the proof. Do not add new PoC files to the audited target
+  after routing.
+- If a useful test already existed in the target before Recon, copy its exact
+  source into `<run-dir>/poc/` for the final PoC artifact.
 - Record the durable path in `proof` or an `evidence.location` entry.
 - After proof succeeds, and after final-report generation or regeneration, do
   not delete or overwrite the source. Cleanup may remove only generated views

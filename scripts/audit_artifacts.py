@@ -566,42 +566,29 @@ def validate_reporting_inputs(
 
 
 def _poc_allowed_roots(manifest: dict[str, Any], run_dir: Path | None) -> list[Path]:
-    recon = manifest.get("feature_map", {}).get("recon_context", {})
-    roots: list[Path] = []
-    for key in ("target_root", "build_root"):
-        value = recon.get(key)
-        if isinstance(value, str) and value:
-            path = Path(value).expanduser().resolve()
-            if path.is_file():
-                path = path.parent
-            if path not in roots:
-                roots.append(path)
-    if run_dir is not None:
-        roots.append((run_dir / "poc").resolve())
-    return roots
+    del manifest
+    return [(run_dir / "poc").resolve()] if run_dir is not None else []
 
 
 def _resolve_poc_source(path: str, manifest: dict[str, Any], run_dir: Path | None) -> Path:
     candidate_path = Path(path)
+    if candidate_path.is_absolute():
+        raise ValueError(f"PoC source path must be relative to run-dir/poc: {path}")
     if not candidate_path.parts or ".." in candidate_path.parts:
         raise ValueError(f"PoC source path traversal is not allowed: {path}")
     roots = _poc_allowed_roots(manifest, run_dir)
     if not roots:
-        raise ValueError("PoC source validation has no allowed roots")
-    if candidate_path.is_absolute():
-        candidates = [candidate_path]
-    elif run_dir is not None and candidate_path.parts[0] == "poc":
-        candidates = [run_dir / candidate_path]
-    else:
-        candidates = [root / candidate_path for root in roots]
-    for candidate in candidates:
-        resolved = candidate.resolve(strict=False)
-        if not any(resolved == root or root in resolved.parents for root in roots):
-            if candidate.exists() or candidate.is_symlink():
-                raise ValueError(f"PoC source path escapes allowed roots: {path}")
-            continue
-        if resolved.exists() and resolved.is_file():
-            return resolved
+        raise ValueError("PoC source validation requires run-dir/poc")
+    if candidate_path.parts[0] != "poc":
+        raise ValueError(f"PoC source must be stored under run-dir/poc: {path}")
+    poc_root = roots[0]
+    if (run_dir / "poc").is_symlink():
+        raise ValueError(f"PoC source escapes allowed roots: {path}")
+    candidate = (run_dir / candidate_path).resolve(strict=False)
+    if candidate != poc_root and poc_root not in candidate.parents:
+        raise ValueError(f"PoC source escapes allowed roots: {path}")
+    if candidate.exists() and candidate.is_file():
+        return candidate
     raise ValueError(f"PoC source is missing: {path}")
 
 
