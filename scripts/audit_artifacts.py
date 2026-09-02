@@ -84,6 +84,9 @@ def report_bundle_metadata(
     issue_candidates_bytes: bytes | None = None,
     severity_decisions_bytes: bytes | None = None,
     finding_details_bytes: bytes | None = None,
+    severity_decisions: dict[str, Any] | None = None,
+    poc_evidence: dict[str, Any] | None = None,
+    poc_evidence_bytes: bytes | None = None,
 ) -> dict[str, Any]:
     audit = manifest["audit_context"]
     expected_identity = {
@@ -98,12 +101,29 @@ def report_bundle_metadata(
         raise ValueError("report bundle inputs do not match current audit state")
     if issue_candidates_bytes is not None:
         _validate_json_bytes(issue_candidates, issue_candidates_bytes, "issue candidates")
+    required_poc_ids: list[str] = []
     if state.get("status") == "COMPLETE_WITH_FINDINGS":
         if severity_decisions_bytes is None or finding_details_bytes is None:
             raise ValueError("report bundle requires exact severity and finding-details inputs")
+        if severity_decisions is None:
+            try:
+                severity_decisions = json.loads(severity_decisions_bytes.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                raise ValueError("severity decisions bytes are not valid UTF-8 JSON") from error
+        _validate_json_bytes(severity_decisions, severity_decisions_bytes, "severity decisions")
+        if poc_evidence is not None and poc_evidence_bytes is not None:
+            _validate_json_bytes(poc_evidence, poc_evidence_bytes, "poc evidence")
+        decisions = severity_decisions.get("decisions") if isinstance(severity_decisions, dict) else None
+        confirmed = state.get("coverage", {}).get("confirmed", [])
+        if not isinstance(decisions, dict) or not isinstance(confirmed, list):
+            raise ValueError("report bundle requires current severity decisions")
+        required_poc_ids = derive_poc_required_ids(confirmed, decisions)
+        if required_poc_ids and poc_evidence_bytes is None:
+            raise ValueError(f"INCOMPLETE_POC: runnable PoC required for {required_poc_ids}")
     else:
         severity_decisions_bytes = None
         finding_details_bytes = None
+        poc_evidence_bytes = None
     return {
         "artifact_type": "report-bundle",
         "schema_version": REPORT_BUNDLE_VERSION,
@@ -124,6 +144,9 @@ def report_bundle_metadata(
         ),
         "finding_details_sha256": (
             sha256_bytes(finding_details_bytes) if finding_details_bytes is not None else None
+        ),
+        "poc_evidence_sha256": (
+            sha256_bytes(poc_evidence_bytes) if poc_evidence_bytes is not None and required_poc_ids else None
         ),
     }
 
@@ -542,17 +565,20 @@ def _resolve_poc_source(path: str, manifest: dict[str, Any], run_dir: Path | Non
     if not roots:
         raise ValueError("PoC source validation has no allowed roots")
     if candidate_path.is_absolute():
-        candidate = candidate_path
+        candidates = [candidate_path]
     elif run_dir is not None and candidate_path.parts[0] == "poc":
-        candidate = run_dir / candidate_path
+        candidates = [run_dir / candidate_path]
     else:
-        candidate = roots[0] / candidate_path
-    resolved = candidate.resolve(strict=False)
-    if not any(resolved == root or root in resolved.parents for root in roots):
-        raise ValueError(f"PoC source path escapes allowed roots: {path}")
-    if not resolved.exists() or not resolved.is_file():
-        raise ValueError(f"PoC source is missing: {path}")
-    return resolved
+        candidates = [root / candidate_path for root in roots]
+    for candidate in candidates:
+        resolved = candidate.resolve(strict=False)
+        if not any(resolved == root or root in resolved.parents for root in roots):
+            if candidate.exists() or candidate.is_symlink():
+                raise ValueError(f"PoC source path escapes allowed roots: {path}")
+            continue
+        if resolved.exists() and resolved.is_file():
+            return resolved
+    raise ValueError(f"PoC source is missing: {path}")
 
 
 def validate_poc_evidence(
@@ -566,6 +592,8 @@ def validate_poc_evidence(
     run_dir: Path | None = None,
 ) -> list[str]:
     """Validate completed, lineage-bound runnable PoC evidence."""
+    if not isinstance(severity_decisions_bytes, bytes):
+        raise ValueError("severity decisions bytes are required for PoC lineage")
     validate_schema(root, "poc-evidence.schema.json", poc_evidence)
     if state.get("status") != "COMPLETE_WITH_FINDINGS":
         raise ValueError("PoC evidence is only valid for COMPLETE_WITH_FINDINGS")
@@ -605,7 +633,6 @@ def validate_poc_evidence(
             f"expected={sorted(required)} actual={ids}"
         )
 
-    seen_sources: set[Path] = set()
     for finding in findings:
         canonical_id = finding["canonical_id"]
         if finding["severity"] != decisions[canonical_id]["severity"]:
@@ -622,9 +649,6 @@ def validate_poc_evidence(
             raise ValueError(f"poc-evidence has no source: {canonical_id}")
         for source in sources:
             source_path = _resolve_poc_source(source["path"], manifest, run_dir)
-            if source_path in seen_sources:
-                raise ValueError(f"poc-evidence repeats a source: {source['path']}")
-            seen_sources.add(source_path)
             if not SHA256_RE.fullmatch(source["sha256"]):
                 raise ValueError(f"poc-evidence source has a bad SHA-256: {source['path']}")
             if sha256_bytes(source_path.read_bytes()) != source["sha256"]:

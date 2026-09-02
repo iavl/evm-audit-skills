@@ -249,6 +249,46 @@ class ReportingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "source hash does not match"):
                 validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=Path(directory))
 
+    def test_deleted_poc_source_is_rejected(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            severity = self.severity_artifact(manifest, candidate_id, state["review_state_digest"])
+            severity_bytes = json_text(severity).encode("utf-8")
+            source = Path(directory) / "poc/Exploit.t.sol"
+            source.parent.mkdir()
+            source.write_text("contract Exploit {}\n", encoding="utf-8")
+            poc = self.poc_evidence(
+                manifest, state, candidate_id, severity, "poc/Exploit.t.sol",
+                hashlib.sha256(source.read_bytes()).hexdigest(),
+            )
+            source.unlink()
+            with self.assertRaisesRegex(ValueError, "source is missing"):
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=Path(directory))
+
+    def test_poc_evidence_binds_review_and_severity_bytes(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            severity = self.severity_artifact(manifest, candidate_id, state["review_state_digest"])
+            severity_bytes = json_text(severity).encode("utf-8")
+            source = Path(directory) / "poc/Exploit.t.sol"
+            source.parent.mkdir()
+            source.write_text("contract Exploit {}\n", encoding="utf-8")
+            poc = self.poc_evidence(
+                manifest, state, candidate_id, severity, "poc/Exploit.t.sol",
+                hashlib.sha256(source.read_bytes()).hexdigest(),
+            )
+            for field, expected in (("review_state_digest", "0" * 64), ("severity_decisions_sha256", "0" * 64)):
+                changed = {**poc, field: expected}
+                with self.subTest(field=field):
+                    with self.assertRaisesRegex(ValueError, "mismatched"):
+                        validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, changed, run_dir=Path(directory))
+
     def test_poc_source_cannot_escape_allowed_roots(self) -> None:
         registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
         with tempfile.TemporaryDirectory() as directory:
@@ -266,6 +306,26 @@ class ReportingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "path traversal"):
                 validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=Path(directory))
 
+    def test_poc_source_symlink_escape_is_rejected(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            severity = self.severity_artifact(manifest, candidate_id, state["review_state_digest"])
+            severity_bytes = json_text(severity).encode("utf-8")
+            outside = Path(directory).parent / "outside-poc-link.t.sol"
+            outside.write_text("contract Outside {}\n", encoding="utf-8")
+            link = Path(directory) / "poc/Exploit.t.sol"
+            link.parent.mkdir()
+            link.symlink_to(outside)
+            poc = self.poc_evidence(
+                manifest, state, candidate_id, severity, "poc/Exploit.t.sol",
+                hashlib.sha256(outside.read_bytes()).hexdigest(),
+            )
+            with self.assertRaisesRegex(ValueError, "escapes allowed roots"):
+                validate_poc_evidence(ROOT, manifest, state, severity, severity_bytes, poc, run_dir=Path(directory))
+
     def run_synthesis(
         self,
         registry: dict,
@@ -278,6 +338,7 @@ class ReportingTests(unittest.TestCase):
         severity: dict | None = None,
         *,
         finding_details: dict | None = None,
+        poc_evidence: dict | None = None,
         allow_incomplete: bool = False,
     ) -> ReportSynthesisResult:
         return synthesize(
@@ -288,6 +349,7 @@ class ReportingTests(unittest.TestCase):
             ledger,
             severity,
             finding_details=finding_details,
+            poc_evidence=poc_evidence,
             allow_incomplete=allow_incomplete,
             screen_results=screen,
             domain_context=domain_context,
@@ -308,7 +370,7 @@ class ReportingTests(unittest.TestCase):
                 screen,
                 context,
                 domain_context,
-                self.severity_artifact(manifest, candidate_id, state["review_state_digest"]),
+                self.severity_artifact(manifest, candidate_id, state["review_state_digest"], "Medium"),
                 finding_details=self.finding_details(manifest, candidate_id, state["review_state_digest"]),
             )
             report, issues = synthesis.report, synthesis.issue_candidates
@@ -319,7 +381,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("**Location:** Fixture.sol:42", report)
         self.assertIn("**Description:**", report)
         self.assertIn("**Recommendation:**", report)
-        self.assertEqual(issues["findings"], [{"canonical_id": candidate_id, "severity": "High"}])
+        self.assertEqual(issues["findings"], [{"canonical_id": candidate_id, "severity": "Medium"}])
         self.assertEqual(issues["registry_sha256"], manifest["audit_context"]["registry_sha256"])
 
     def test_incomplete_audit_cannot_claim_clean_report(self) -> None:
@@ -395,6 +457,49 @@ class ReportingTests(unittest.TestCase):
             report, issues = synthesis.report, synthesis.issue_candidates
         self.assertIn("**Severity:** Info", report)
         self.assertEqual(issues["findings"], [])
+
+    def test_high_synthesis_rejects_missing_poc(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_POC"):
+                self.run_synthesis(
+                    registry, manifest, state, [ledger], screen, context, domain_context,
+                    self.severity_artifact(manifest, candidate_id, state["review_state_digest"], "High"),
+                    finding_details=self.finding_details(manifest, candidate_id, state["review_state_digest"]),
+                )
+
+    def test_low_confirmed_finding_reports_without_poc(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            synthesis = self.run_synthesis(
+                registry, manifest, state, [ledger], screen, context, domain_context,
+                self.severity_artifact(manifest, candidate_id, state["review_state_digest"], "Low"),
+                finding_details=self.finding_details(manifest, candidate_id, state["review_state_digest"]),
+            )
+        self.assertIn("**Severity:** Low", synthesis.report)
+        self.assertIn("**PoC:** Not required by policy", synthesis.report)
+        self.assertEqual(synthesis.issue_candidates["findings"], [])
+
+    def test_info_confirmed_finding_reports_without_poc(self) -> None:
+        registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "review.jsonl"
+            self.append_confirmed_record(ledger, registry, manifest, candidate_id, domain_context, screen)
+            state = validate_run(ROOT, manifest, registry, screen, None, domain_context, context, [ledger])
+            synthesis = self.run_synthesis(
+                registry, manifest, state, [ledger], screen, context, domain_context,
+                self.severity_artifact(manifest, candidate_id, state["review_state_digest"], "Info"),
+                finding_details=self.finding_details(manifest, candidate_id, state["review_state_digest"]),
+            )
+        self.assertIn("**Severity:** Info", synthesis.report)
+        self.assertIn("**PoC:** Not required by policy", synthesis.report)
+        self.assertEqual(synthesis.issue_candidates["findings"], [])
 
     def test_legacy_severity_and_missing_dimensions_are_rejected(self) -> None:
         registry, manifest, screen, context, domain_context, candidate_id = self.artifacts(True)
@@ -479,7 +584,7 @@ class ReportingTests(unittest.TestCase):
                 screen,
                 context,
                 domain_context,
-                self.severity_artifact(manifest, candidate_id, state["review_state_digest"]),
+                self.severity_artifact(manifest, candidate_id, state["review_state_digest"], "Medium"),
                 finding_details=self.finding_details(manifest, candidate_id, state["review_state_digest"]),
             ).report
         self.assertIn("# EVM Audit Report", report)

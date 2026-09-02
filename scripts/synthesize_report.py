@@ -13,7 +13,7 @@ from typing import Any
 _SUITE_ROOT = str(Path(__file__).resolve().parents[1])
 if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
-from evm_audit_runtime.reporting import derive_issue_candidates
+from evm_audit_runtime.reporting import derive_issue_candidates, derive_poc_required_ids, poc_required
 from evm_audit_runtime.routing import resolved_routes
 from evm_audit_runtime.versions import ISSUE_CANDIDATES_VERSION
 
@@ -28,6 +28,7 @@ try:
         require_distinct_paths,
         report_bundle_metadata,
         review_state_digest,
+        validate_poc_evidence,
         validate_artifact_identity,
         validate_domain_resolution,
         validate_review_state_binding,
@@ -47,6 +48,7 @@ except ImportError:  # pragma: no cover
         require_distinct_paths,
         report_bundle_metadata,
         review_state_digest,
+        validate_poc_evidence,
         validate_artifact_identity,
         validate_domain_resolution,
         validate_review_state_binding,
@@ -86,6 +88,7 @@ class ReportSynthesisResult:
     issue_candidates: dict[str, Any]
     severity_decisions_bytes: bytes | None = None
     finding_details_bytes: bytes | None = None
+    poc_evidence_bytes: bytes | None = None
 
 
 def _consumed_input_bytes(
@@ -146,6 +149,40 @@ def _finding_details(value: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     return details
 
 
+def _poc_projection(
+    root: Path,
+    value: dict[str, Any] | None,
+    required_ids: list[str],
+    decisions: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    if value is None:
+        if required_ids:
+            raise ValueError(f"INCOMPLETE_POC: runnable PoC required for {required_ids}")
+        return {}
+    try:
+        validate_schema(root, "poc-evidence.schema.json", value)
+        if value.get("artifact_state") == "TEMPLATE":
+            raise ValueError("poc-evidence is still a TEMPLATE")
+        findings = value.get("findings")
+        if not isinstance(findings, list):
+            raise ValueError("poc-evidence must contain a findings array")
+        ids = [finding.get("canonical_id") for finding in findings]
+        if ids != sorted(required_ids) or len(ids) != len(set(ids)):
+            raise ValueError(
+                "poc-evidence IDs do not match the current High/Critical projection: "
+                f"expected={sorted(required_ids)} actual={ids}"
+            )
+        result: dict[str, dict[str, Any]] = {}
+        for finding in findings:
+            canonical_id = finding["canonical_id"]
+            if finding["severity"] != decisions[canonical_id]["severity"] or not poc_required(finding["severity"]):
+                raise ValueError(f"poc-evidence severity does not match current projection: {canonical_id}")
+            result[canonical_id] = finding
+        return result
+    except (ValueError, KeyError, TypeError) as error:
+        raise ValueError(f"INCOMPLETE_POC: {error}") from error
+
+
 def _coverage_sets(state: dict[str, Any]) -> tuple[set[str], set[str], set[str]]:
     coverage = state["coverage"]
     selected = set(coverage["selected"])
@@ -188,6 +225,8 @@ def synthesize(
     finding_details: dict[str, Any] | None = None,
     severity_decisions_bytes: bytes | None = None,
     finding_details_bytes: bytes | None = None,
+    poc_evidence: dict[str, Any] | None = None,
+    poc_evidence_bytes: bytes | None = None,
     allow_incomplete: bool = False,
     domain_resolution: dict[str, Any] | None = None,
     screen_results: dict[str, Any] | None = None,
@@ -257,6 +296,9 @@ def synthesize(
     finding_details_bytes = _consumed_input_bytes(
         finding_details, finding_details_bytes, "finding details"
     )
+    poc_evidence_bytes = _consumed_input_bytes(
+        poc_evidence, poc_evidence_bytes, "poc evidence"
+    )
     decisions: dict[str, dict[str, Any]] = {}
     if severity_decisions is not None:
         try:
@@ -311,6 +353,7 @@ def synthesize(
             _issue_artifact(root, manifest, state, []),
             severity_decisions_bytes,
             finding_details_bytes,
+            None,
         )
 
     if confirmed and severity_decisions is None:
@@ -346,6 +389,11 @@ def synthesize(
         raise ValueError(f"INCOMPLETE_REPORTING: missing finding details for {sorted(missing_details)}")
     if extra_details:
         raise ValueError(f"INCOMPLETE_REPORTING: details are not for CONFIRMED records: {sorted(extra_details)}")
+
+    required_poc_ids = derive_poc_required_ids(confirmed, decisions)
+    poc_findings = _poc_projection(root, poc_evidence, required_poc_ids, decisions)
+    if not required_poc_ids:
+        poc_evidence_bytes = None
 
     if state["status"] == "COMPLETE_CLEAN" and confirmed:
         raise ValueError("COMPLETE_CLEAN cannot contain confirmed findings")
@@ -397,10 +445,19 @@ def synthesize(
             f"- **Preconditions:** {record['preconditions']}",
             f"- **Exploitability:** {record['exploitability']}",
             f"- **Impact:** {record['impact']}",
-            f"- **Proof of Concept / Invariant Violation:** {record['proof']}",
+            f"- **Strong proof evidence:** {record['proof']}",
             f"- **Description:** {detail['description']}",
             f"- **Recommendation:** {detail['recommendation']}",
         ])
+        if poc_required(severity):
+            poc = poc_findings[canonical_id]
+            sources = ", ".join(f"`{source['path']}`" for source in poc["sources"])
+            report_lines.extend([
+                f"- **PoC:** {sources}",
+                f"- **Reproduce:** `{poc['command']}`",
+            ])
+        else:
+            report_lines.append("- **PoC:** Not required by policy (severity below High)")
     report_lines.append("")
     return ReportSynthesisResult(
         state,
@@ -408,6 +465,7 @@ def synthesize(
         _issue_artifact(root, manifest, state, derive_issue_candidates(confirmed, decisions)),
         severity_decisions_bytes,
         finding_details_bytes,
+        poc_evidence_bytes,
     )
 
 
@@ -423,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--context", type=Path, required=True)
     parser.add_argument("--severity-decisions", type=Path)
     parser.add_argument("--finding-details", type=Path)
+    parser.add_argument("--poc-evidence", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--issue-candidates-out", type=Path)
     parser.add_argument("--bundle-metadata-out", type=Path)
@@ -446,6 +505,9 @@ def main(argv: list[str] | None = None) -> int:
         finding_details = finding_details_bytes = None
         if args.finding_details:
             finding_details, finding_details_bytes = load_json_bytes(args.finding_details)
+        poc_evidence = poc_evidence_bytes = None
+        if args.poc_evidence:
+            poc_evidence, poc_evidence_bytes = load_json_bytes(args.poc_evidence)
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
         screen_results = load_json(args.screen_results)
         domain_context = load_json(args.domain_context)
@@ -460,6 +522,8 @@ def main(argv: list[str] | None = None) -> int:
             finding_details=finding_details,
             severity_decisions_bytes=severity_bytes,
             finding_details_bytes=finding_details_bytes,
+            poc_evidence=poc_evidence,
+            poc_evidence_bytes=poc_evidence_bytes,
             allow_incomplete=args.allow_incomplete,
             domain_resolution=domain_resolution,
             screen_results=screen_results,
@@ -467,6 +531,16 @@ def main(argv: list[str] | None = None) -> int:
             context=context,
         )
         current_state = synthesis.state
+        if poc_evidence is not None:
+            validate_poc_evidence(
+                ROOT,
+                manifest,
+                current_state,
+                severity,
+                severity_bytes,
+                poc_evidence,
+                run_dir=args.poc_evidence.parent.parent if args.poc_evidence else None,
+            )
         report = synthesis.report
         issues = synthesis.issue_candidates
         bundle = None
@@ -481,6 +555,9 @@ def main(argv: list[str] | None = None) -> int:
                 issue_candidates_bytes=json_text(issues).encode("utf-8"),
                 severity_decisions_bytes=synthesis.severity_decisions_bytes,
                 finding_details_bytes=synthesis.finding_details_bytes,
+                severity_decisions=severity,
+                poc_evidence_bytes=synthesis.poc_evidence_bytes,
+                poc_evidence=poc_evidence,
             )
             validate_schema(ROOT, "report-bundle.schema.json", bundle)
         if args.output:

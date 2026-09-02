@@ -598,7 +598,7 @@ class HardeningTests(unittest.TestCase):
                 **identity,
                 "decisions": {
                     candidate_id: {
-                        "severity": "High",
+                        "severity": "Medium",
                         "rationale": "proof-bound fixture impact",
                         "dimensions": {
                             "impact": "none", "exploitability": "permissionless", "privileges": "none",
@@ -660,7 +660,7 @@ class HardeningTests(unittest.TestCase):
                 "review_state_digest": state["review_state_digest"],
                 **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
             }
-            severity = {**identity, "decisions": {candidate_id: {"severity": "High", "rationale": "first", "dimensions": {
+            severity = {**identity, "decisions": {candidate_id: {"severity": "Low", "rationale": "first", "dimensions": {
                 "impact": "none", "exploitability": "permissionless", "privileges": "none",
                 "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
                 "loss_bound": "none", "protocol_exposure": "single_position", "recoverability": "irreversible",

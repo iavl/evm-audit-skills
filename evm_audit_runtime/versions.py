@@ -22,7 +22,7 @@ SCHEMA_VERSIONS = {
     "poc-evidence": 1,
     "review-record": 7,
     "routing-manifest": 7,
-    "report-bundle": 2,
+    "report-bundle": 3,
     "report-current": 2,
     "runtime-metadata": 1,
     "screen-results": 2,

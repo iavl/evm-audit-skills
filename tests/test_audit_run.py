@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 from helpers import EMPTY_TARGET, ROOT, build_manifest
 import scripts.audit_run as audit_controller
-from scripts.audit_artifacts import check_body_hash
+from scripts.audit_artifacts import check_body_hash, json_text
 from scripts.render_runtime import domain_context_template, screen_results_template
 from scripts.review_ledger import append
 
@@ -84,6 +84,128 @@ class AuditRunTests(unittest.TestCase):
         screen_path.write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
         result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def prepare_finding_run(
+        self, run_dir: Path, severities: list[str], *, include_poc: bool = True
+    ) -> tuple[dict, dict, dict, dict, dict | None]:
+        result = self.run_cli(
+            "scripts/audit_run.py", "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
+            "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context_path = run_dir / "reviews/domain-context.json"
+        context = self.read(context_path)
+        for requirements in context["domains"].values():
+            for item in requirements.values():
+                item.update(
+                    status="KNOWN", value="fixture",
+                    evidence=[{"kind": "scope", "location": "fixture", "reason": "known context"}],
+                )
+        context_path.write_text(json_text(context), encoding="utf-8")
+        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        screen_path = run_dir / "reviews/screen-results.json"
+        screen = self.read(screen_path)
+        candidate_ids = [item["canonical_id"] for item in screen["results"][:len(severities)]]
+        evidence = [
+            {"kind": "scope", "location": "fixture", "reason": "complete scope"},
+            {"kind": "inheritance", "location": "fixture", "reason": "screen disposition"},
+        ]
+        for item in screen["results"]:
+            if item["canonical_id"] in candidate_ids:
+                item.update(result="CANDIDATE", scope_complete=False, evidence=[])
+            else:
+                item.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
+        screen_path.write_text(json_text(screen), encoding="utf-8")
+        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = self.read(run_dir / "routing/manifest.json")
+        registry = self.read(ROOT / "data/canonical-checks.json")
+        ledgers: dict[str, Path] = {}
+        for candidate_id, severity in zip(candidate_ids, severities):
+            route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate_id)
+            ledger = run_dir / f"reviews/review-{route['owner_domain']}.jsonl"
+            ledgers[route["owner_domain"]] = ledger
+            suspicious = {
+                "record_type": "review", "schema_version": 7, "canonical_id": candidate_id,
+                "owner_domain": route["owner_domain"], "check_body_hash": route["check_body_hash"],
+                "review_stage": "DEEP_REVIEW", "status": "SUSPICIOUS", "code_path": "fixture entry",
+                "unresolved_reason": "proof pending",
+                "evidence": [{"kind": "manual", "location": "fixture", "reason": "deep review"}],
+            }
+            append(ledger, manifest, suspicious, registry, set(candidate_ids), domain_context=context, screen_results=screen)
+            confirmed = {
+                key: value for key, value in suspicious.items() if key != "unresolved_reason"
+            }
+            confirmed.update(
+                review_stage="PROOF", status="CONFIRMED", applicability="APPLICABLE - fixture",
+                preconditions="fixture state", exploitability="fixture path is reachable",
+                impact="fixture impact", proof="deterministic fixture trace",
+                evidence=[{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
+            )
+            append(ledger, manifest, confirmed, registry, set(candidate_ids), domain_context=context, screen_results=screen)
+        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("COMPLETE_WITH_FINDINGS", result.stdout)
+        state = self.read(run_dir / "audit-state.json")
+        identity = {
+            "schema_version": 2, "artifact_state": "COMPLETED",
+            "routing_snapshot_id": manifest["routing_snapshot_id"],
+            "review_state_digest": state["review_state_digest"],
+            **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
+        }
+        severity = {
+            **identity,
+            "decisions": {
+                candidate_id: {
+                    "severity": level, "rationale": "fixture proof",
+                    "dimensions": {
+                        "impact": "fund_loss", "exploitability": "permissionless", "privileges": "none",
+                        "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
+                        "loss_bound": "single_user", "protocol_exposure": "single_position", "recoverability": "irreversible",
+                    },
+                }
+                for candidate_id, level in zip(candidate_ids, severities)
+            },
+        }
+        details = {
+            **identity,
+            "findings": [
+                {"canonical_id": candidate_id, "location": "Fixture.sol:1", "description": "fixture finding", "recommendation": "fix fixture"}
+                for candidate_id in candidate_ids
+            ],
+        }
+        severity_path = run_dir / "reviews/severity-decisions.json"
+        details_path = run_dir / "reviews/finding-details.json"
+        severity_bytes = json_text(severity).encode("utf-8")
+        severity_path.write_bytes(severity_bytes)
+        details_path.write_text(json_text(details), encoding="utf-8")
+        required = [candidate_id for candidate_id, level in zip(candidate_ids, severities) if level in {"High", "Critical"}]
+        poc = None
+        if required and include_poc:
+            poc_findings = []
+            for candidate_id in required:
+                source = run_dir / "poc" / candidate_id / "Exploit.t.sol"
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text(f"contract Exploit_{candidate_id.replace('-', '_')} {{}}\n", encoding="utf-8")
+                poc_findings.append({
+                    "canonical_id": candidate_id,
+                    "severity": severity["decisions"][candidate_id]["severity"],
+                    "runner": "foundry", "command": "forge test --match-test testExploit -vvv",
+                    "sources": [{"path": source.relative_to(run_dir).as_posix(), "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}],
+                    "entrypoint": "testExploit", "expected_result": "The exploit reproduces the confirmed defect.",
+                    "result_summary": "The fixture reproduced the confirmed defect.",
+                })
+            poc = {
+                "artifact_type": "poc-evidence", "schema_version": 1, "artifact_state": "COMPLETED",
+                "routing_snapshot_id": manifest["routing_snapshot_id"], "review_snapshot_id": state["review_snapshot_id"],
+                "review_state_digest": state["review_state_digest"],
+                **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
+                "severity_decisions_sha256": hashlib.sha256(severity_bytes).hexdigest(),
+                "findings": poc_findings,
+            }
+            (run_dir / "reviews/poc-evidence.json").write_text(json_text(poc), encoding="utf-8")
+        return manifest, state, severity, details, poc
 
     def test_report_bundle_write_failures_never_commit_mixed_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -813,7 +935,7 @@ class AuditRunTests(unittest.TestCase):
                 **identity,
                 "decisions": {
                     candidate_id: {
-                        "severity": "High",
+                        "severity": "Medium",
                         "rationale": "fixture proof",
                         "dimensions": {
                             "impact": "fund_loss", "exploitability": "permissionless", "privileges": "none",
@@ -907,7 +1029,7 @@ class AuditRunTests(unittest.TestCase):
             severity_path = run_dir / "severity.json"
             severity_path.write_text(json.dumps({**identity, "decisions": {
                 candidate_id: {
-                    "severity": "High", "rationale": "fixture proof", "dimensions": {
+                    "severity": "Medium", "rationale": "fixture proof", "dimensions": {
                         "impact": "fund_loss", "exploitability": "permissionless", "privileges": "none",
                         "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
                         "loss_bound": "single_user", "protocol_exposure": "single_position", "recoverability": "irreversible",
@@ -1213,6 +1335,187 @@ contract RetainedPoC {
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(poc_path.read_text(encoding="utf-8"), poc_source)
                 self.assertIn(poc_location, (run_dir / "reviews/review-evm-audit-general.jsonl").read_text(encoding="utf-8"))
+
+    def test_medium_report_succeeds_without_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, _, _, _ = self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
+            result = audit_controller.report_run(ROOT, run_dir)
+            report = Path(result["report"]).read_text(encoding="utf-8")
+            issues = self.read(Path(result["issue_candidates"]))
+            bundle = self.read(Path(result["report_bundle_path"]))
+            self.assertIn("**Severity:** Medium", report)
+            self.assertIn("**PoC:** Not required by policy", report)
+            self.assertEqual(len(issues["findings"]), 1)
+            self.assertIsNone(bundle["poc_evidence_sha256"])
+            self.assertFalse((run_dir / "poc").exists())
+            self.assertFalse((run_dir / "reviews/poc-evidence.json").exists())
+
+    def test_low_report_succeeds_without_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["Low"], include_poc=False)
+            result = audit_controller.report_run(ROOT, run_dir)
+            self.assertIn("**Severity:** Low", Path(result["report"]).read_text(encoding="utf-8"))
+            self.assertEqual(self.read(Path(result["issue_candidates"]))["findings"], [])
+            self.assertIsNone(self.read(Path(result["report_bundle_path"]))["poc_evidence_sha256"])
+
+    def test_info_report_succeeds_without_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["Info"], include_poc=False)
+            result = audit_controller.report_run(ROOT, run_dir)
+            self.assertIn("**Severity:** Info", Path(result["report"]).read_text(encoding="utf-8"))
+            self.assertEqual(self.read(Path(result["issue_candidates"]))["findings"], [])
+            self.assertIsNone(self.read(Path(result["report_bundle_path"]))["poc_evidence_sha256"])
+
+    def test_high_report_rejects_missing_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["High"], include_poc=False)
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_POC"):
+                audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse((run_dir / "report-current.json").exists())
+
+    def test_missing_high_poc_preserves_previous_current_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, severity, _, _ = self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
+            audit_controller.report_run(ROOT, run_dir)
+            pointer = (run_dir / "report-current.json").read_bytes()
+            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "High"
+            (run_dir / "reviews/severity-decisions.json").write_text(json_text(severity), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_POC"):
+                audit_controller.report_run(ROOT, run_dir)
+            self.assertEqual((run_dir / "report-current.json").read_bytes(), pointer)
+            self.assertTrue(audit_controller._report_bundle_status(
+                ROOT,
+                audit_controller.paths(run_dir),
+                self.read(run_dir / "routing/manifest.json"),
+                self.read(run_dir / "audit-state.json"),
+            )["current"])
+
+    def test_critical_report_rejects_missing_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["Critical"], include_poc=False)
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_POC"):
+                audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse((run_dir / "report-current.json").exists())
+
+    def test_high_report_accepts_valid_poc_and_snapshots_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, _, _, poc = self.prepare_finding_run(run_dir, ["High"])
+            result = audit_controller.report_run(ROOT, run_dir)
+            generation = Path(result["report"])
+            self.assertIsNotNone(poc)
+            self.assertIn("**PoC:** `poc/", generation.read_text(encoding="utf-8"))
+            self.assertEqual(
+                (generation.parent / "poc-evidence.json").read_bytes(),
+                (run_dir / "reviews/poc-evidence.json").read_bytes(),
+            )
+            bundle = self.read(Path(result["report_bundle_path"]))
+            self.assertEqual(bundle["poc_evidence_sha256"], hashlib.sha256((generation.parent / "poc-evidence.json").read_bytes()).hexdigest())
+
+    def test_tampered_high_poc_blocks_republication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["High"])
+            audit_controller.report_run(ROOT, run_dir)
+            pointer = (run_dir / "report-current.json").read_bytes()
+            source = next((run_dir / "poc").rglob("*.t.sol"))
+            source.write_text(source.read_text(encoding="utf-8") + "// tampered\n", encoding="utf-8")
+            status = audit_controller._report_bundle_status(
+                ROOT,
+                audit_controller.paths(run_dir),
+                self.read(run_dir / "routing/manifest.json"),
+                self.read(run_dir / "audit-state.json"),
+            )
+            self.assertEqual(status["status"], "STALE")
+            with self.assertRaisesRegex(ValueError, "source hash"):
+                audit_controller.report_run(ROOT, run_dir)
+            self.assertEqual((run_dir / "report-current.json").read_bytes(), pointer)
+
+    def test_severity_change_invalidates_old_poc_projection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, severity, _, _ = self.prepare_finding_run(run_dir, ["High"])
+            audit_controller.report_run(ROOT, run_dir)
+            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "Medium"
+            severity_path = run_dir / "reviews/severity-decisions.json"
+            severity_path.write_text(json_text(severity), encoding="utf-8")
+            result = audit_controller.report_run(ROOT, run_dir)
+            bundle = self.read(Path(result["report_bundle_path"]))
+            self.assertIsNone(bundle["poc_evidence_sha256"])
+            self.assertFalse((run_dir / "reviews/poc-evidence.json").exists())
+            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "High"
+            severity_path.write_text(json_text(severity), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_POC"):
+                audit_controller.report_run(ROOT, run_dir)
+
+    def test_poc_template_is_created_only_after_high_severity_is_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            manifest, state, severity, _, _ = self.prepare_finding_run(run_dir, ["High"], include_poc=False)
+            candidate_id = next(iter(severity["decisions"]))
+            severity_path = run_dir / "reviews/severity-decisions.json"
+            severity_path.write_text(json_text(audit_controller._reporting_payloads(manifest, state)["severity"]), encoding="utf-8")
+            first = audit_controller.next_step(ROOT, run_dir, emit=False)
+            self.assertNotIn("poc_evidence", first.get("templates", {}))
+            self.assertFalse((run_dir / "reviews/poc-evidence.json").exists())
+            severity_path.write_text(json_text(severity), encoding="utf-8")
+            second = audit_controller.next_step(ROOT, run_dir, emit=False)
+            poc_path = run_dir / "reviews/poc-evidence.json"
+            self.assertEqual(second["required_inputs"], ["severity-decisions", "finding-details", "poc-evidence"])
+            self.assertEqual(self.read(poc_path)["artifact_state"], "TEMPLATE")
+            self.assertEqual(second["poc_policy"]["required_ids"], [candidate_id])
+
+    def test_completed_poc_is_archived_when_severity_identity_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            manifest, state, severity, _, _ = self.prepare_finding_run(run_dir, ["High"])
+            audit_controller.next_step(ROOT, run_dir, emit=False)
+            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "Critical"
+            (run_dir / "reviews/severity-decisions.json").write_text(json_text(severity), encoding="utf-8")
+            result = audit_controller.next_step(ROOT, run_dir, emit=False)
+            self.assertEqual(result["template_status"]["poc_evidence"], "ARCHIVED_STALE_ARTIFACT")
+            self.assertTrue(any((run_dir / "reviews").glob("poc-evidence.stale-*.json")))
+            self.assertEqual(self.read(run_dir / "reviews/poc-evidence.json")["artifact_state"], "TEMPLATE")
+
+    def test_mixed_severity_report_requires_exact_high_critical_pocs(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, severity, _, poc = self.prepare_finding_run(
+                run_dir, ["Low", "Medium", "High", "Critical"]
+            )
+            self.assertIsNotNone(poc)
+            poc_path = run_dir / "reviews/poc-evidence.json"
+            original_poc = poc_path.read_bytes()
+            partial = json.loads(original_poc.decode("utf-8"))
+            critical = next(item for item in partial["findings"] if item["severity"] == "Critical")
+            critical_source = run_dir / critical["sources"][0]["path"]
+            critical_source_bytes = critical_source.read_bytes()
+            critical_source.unlink()
+            partial["findings"] = [item for item in partial["findings"] if item["severity"] != "Critical"]
+            poc_path.write_text(json_text(partial), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "INCOMPLETE_POC"):
+                audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse((run_dir / "report-current.json").exists())
+            poc_path.write_bytes(original_poc)
+            critical_source.parent.mkdir(parents=True, exist_ok=True)
+            critical_source.write_bytes(critical_source_bytes)
+            result = audit_controller.report_run(ROOT, run_dir)
+            report = Path(result["report"]).read_text(encoding="utf-8")
+            issues = self.read(Path(result["issue_candidates"]))
+            self.assertIn("**Severity:** Low", report)
+            self.assertIn("**Severity:** Medium", report)
+            self.assertIn("**Severity:** High", report)
+            self.assertIn("**Severity:** Critical", report)
+            self.assertEqual(
+                {item["severity"] for item in issues["findings"]},
+                {"Critical", "High", "Medium"},
+            )
 
 
 if __name__ == "__main__":

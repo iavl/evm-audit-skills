@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from evm_audit_runtime.versions import REPORT_CURRENT_VERSION, REPORTING_VERSION
+from evm_audit_runtime.versions import POC_EVIDENCE_VERSION, REPORT_CURRENT_VERSION, REPORTING_VERSION
+from evm_audit_runtime.reporting import derive_poc_required_ids
 from evm_audit_runtime.controller_state import STAGE_PROGRESS, TOTAL_STAGES, display_stage as _display_stage, progress_metadata
 
 try:
@@ -59,9 +60,11 @@ try:
         load_json_bytes,
         report_bundle_metadata,
         validate_report_generation,
+        validate_artifact_identity,
         validate_domain_context,
         validate_domain_resolution,
         validate_issue_candidates,
+        validate_poc_evidence,
         validate_reporting_inputs,
         validate_schema,
         validate_target_snapshot,
@@ -83,9 +86,11 @@ except ImportError:  # pragma: no cover
         load_json_bytes,
         report_bundle_metadata,
         validate_report_generation,
+        validate_artifact_identity,
         validate_domain_context,
         validate_domain_resolution,
         validate_issue_candidates,
+        validate_poc_evidence,
         validate_reporting_inputs,
         validate_schema,
         validate_target_snapshot,
@@ -107,6 +112,7 @@ REPORTING_IDENTITY_KEYS = (
     "schema_version", "routing_snapshot_id", "review_state_digest",
     "registry_sha256", "source_digest", "compilation_input_digest",
 )
+POC_IDENTITY_KEYS = REPORTING_IDENTITY_KEYS + ("severity_decisions_sha256",)
 
 
 def paths(run_dir: Path) -> dict[str, Any]:
@@ -130,6 +136,7 @@ def paths(run_dir: Path) -> dict[str, Any]:
         "finding_details": run_dir / "reviews/finding-details.json",
         "report_input_severity": run_dir / "report-inputs/severity-decisions.json",
         "report_input_details": run_dir / "report-inputs/finding-details.json",
+        "poc_evidence": run_dir / "reviews/poc-evidence.json",
         "model_profile": run_dir / "config/codex-model-profile.json",
     }
 
@@ -492,6 +499,14 @@ def _log_report(state: dict[str, Any], *, finished: bool, run_dir: Path | None =
             warning("Audit remains incomplete")
 
 
+def _log_poc_policy(confirmed_count: int, required_ids: list[str], pending_ids: list[str] | None = None) -> None:
+    info(f"Confirmed findings: {confirmed_count}")
+    info(f"High/Critical requiring PoC: {len(required_ids)}")
+    info(f"Below High, PoC skipped: {confirmed_count - len(required_ids)}")
+    if pending_ids:
+        warning(f"Report blocked: {len(pending_ids)} required High/Critical PoC missing")
+
+
 def _log_current_state(
     state: dict[str, Any],
     manifest: dict[str, Any],
@@ -720,6 +735,7 @@ def _report_generation_paths(base: Path) -> dict[str, Path]:
         "report_bundle": base / "report-bundle.json",
         "report_input_severity": base / "severity-decisions.json",
         "report_input_details": base / "finding-details.json",
+        "poc_evidence": base / "poc-evidence.json",
     }
 
 
@@ -777,6 +793,7 @@ def _validate_existing_generation(
     generation: Path,
     *,
     finding_report: bool,
+    poc_required: bool = False,
 ) -> None:
     expected = {path.name: path for path in staging.iterdir()}
     expected_names = {
@@ -786,6 +803,8 @@ def _validate_existing_generation(
     }
     if finding_report:
         expected_names.update({"severity-decisions.json", "finding-details.json"})
+        if poc_required:
+            expected_names.add("poc-evidence.json")
     if set(expected) != expected_names or any(path.is_symlink() or not path.is_file() for path in expected.values()):
         raise ValueError(f"content-addressed generation has mismatched contents: {generation}")
     actual = {path.name: path for path in generation.iterdir()}
@@ -826,6 +845,7 @@ def _sync_report_convenience_copies(
     artifacts: dict[str, Path],
     *,
     finding_report: bool,
+    poc_required: bool = False,
 ) -> dict[str, Any]:
     # ponytail: convenience copies are best-effort; report-current.json is the commit boundary.
     copies = (
@@ -838,6 +858,8 @@ def _sync_report_convenience_copies(
             (values["report_input_severity"], artifacts["report_input_severity"]),
             (values["report_input_details"], artifacts["report_input_details"]),
         )
+        if poc_required:
+            copies += ((values["poc_evidence"], artifacts["poc_evidence"]),)
     failed_paths: list[str] = []
     warnings: list[str] = []
     for destination, source in copies:
@@ -856,6 +878,7 @@ def _convenience_copies_current(
     artifacts: dict[str, Path],
     *,
     finding_report: bool,
+    poc_required: bool = False,
 ) -> bool:
     copies = (
         (values["report"], artifacts["report"]),
@@ -867,6 +890,8 @@ def _convenience_copies_current(
             (values["report_input_severity"], artifacts["report_input_severity"]),
             (values["report_input_details"], artifacts["report_input_details"]),
         )
+        if poc_required:
+            copies += ((values["poc_evidence"], artifacts["poc_evidence"]),)
     try:
         return all(destination.exists() and destination.read_bytes() == source.read_bytes() for destination, source in copies)
     except OSError:
@@ -902,9 +927,13 @@ def _report_bundle_status(
             }
         metadata = load_json(marker)
         validate_schema(root, "report-bundle.schema.json", metadata)
+        if pointer is not None:
+            _validate_generation_snapshot(root, artifacts["report"].parent)
         issue_candidates, issue_candidates_bytes = load_json_bytes(artifacts["issue_candidates"])
-        severity_decisions_bytes = finding_details_bytes = None
-        severity_decisions = finding_details = None
+        severity_decisions_bytes = finding_details_bytes = poc_evidence_bytes = None
+        severity_decisions = finding_details = poc_evidence = None
+        required_poc_ids: list[str] = []
+        run_dir = values["manifest"].parent.parent
         if state.get("status") == "COMPLETE_WITH_FINDINGS":
             severity_decisions, severity_decisions_bytes = load_json_bytes(artifacts["report_input_severity"])
             finding_details, finding_details_bytes = load_json_bytes(artifacts["report_input_details"])
@@ -915,6 +944,23 @@ def _report_bundle_status(
                 severity_decisions,
                 finding_details,
             )
+            required_poc_ids = derive_poc_required_ids(
+                state["coverage"]["confirmed"], severity_decisions["decisions"]
+            )
+            if required_poc_ids:
+                poc_path = artifacts["poc_evidence"]
+                if poc_path.is_symlink() or not poc_path.is_file():
+                    raise ValueError(f"INCOMPLETE_POC: generation is missing {poc_path.name}")
+                poc_evidence, poc_evidence_bytes = load_json_bytes(poc_path)
+                validate_poc_evidence(
+                    root,
+                    manifest,
+                    state,
+                    severity_decisions,
+                    severity_decisions_bytes,
+                    poc_evidence,
+                    run_dir=run_dir,
+                )
         validate_issue_candidates(
             root,
             manifest,
@@ -938,6 +984,8 @@ def _report_bundle_status(
                 finding_details=finding_details,
                 severity_decisions_bytes=severity_decisions_bytes,
                 finding_details_bytes=finding_details_bytes,
+                poc_evidence=poc_evidence,
+                poc_evidence_bytes=poc_evidence_bytes,
                 allow_incomplete=not state["complete"],
                 domain_resolution=resolution,
                 screen_results=screen,
@@ -961,13 +1009,21 @@ def _report_bundle_status(
             issue_candidates_bytes=issue_candidates_bytes,
             severity_decisions_bytes=severity_decisions_bytes,
             finding_details_bytes=finding_details_bytes,
+            severity_decisions=severity_decisions,
+            poc_evidence=poc_evidence,
+            poc_evidence_bytes=poc_evidence_bytes,
         )
         if metadata != expected:
             raise ValueError("report bundle marker or body hashes do not match current audit state")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         return {"status": "STALE", "current": False, "message": f"report bundle is not current: {error}"}
     finding_report = state.get("status") == "COMPLETE_WITH_FINDINGS"
-    convenience_synced = _convenience_copies_current(values, artifacts, finding_report=finding_report)
+    convenience_synced = _convenience_copies_current(
+        values,
+        artifacts,
+        finding_report=finding_report,
+        poc_required=bool(required_poc_ids),
+    )
     result = {
         "status": "CURRENT",
         "current": True,
@@ -984,6 +1040,8 @@ def _report_bundle_status(
                 "bundle": str(artifacts["report_bundle"]),
             }
         )
+        if required_poc_ids:
+            result["poc_evidence"] = str(artifacts["poc_evidence"])
     return result
 
 
@@ -994,7 +1052,7 @@ def _report_generation_status(values: dict[str, Any], bundle_status: dict[str, A
         "current_pointer": str(values["report_current"]),
         "convenience_synced": bundle_status.get("convenience_synced", False),
     }
-    for key in ("generation", "report", "issue_candidates", "bundle", "message", "orphaned_generations", "staging_artifacts"):
+    for key in ("generation", "report", "issue_candidates", "bundle", "poc_evidence", "message", "orphaned_generations", "staging_artifacts"):
         if key in bundle_status:
             result[key] = bundle_status[key]
     return result
@@ -1031,6 +1089,7 @@ def _validate_generation_snapshot(root: Path, generation: Path) -> dict[str, Any
     for filename, digest_key in (
         ("severity-decisions.json", "severity_decisions_sha256"),
         ("finding-details.json", "finding_details_sha256"),
+        ("poc-evidence.json", "poc_evidence_sha256"),
     ):
         digest = bundle[digest_key]
         path = files.get(filename)
@@ -1271,12 +1330,72 @@ def _reporting_payloads(manifest: dict[str, Any], state: dict[str, Any]) -> dict
     }
 
 
+def _poc_evidence_template(
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+    severity_decisions: dict[str, Any],
+    severity_decisions_bytes: bytes,
+    required_ids: list[str],
+) -> dict[str, Any]:
+    identity = _reporting_identity(manifest, state)
+    return {
+        "artifact_type": "poc-evidence",
+        "schema_version": POC_EVIDENCE_VERSION,
+        "artifact_state": "TEMPLATE",
+        "routing_snapshot_id": identity["routing_snapshot_id"],
+        "review_snapshot_id": state["review_snapshot_id"],
+        "review_state_digest": identity["review_state_digest"],
+        "registry_sha256": identity["registry_sha256"],
+        "source_digest": identity["source_digest"],
+        "compilation_input_digest": identity["compilation_input_digest"],
+        "severity_decisions_sha256": hashlib.sha256(severity_decisions_bytes).hexdigest(),
+        "findings": [
+            {"canonical_id": canonical_id, "severity": severity_decisions["decisions"][canonical_id]["severity"]}
+            for canonical_id in required_ids
+        ],
+    }
+
+
+def _current_severity_for_poc(
+    root: Path,
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+    path: Path,
+) -> tuple[dict[str, Any], bytes, list[str]] | None:
+    if not path.exists():
+        return None
+    try:
+        value, raw = load_json_bytes(path)
+        validate_schema(root, "severity-decisions.schema.json", value)
+        validate_artifact_identity(value, manifest)
+        if value.get("artifact_state") == "TEMPLATE":
+            return None
+        if value.get("review_state_digest") != state.get("review_state_digest"):
+            return None
+        decisions = value.get("decisions")
+        confirmed = state.get("coverage", {}).get("confirmed", [])
+        if not isinstance(decisions, dict) or not isinstance(confirmed, list):
+            return None
+        required = derive_poc_required_ids(confirmed, decisions)
+        return value, raw, required
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+
+
 def _reporting_ids(value: dict[str, Any], kind: str) -> tuple[set[str] | None, bool]:
     if kind == "severity":
         decisions = value.get("decisions")
         if not isinstance(decisions, dict) or any(not isinstance(canonical_id, str) for canonical_id in decisions):
             return None, False
         return set(decisions), True
+    if kind == "poc":
+        findings = value.get("findings")
+        if not isinstance(findings, list):
+            return None, False
+        ids = [item.get("canonical_id") for item in findings if isinstance(item, dict)]
+        if len(ids) != len(findings) or any(not isinstance(canonical_id, str) for canonical_id in ids):
+            return None, False
+        return set(ids), len(ids) == len(set(ids))
     findings = value.get("findings")
     if not isinstance(findings, list):
         return None, False
@@ -1297,8 +1416,9 @@ def _reporting_matches(
     expected: dict[str, Any],
     confirmed_ids: set[str],
     kind: str,
+    identity_keys: tuple[str, ...] = REPORTING_IDENTITY_KEYS,
 ) -> bool:
-    if any(value.get(key) != expected[key] for key in REPORTING_IDENTITY_KEYS):
+    if any(value.get(key) != expected[key] for key in identity_keys):
         return False
     actual_ids, unique = _reporting_ids(value, kind)
     return unique and actual_ids == confirmed_ids
@@ -1320,6 +1440,8 @@ def _ensure_reporting_template(
     path: Path,
     payload: dict[str, Any],
     kind: str,
+    *,
+    identity_keys: tuple[str, ...] = REPORTING_IDENTITY_KEYS,
 ) -> tuple[str, Path | None]:
     if not path.exists():
         atomic_write_json(path, payload)
@@ -1329,9 +1451,9 @@ def _ensure_reporting_template(
         existing = load_json(path)
     except ValueError:
         existing = {}
-    expected = {key: payload[key] for key in REPORTING_IDENTITY_KEYS}
+    expected = {key: payload[key] for key in identity_keys}
     confirmed_ids, _ = _reporting_ids(payload, kind)
-    if _reporting_matches(existing, expected, confirmed_ids or set(), kind):
+    if _reporting_matches(existing, expected, confirmed_ids or set(), kind, identity_keys=identity_keys):
         status = "CURRENT_TEMPLATE" if _is_generated_reporting_template(existing, kind) else "CURRENT_COMPLETED"
         return status, None
     if _is_generated_reporting_template(existing, kind):
@@ -1340,6 +1462,20 @@ def _ensure_reporting_template(
     archived = _archive_stale_reporting(path, existing, expected)
     atomic_write_json(path, payload)
     return "ARCHIVED_STALE_ARTIFACT", archived
+
+
+def _retire_unneeded_poc(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        existing = load_json(path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        existing = {}
+    if _is_generated_reporting_template(existing, "poc"):
+        path.unlink()
+        return "REMOVED_UNNEEDED_TEMPLATE"
+    archived = _archive_stale_reporting(path, existing, {"review_state_digest": "0" * 64})
+    return f"ARCHIVED_STALE_ARTIFACT:{archived}"
 
 
 def _ensure_reporting_templates(manifest: dict[str, Any], state: dict[str, Any], run_dir: Path) -> dict[str, Any]:
@@ -1361,7 +1497,79 @@ def _ensure_reporting_templates(manifest: dict[str, Any], state: dict[str, Any],
     }
     if archives:
         result["archived_templates"] = archives
+    current_severity = _current_severity_for_poc(
+        ROOT, manifest, state, paths(run_dir)["severity_decisions"]
+    )
+    if current_severity is not None:
+        severity, severity_bytes, required_ids = current_severity
+        poc_path = paths(run_dir)["poc_evidence"]
+        result["poc_policy"] = {
+            "minimum_severity": "High",
+            "required_count": len(required_ids),
+            "skipped_below_high_count": len(state["coverage"]["confirmed"]) - len(required_ids),
+            "required_ids": required_ids,
+        }
+        if required_ids:
+            poc_payload = _poc_evidence_template(
+                manifest, state, severity, severity_bytes, required_ids
+            )
+            status, archived = _ensure_reporting_template(
+                poc_path,
+                poc_payload,
+                "poc",
+                identity_keys=POC_IDENTITY_KEYS,
+            )
+            result["templates"]["poc_evidence"] = str(poc_path)
+            result["template_status"]["poc_evidence"] = status
+            if archived is not None:
+                result.setdefault("archived_templates", {})["poc_evidence"] = str(archived)
+        else:
+            retired = _retire_unneeded_poc(poc_path)
+            if retired is not None:
+                result["poc_evidence_status"] = retired
+        policy_status = _poc_policy_status(ROOT, paths(run_dir), manifest, state)
+        if policy_status is not None:
+            result["poc_policy"].update(
+                complete_ids=policy_status["complete_ids"],
+                pending_ids=policy_status["pending_ids"],
+            )
     return result
+
+
+def _poc_policy_status(
+    root: Path,
+    values: dict[str, Any],
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+) -> dict[str, Any] | None:
+    current = _current_severity_for_poc(root, manifest, state, values["severity_decisions"])
+    if current is None:
+        return None
+    severity, severity_bytes, required_ids = current
+    complete_ids: list[str] = []
+    if required_ids and values["poc_evidence"].is_file() and not values["poc_evidence"].is_symlink():
+        try:
+            poc, _ = load_json_bytes(values["poc_evidence"])
+            validate_poc_evidence(
+                root,
+                manifest,
+                state,
+                severity,
+                severity_bytes,
+                poc,
+                run_dir=values["manifest"].parent.parent,
+            )
+            complete_ids = required_ids
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+            complete_ids = []
+    return {
+        "minimum_severity": "High",
+        "required_count": len(required_ids),
+        "skipped_below_high_count": len(state["coverage"]["confirmed"]) - len(required_ids),
+        "required_ids": required_ids,
+        "complete_ids": complete_ids,
+        "pending_ids": [canonical_id for canonical_id in required_ids if canonical_id not in complete_ids],
+    }
 
 
 def status_run(
@@ -1395,7 +1603,7 @@ def status_run(
     stage_name = _state_stage(state, manifest, resolution, domain_context)
     if stage_name is None:
         return state
-    return {
+    result = {
         **state,
         "stage": stage_name,
         "progress": progress_metadata(
@@ -1409,6 +1617,14 @@ def status_run(
         "report_bundle": bundle_status,
         "report_generation": _report_generation_status(values, bundle_status),
     }
+    poc_policy = _poc_policy_status(root, values, manifest, state)
+    if poc_policy is not None:
+        result["poc_policy"] = poc_policy
+        result["required_inputs"] = ["severity-decisions", "finding-details"]
+        if poc_policy["required_count"]:
+            result["required_inputs"].append("poc-evidence")
+            result["pending_poc"] = poc_policy["pending_ids"]
+    return result
 
 
 def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = True) -> dict[str, Any]:
@@ -1598,12 +1814,14 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
         audit_state=str(values["audit_state"]),
     )
     if state["status"] == "COMPLETE_WITH_FINDINGS":
-        result.update(_ensure_reporting_templates(manifest, state, run_dir))
-        result.update(
-            {
-                "required_inputs": ["severity-decisions", "finding-details"],
-            }
-        )
+        reporting = _ensure_reporting_templates(manifest, state, run_dir)
+        result.update(reporting)
+        required_inputs = ["severity-decisions", "finding-details"]
+        policy = reporting.get("poc_policy")
+        if isinstance(policy, dict) and policy.get("required_count"):
+            required_inputs.append("poc-evidence")
+            result["pending_poc"] = policy.get("pending_ids", policy["required_ids"])
+        result["required_inputs"] = required_inputs
     return result
 
 
@@ -1655,12 +1873,15 @@ def report_run(
     run_dir: Path,
     severity_path: Path | None = None,
     finding_details_path: Path | None = None,
+    poc_evidence_path: Path | None = None,
 ) -> dict[str, Any]:
     values, manifest, registry = _load_run(root, run_dir)
     state = status_run(root, run_dir, emit=False)
     _log_report(state, finished=False, run_dir=run_dir)
     severity = severity_bytes = None
     finding_details = finding_details_bytes = None
+    poc_evidence = poc_evidence_bytes = None
+    required_poc_ids: list[str] = []
     if state["complete"]:
         if state["status"] == "COMPLETE_WITH_FINDINGS":
             severity_path = severity_path or values["severity_decisions"]
@@ -1669,6 +1890,24 @@ def report_run(
             severity, severity_bytes = load_json_bytes(severity_path)
         if finding_details_path is not None:
             finding_details, finding_details_bytes = load_json_bytes(finding_details_path)
+        if severity is not None and state["status"] == "COMPLETE_WITH_FINDINGS":
+            decisions = severity.get("decisions")
+            confirmed = state.get("coverage", {}).get("confirmed", [])
+            if isinstance(decisions, dict) and isinstance(confirmed, list):
+                try:
+                    required_poc_ids = derive_poc_required_ids(confirmed, decisions)
+                except ValueError:
+                    required_poc_ids = []
+        if poc_evidence_path is None and required_poc_ids and values["poc_evidence"].exists():
+            poc_evidence_path = values["poc_evidence"]
+        if poc_evidence_path is not None:
+            poc_evidence, poc_evidence_bytes = load_json_bytes(poc_evidence_path)
+        if state["status"] == "COMPLETE_WITH_FINDINGS" and severity is not None:
+            _log_poc_policy(
+                len(state.get("coverage", {}).get("confirmed", [])),
+                required_poc_ids,
+                required_poc_ids if required_poc_ids and poc_evidence is None else [],
+            )
     resolution = load_json(values["resolution"]) if values["resolution"].exists() else None
     screen = load_json(values["screen_results"]) if values["screen_results"].exists() else None
     domain_context = load_json(values["domain_context"]) if values["domain_context"].exists() else None
@@ -1683,6 +1922,8 @@ def report_run(
         finding_details=finding_details,
         severity_decisions_bytes=severity_bytes,
         finding_details_bytes=finding_details_bytes,
+        poc_evidence=poc_evidence,
+        poc_evidence_bytes=poc_evidence_bytes,
         allow_incomplete=not state["complete"],
         domain_resolution=resolution,
         screen_results=screen,
@@ -1690,6 +1931,22 @@ def report_run(
         context=context,
     )
     current_state = synthesis.state
+    if poc_evidence is not None:
+        validate_poc_evidence(
+            root,
+            manifest,
+            current_state,
+            severity,
+            severity_bytes,
+            poc_evidence,
+            run_dir=run_dir,
+        )
+    required_poc_ids = derive_poc_required_ids(
+        current_state["coverage"]["confirmed"],
+        severity["decisions"],
+    ) if current_state["status"] == "COMPLETE_WITH_FINDINGS" else []
+    if current_state["status"] == "COMPLETE_WITH_FINDINGS" and not required_poc_ids and poc_evidence_path is None:
+        _retire_unneeded_poc(values["poc_evidence"])
     report = synthesis.report
     issues = synthesis.issue_candidates
     severity_bytes = synthesis.severity_decisions_bytes
@@ -1705,6 +1962,9 @@ def report_run(
         issue_candidates_bytes=json_text(issues).encode("utf-8"),
         severity_decisions_bytes=severity_bytes,
         finding_details_bytes=finding_details_bytes,
+        severity_decisions=severity,
+        poc_evidence=poc_evidence,
+        poc_evidence_bytes=synthesis.poc_evidence_bytes,
     )
     validate_schema(root, "report-bundle.schema.json", bundle)
     report_generations = values["report_generations"]
@@ -1730,6 +1990,8 @@ def report_run(
             if current_state["status"] == "COMPLETE_WITH_FINDINGS":
                 atomic_write_bytes(artifacts["report_input_severity"], severity_bytes)
                 atomic_write_bytes(artifacts["report_input_details"], finding_details_bytes)
+                if required_poc_ids:
+                    atomic_write_bytes(artifacts["poc_evidence"], synthesis.poc_evidence_bytes)
             atomic_write_text(artifacts["report"], report)
             atomic_write_json(artifacts["issue_candidates"], issues)
             atomic_write_json(artifacts["report_bundle"], bundle)
@@ -1746,6 +2008,8 @@ def report_run(
                 candidate_issues,
                 artifacts["issue_candidates"].read_bytes(),
             )
+            if required_poc_ids and artifacts["poc_evidence"].read_bytes() != synthesis.poc_evidence_bytes:
+                raise ValueError("generation PoC evidence does not match the consumed artifact")
             validate_schema(root, "report-bundle.schema.json", load_json(artifacts["report_bundle"]))
             fresh_state = status_run(root, values["manifest"].parent.parent, emit=False)
             if _publication_identity(manifest, fresh_state) != _publication_identity(manifest, current_state):
@@ -1759,6 +2023,7 @@ def report_run(
                     artifacts["report"].parent,
                     generation,
                     finding_report=current_state["status"] == "COMPLETE_WITH_FINDINGS",
+                    poc_required=bool(required_poc_ids),
                 )
                 shutil.rmtree(staging)
                 staging = None
@@ -1787,6 +2052,7 @@ def report_run(
                 values,
                 _report_generation_paths(generation),
                 finding_report=current_state["status"] == "COMPLETE_WITH_FINDINGS",
+                poc_required=bool(required_poc_ids),
             )
             bundle_status = _report_bundle_status(root, values, manifest, current_state)
             if not bundle_status["current"]:
@@ -1806,7 +2072,7 @@ def report_run(
         warning("Audit remains incomplete")
     generation_artifacts = _report_generation_paths(generation)
     bundle_status = _report_bundle_status(root, values, manifest, current_state)
-    return _stage_result(
+    result = _stage_result(
         run_dir,
         "REPORT",
         summary=f"Audit state: {current_state['status']}",
@@ -1828,6 +2094,12 @@ def report_run(
         report_bundle=bundle_status,
         report_generation=_report_generation_status(values, bundle_status),
     )
+    poc_policy = _poc_policy_status(root, values, manifest, current_state)
+    if poc_policy is not None:
+        result["poc_policy"] = poc_policy
+    if required_poc_ids:
+        result["poc_evidence_path"] = str(generation_artifacts["poc_evidence"])
+    return result
 
 
 def _add_logging_flags(parser: argparse.ArgumentParser) -> None:
@@ -1888,6 +2160,7 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--root", type=Path, default=ROOT)
     report.add_argument("--severity-decisions", type=Path)
     report.add_argument("--finding-details", type=Path)
+    report.add_argument("--poc-evidence", type=Path)
     _add_logging_flags(report)
 
     reports = subparsers.add_parser("reports")
@@ -1950,7 +2223,13 @@ def main(argv: list[str] | None = None) -> int:
                 apply=args.apply,
             )
         else:
-            result = report_run(root, args.run_dir, args.severity_decisions, args.finding_details)
+            result = report_run(
+                root,
+                args.run_dir,
+                args.severity_decisions,
+                args.finding_details,
+                args.poc_evidence,
+            )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if args.command == "report" and result.get("complete") is False else 0
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
