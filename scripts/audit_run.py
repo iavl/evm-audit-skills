@@ -753,6 +753,8 @@ def _report_generation_inventory(
     staging_artifacts: list[str] = []
     orphaned_generations: list[str] = []
     generations = values["report_generations"]
+    if generations.is_symlink():
+        raise ValueError(f"report-generations must not be a symlink: {generations}")
     if generations.exists() and not generations.is_dir():
         raise ValueError(f"report-generations is not a directory: {generations}")
     if not generations.exists():
@@ -799,6 +801,9 @@ def _current_report_generation(
     values: dict[str, Any],
 ) -> tuple[dict[str, Path], dict[str, Any]] | None:
     pointer_path = values["report_current"]
+    generations = values["report_generations"]
+    if generations.is_symlink() or (generations.exists() and not generations.is_dir()):
+        raise ValueError(f"report-generations is not a regular directory: {generations}")
     if not pointer_path.exists():
         return None
     pointer = load_json(pointer_path)
@@ -1065,6 +1070,8 @@ def reports_run(
         raise ValueError("--dry-run requires --gc")
     values, _, _ = _load_run(root, run_dir)
     report_generations = values["report_generations"]
+    if report_generations.is_symlink() or (report_generations.exists() and not report_generations.is_dir()):
+        raise ValueError(f"report-generations is not a regular directory: {report_generations}")
     with _report_publication_lock(values["manifest"].parent.parent):
         current_generation = _pointer_generation_name(values["report_current"])
         try:
@@ -1701,6 +1708,8 @@ def report_run(
     )
     validate_schema(root, "report-bundle.schema.json", bundle)
     report_generations = values["report_generations"]
+    if report_generations.is_symlink() or (report_generations.exists() and not report_generations.is_dir()):
+        raise ValueError(f"report-generations is not a regular directory: {report_generations}")
     report_generations.mkdir(parents=True, exist_ok=True)
     generation_id = uuid.uuid4().hex
     generation: Path | None = None
