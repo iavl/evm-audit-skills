@@ -45,7 +45,7 @@ audit artifacts.
 | runtime Markdown | no, generated view | sidecar identity + body SHA-256 | regenerate |
 | code-index | no, navigation hint | Recon `navigation_artifacts.code_index.sha256` plus current target snapshot | disable navigation |
 | severity/finding details | reporting input | review-state digest | report admission error |
-| final report + issue candidates | derived outputs | immutable report generation, `report-current.json`, report-bundle v2 marker, body hashes, and finding-input hashes | stale/incomplete |
+| final report + issue candidates | derived outputs | immutable report generation, `report-current.json` v2, report-bundle v2 marker, body hashes, and finding-input hashes | stale/incomplete |
 
 The machine-readable JSON/JSONL artifacts are authoritative. Runtime Markdown
 is paired with a schema-validated `.meta.json` sidecar containing
@@ -56,12 +56,16 @@ unbound index is reported as unavailable without changing authoritative audit
 state. Bound code-index queries validate the routing manifest, target snapshot,
 Recon binding, exact body hash, schema version, and index lineage before lookup;
 an unbound `--index` query requires explicit development opt-in. `report-bundle.json`
-is written inside an immutable `report-generations/generation-<id>/` directory.
-The small `report-current.json` pointer is the publication commit boundary; a
-failed generation leaves the previous pointer and generation untouched. Stable
-top-level report files and `report-inputs/` files are convenience copies only.
-The current bundle is accepted only when its identity, body hashes, exact
-generation snapshots, and deterministic synthesis match the current state.
+is written inside an immutable
+`report-generations/generation-<bundle-sha256>/` directory. The small
+`report-current.json` pointer is the publication commit boundary; a failed
+generation leaves the previous pointer and generation untouched. Stable
+top-level report files and `report-inputs/` files are convenience copies only,
+and their synchronization status is returned explicitly. The current bundle is
+accepted only when its identity, body hashes, exact generation snapshots, and
+deterministic synthesis match the current state. Report publication is
+serialized per run, and the pointer is committed only after a final state
+identity check.
 
 `non-authoritative != integrity-unchecked`.
 
@@ -116,11 +120,12 @@ python3 scripts/code_context.py --run-dir <run-dir> --function <function-id> \
 `MISSING`, `TAMPERED`, and `UNAVAILABLE` disable navigation; they do not
 invalidate authoritative audit state. `edge_count` and `unique_edge_count` are
 the deterministic number of unique available graph edges before the cap;
-`returned_edge_count` counts unique edges admitted by the cap, while
-`serialized_edge_count` reports returned array entries when callers and callees
-both request the same selected edge. `edges_truncated` exposes omitted unique
-edges. Capped edges are returned in deterministic priority order: unresolved,
-selected, then boundary edges.
+`returned_edge_count` counts unique edges admitted by the cap and
+`serialized_edge_count` is the same hard-bounded entry count. Query v5 returns
+one `selected_edges` array plus `expansion.callers`/`expansion.callees`, so a
+selected edge is not copied into separate caller and callee arrays.
+`edges_truncated` exposes omitted unique edges. Capped edges are returned in
+deterministic priority order: unresolved, selected, then boundary edges.
 
 Render the runtime views from the immutable manifest:
 
@@ -219,6 +224,26 @@ validates and synthesizes in memory, then commits a complete immutable
 generation through `report-current.json`. A failed report leaves the previous
 current generation untouched and exits non-zero if current reporting is
 incomplete. It never trusts a previous `audit-state.json`.
+
+The returned `report` and `issue_candidates` paths point into the committed
+generation. Use `report_generation.report`, `.issue_candidates`, `.bundle`, and
+`.current_pointer` from controller output/status as authoritative paths; stable
+top-level files are convenience copies. Older runs with top-level outputs but no
+pointer are uncommitted. Rerun the explicit `report` command to rederive state
+and republish them; old bodies are never migrated blindly.
+
+Inspect or recover report history with:
+
+```bash
+python3 scripts/audit_run.py reports --run-dir <run-dir> --list
+python3 scripts/audit_run.py reports --run-dir <run-dir> --gc --dry-run
+python3 scripts/audit_run.py reports --run-dir <run-dir> --gc --apply
+```
+
+Cleanup protects the current generation, ignores unknown directories, and only
+removes stale staging directories or verified orphan generations. A generation
+does not yet contain a hashed `audit-state.json` snapshot; its historical state
+is reconstructed from the immutable run inputs and ledger.
 
 The low-level `synthesize_report.py --audit-state` argument is an optional
 derived cache for compatibility; synthesis re-derives the current state from

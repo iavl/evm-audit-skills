@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -810,6 +811,8 @@ def _current_report_generation(
     bundle_bytes = artifacts["report_bundle"].read_bytes()
     if hashlib.sha256(bundle_bytes).hexdigest() != pointer["report_bundle_sha256"]:
         raise ValueError("report-current.json does not match its report bundle")
+    if generation != f"generation-{pointer['report_bundle_sha256']}":
+        raise ValueError("report-current.json generation does not match its bundle digest")
     return artifacts, pointer
 
 
@@ -986,10 +989,154 @@ def _report_generation_status(values: dict[str, Any], bundle_status: dict[str, A
         "current_pointer": str(values["report_current"]),
         "convenience_synced": bundle_status.get("convenience_synced", False),
     }
-    for key in ("generation", "report", "issue_candidates", "bundle"):
+    for key in ("generation", "report", "issue_candidates", "bundle", "message", "orphaned_generations", "staging_artifacts"):
         if key in bundle_status:
             result[key] = bundle_status[key]
     return result
+
+
+def _pointer_generation_name(path: Path) -> str | None:
+    try:
+        generation = load_json(path).get("generation")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return generation if isinstance(generation, str) and re.fullmatch(r"generation-[0-9a-f]+", generation) else None
+
+
+def _validate_generation_snapshot(root: Path, generation: Path) -> dict[str, Any]:
+    if generation.is_symlink() or not generation.is_dir():
+        raise ValueError(f"generation is not a regular directory: {generation}")
+    files = {path.name: path for path in generation.iterdir()}
+    bundle_path = files.get("report-bundle.json")
+    report_path = files.get("AUDIT-REPORT.md")
+    issue_path = files.get("issue-candidates.json")
+    if any(path is None or path.is_symlink() or not path.is_file() for path in (bundle_path, report_path, issue_path)):
+        raise ValueError("generation is missing required report artifacts")
+    bundle_bytes = bundle_path.read_bytes()
+    bundle = json.loads(bundle_bytes.decode("utf-8"))
+    validate_schema(root, "report-bundle.schema.json", bundle)
+    issue_bytes = issue_path.read_bytes()
+    issues = json.loads(issue_bytes.decode("utf-8"))
+    validate_schema(root, "issue-candidates.schema.json", issues)
+    if hashlib.sha256(report_path.read_bytes()).hexdigest() != bundle["report_sha256"]:
+        raise ValueError("generation report hash does not match its bundle")
+    if hashlib.sha256(issue_bytes).hexdigest() != bundle["issue_candidates_sha256"]:
+        raise ValueError("generation issue-candidates hash does not match its bundle")
+    expected = {"AUDIT-REPORT.md", "issue-candidates.json", "report-bundle.json"}
+    for filename, digest_key in (
+        ("severity-decisions.json", "severity_decisions_sha256"),
+        ("finding-details.json", "finding_details_sha256"),
+    ):
+        digest = bundle[digest_key]
+        path = files.get(filename)
+        if digest is None:
+            if path is not None:
+                raise ValueError(f"generation has unexpected {filename}")
+            continue
+        if path is None or path.is_symlink() or not path.is_file():
+            raise ValueError(f"generation is missing {filename}")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise ValueError(f"generation {filename} hash does not match its bundle")
+        expected.add(filename)
+    if set(files) != expected or any(path.is_symlink() or not path.is_file() for path in files.values()):
+        raise ValueError("generation contains unexpected artifacts")
+    bundle_digest = hashlib.sha256(bundle_bytes).hexdigest()
+    suffix = generation.name.removeprefix("generation-")
+    content_addressed = bool(re.fullmatch(r"[0-9a-f]{64}", suffix))
+    if content_addressed and suffix != bundle_digest:
+        raise ValueError("content-addressed generation name does not match its bundle")
+    return {"bundle_sha256": bundle_digest, "content_addressed": content_addressed}
+
+
+def reports_run(
+    root: Path,
+    run_dir: Path,
+    *,
+    list_only: bool = False,
+    gc: bool = False,
+    dry_run: bool = False,
+    apply: bool = False,
+) -> dict[str, Any]:
+    if list_only == gc:
+        raise ValueError("reports requires exactly one of --list or --gc")
+    if apply and not gc:
+        raise ValueError("--apply requires --gc")
+    if dry_run and not gc:
+        raise ValueError("--dry-run requires --gc")
+    values, _, _ = _load_run(root, run_dir)
+    report_generations = values["report_generations"]
+    with _report_publication_lock(values["manifest"].parent.parent):
+        current_generation = _pointer_generation_name(values["report_current"])
+        try:
+            current = _current_report_generation(root, values)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            warning(f"current report pointer is not valid: {exc}")
+            current = None
+        if current is not None:
+            current_generation = current[1]["generation"]
+        inventory = _report_generation_inventory(values, current_generation)
+        generation_records: list[dict[str, Any]] = []
+        by_bundle: dict[str, list[dict[str, Any]]] = {}
+        if report_generations.exists():
+            for generation in sorted(report_generations.iterdir(), key=lambda item: item.name):
+                if not generation.name.startswith("generation-") or generation.is_symlink() or not generation.is_dir():
+                    continue
+                record: dict[str, Any] = {
+                    "generation": generation.name,
+                    "current": generation.name == current_generation,
+                    "verified": False,
+                    "content_addressed": False,
+                    "safe_to_remove": False,
+                }
+                try:
+                    verified = _validate_generation_snapshot(root, generation)
+                    record.update(verified, verified=True)
+                    by_bundle.setdefault(verified["bundle_sha256"], []).append(record)
+                except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                    record["message"] = str(exc)
+                generation_records.append(record)
+        content_generations = {
+            bundle_sha256
+            for bundle_sha256, records in by_bundle.items()
+            if any(record["content_addressed"] for record in records)
+        }
+        candidates: list[str] = []
+        for record in generation_records:
+            if record["current"]:
+                record["message"] = "current generation is protected"
+                continue
+            if not record["verified"]:
+                continue
+            if record["content_addressed"] or record["bundle_sha256"] in content_generations:
+                record["safe_to_remove"] = True
+                candidates.append(record["generation"])
+                record["message"] = "verified orphan generation"
+            else:
+                record["message"] = "verified legacy generation retained without content-addressed duplicate"
+        candidates.extend(inventory["staging_artifacts"])
+        removed: list[str] = []
+        if gc and apply:
+            for name in candidates:
+                target = report_generations / name
+                if target.parent.resolve() != report_generations.resolve() or target.is_symlink() or not target.is_dir():
+                    continue
+                shutil.rmtree(target)
+                removed.append(name)
+        return {
+            "stage": "REPORTS",
+            "run_dir": str(values["manifest"].parent.parent),
+            "current_generation": current_generation,
+            "generations": generation_records,
+            "orphaned_generations": inventory["orphaned_generations"],
+            "staging_artifacts": inventory["staging_artifacts"],
+            "gc": {
+                "requested": gc,
+                "dry_run": gc and not apply,
+                "applied": gc and apply,
+                "candidates": candidates,
+                "removed": removed,
+            },
+        }
 
 
 def _load_run(root: Path, run_dir: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
@@ -1734,6 +1881,17 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--finding-details", type=Path)
     _add_logging_flags(report)
 
+    reports = subparsers.add_parser("reports")
+    reports.add_argument("--run-dir", type=Path, required=True)
+    reports.add_argument("--root", type=Path, default=ROOT)
+    reports_mode = reports.add_mutually_exclusive_group(required=True)
+    reports_mode.add_argument("--list", action="store_true", help="list report generations and recovery artifacts")
+    reports_mode.add_argument("--gc", action="store_true", help="preview safe report-generation cleanup")
+    reports_gc_mode = reports.add_mutually_exclusive_group()
+    reports_gc_mode.add_argument("--dry-run", action="store_true", help="do not remove cleanup candidates")
+    reports_gc_mode.add_argument("--apply", action="store_true", help="remove verified cleanup candidates")
+    _add_logging_flags(reports)
+
     models = subparsers.add_parser("models")
     models.add_argument("--run-dir", type=Path)
     models.add_argument("--root", type=Path, default=ROOT)
@@ -1772,6 +1930,15 @@ def main(argv: list[str] | None = None) -> int:
                 model_profile_path=args.model_profile,
                 reset_defaults=args.reset_defaults,
                 init_global=args.init_global,
+            )
+        elif args.command == "reports":
+            result = reports_run(
+                root,
+                args.run_dir,
+                list_only=args.list,
+                gc=args.gc,
+                dry_run=args.dry_run,
+                apply=args.apply,
             )
         else:
             result = report_run(root, args.run_dir, args.severity_decisions, args.finding_details)

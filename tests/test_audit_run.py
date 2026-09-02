@@ -408,6 +408,85 @@ class AuditRunTests(unittest.TestCase):
                 audit_controller.report_run(ROOT, run_dir)
             self.assertEqual(events, ["rename", "pointer"])
 
+    def test_internal_status_skips_report_resynthesis(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            with patch.object(audit_controller, "synthesize", side_effect=AssertionError("unexpected synthesis")):
+                state = audit_controller.status_run(ROOT, run_dir, emit=False)
+            self.assertEqual(state["status"], "COMPLETE_CLEAN")
+
+    def test_reports_list_diagnoses_staging_and_orphans(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            first = self.read(values["report_current"])["generation"]
+            screen = self.read(values["screen_results"])
+            screen["results"][0].update(result="CANDIDATE", scope_complete=False, evidence=[])
+            values["screen_results"].write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
+            audit_controller.report_run(ROOT, run_dir)
+            staging = values["report_generations"] / ".tmp-crashed-publication"
+            staging.mkdir()
+            result = audit_controller.reports_run(ROOT, run_dir, list_only=True)
+            self.assertIn(first, result["orphaned_generations"])
+            self.assertIn(staging.name, result["staging_artifacts"])
+
+    def test_reports_gc_dry_run_and_apply_preserve_current_and_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            first = self.read(values["report_current"])["generation"]
+            screen = self.read(values["screen_results"])
+            screen["results"][0].update(result="CANDIDATE", scope_complete=False, evidence=[])
+            values["screen_results"].write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
+            audit_controller.report_run(ROOT, run_dir)
+            current = self.read(values["report_current"])["generation"]
+            staging = values["report_generations"] / ".tmp-crashed-publication"
+            unknown = values["report_generations"] / "unrelated-directory"
+            staging.mkdir()
+            unknown.mkdir()
+            dry_run = audit_controller.reports_run(ROOT, run_dir, gc=True, dry_run=True)
+            self.assertIn(first, dry_run["gc"]["candidates"])
+            self.assertIn(staging.name, dry_run["gc"]["candidates"])
+            self.assertFalse(dry_run["gc"]["applied"])
+            self.assertTrue(staging.exists())
+            applied = audit_controller.reports_run(ROOT, run_dir, gc=True, apply=True)
+            self.assertTrue(applied["gc"]["applied"])
+            self.assertFalse(staging.exists())
+            self.assertTrue(unknown.exists())
+            self.assertTrue((values["report_generations"] / current).exists())
+
+    def test_legacy_top_level_outputs_require_explicit_republication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            values = audit_controller.paths(run_dir)
+            values["report"].write_text("legacy report\n", encoding="utf-8")
+            values["issue_candidates"].write_text("{}\n", encoding="utf-8")
+            values["report_bundle"].write_text("{}\n", encoding="utf-8")
+            manifest = self.read(values["manifest"])
+            state = self.read(values["audit_state"])
+            self.assertEqual(audit_controller._report_bundle_status(ROOT, values, manifest, state)["status"], "ABSENT")
+            result = audit_controller.report_run(ROOT, run_dir)
+            self.assertTrue(Path(result["report"]).is_file())
+            self.assertTrue(values["report_current"].exists())
+
+    def test_reports_cli_defaults_gc_to_dry_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            listed = self.run_cli("scripts/audit_run.py", "reports", "--run-dir", str(run_dir), "--list")
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertEqual(json.loads(listed.stdout)["stage"], "REPORTS")
+            preview = self.run_cli("scripts/audit_run.py", "reports", "--run-dir", str(run_dir), "--gc", "--dry-run")
+            self.assertEqual(preview.returncode, 0, preview.stderr)
+            self.assertTrue(json.loads(preview.stdout)["gc"]["dry_run"])
+
     def test_first_report_failure_does_not_create_fake_current_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
@@ -856,7 +935,6 @@ class AuditRunTests(unittest.TestCase):
                 ("report", "text", "AUDIT-REPORT.md"),
                 ("issues", "json", "issue-candidates.json"),
                 ("bundle", "json", "report-bundle.json"),
-                ("pointer", "json", "report-current.json"),
             )
             for name, writer, filename in failure_cases:
                 with self.subTest(boundary=name):

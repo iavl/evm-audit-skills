@@ -41,6 +41,13 @@ suspicious-only `runtime/proof-<owner-domain>.md` view. `report` re-derives stat
 current artifacts and refuses stale, incomplete, or under-specified reporting
 inputs.
 
+For `report` and `status` results, consume the paths under
+`report_generation` (and the report result's `report`, `issue_candidates`, and
+`report_bundle_path`) as authoritative. Top-level `AUDIT-REPORT.md`,
+`issue-candidates.json`, and `report-bundle.json` are convenience copies only;
+their synchronization status is explicit and a failed copy must not change the
+authoritative generation.
+
 ## Codex-visible stage progress
 
 Controller stderr is terminal-oriented and may be collapsed by the Codex UI.
