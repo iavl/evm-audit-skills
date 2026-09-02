@@ -216,11 +216,13 @@ The controller equivalent is:
 python3 scripts/audit_run.py init <target> --run-dir <run-dir> --domain <domain>
 python3 scripts/audit_run.py next --run-dir <run-dir>
 python3 scripts/audit_run.py status --run-dir <run-dir>
-python3 scripts/audit_run.py report --run-dir <run-dir> \
-  --severity-decisions <run-dir>/reviews/severity-decisions.json \
-  --finding-details <run-dir>/reviews/finding-details.json \
-  --poc-evidence <run-dir>/reviews/poc-evidence.json
+python3 scripts/audit_run.py report --run-dir <run-dir>
 ```
+
+The explicit `--severity-decisions`, `--finding-details`, and
+`--poc-evidence` options are advanced overrides. The controller discovers the
+current reporting inputs from the run directory; do not add `--poc-evidence`
+when all confirmed findings are below High.
 
 `next` returns `DEEP_REVIEW` for missing candidate records and `PROOF` for
 latest `SUSPICIOUS` records. `report` always runs `status_run()` first,

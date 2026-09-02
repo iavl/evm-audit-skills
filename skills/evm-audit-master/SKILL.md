@@ -26,10 +26,7 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 python3 <suite-root>/scripts/audit_run.py init <target> --run-dir <run-dir> --domain <domain>
 python3 <suite-root>/scripts/audit_run.py next --run-dir <run-dir>
 python3 <suite-root>/scripts/audit_run.py status --run-dir <run-dir>
-python3 <suite-root>/scripts/audit_run.py report --run-dir <run-dir> \
-  --severity-decisions <run-dir>/reviews/severity-decisions.json \
-  --finding-details <run-dir>/reviews/finding-details.json \
-  --poc-evidence <run-dir>/reviews/poc-evidence.json
+python3 <suite-root>/scripts/audit_run.py report --run-dir <run-dir>
 ```
 
 The controller emits compact progress to stderr by default. Use `--verbose` to
@@ -44,7 +41,11 @@ current artifacts and refuses stale, incomplete, or under-specified reporting
 inputs. The `--poc-evidence` input is required only when current severity
 decisions contain a confirmed `High` or `Critical` finding. The controller
 validates its lineage, exact required-ID projection, source paths, and source
-hashes; it never runs the recorded command automatically.
+hashes; it discovers the current reporting inputs from the run directory and
+never runs the recorded command automatically. The explicit
+`--severity-decisions`, `--finding-details`, and `--poc-evidence` flags are
+advanced overrides; do not add `--poc-evidence` for an all-`Info`/`Low`/`Medium`
+report.
 
 For `report` and `status` results, consume the paths under
 `report_generation` (and the report result's `report`, `issue_candidates`, and

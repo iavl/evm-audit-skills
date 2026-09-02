@@ -1401,6 +1401,32 @@ contract RetainedPoC {
             self.assertFalse((run_dir / "poc").exists())
             self.assertFalse((run_dir / "reviews/poc-evidence.json").exists())
 
+    def test_documented_report_cli_medium_succeeds_without_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
+            result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["complete"])
+            pointer = self.read(run_dir / "report-current.json")
+            self.assertEqual(payload["report_generation"]["status"], "CURRENT")
+            report = (run_dir / "report-generations" / pointer["generation"] / "AUDIT-REPORT.md").read_text(encoding="utf-8")
+            self.assertIn("**Severity:** Medium", report)
+            self.assertEqual(self.read(run_dir / "report-generations" / pointer["generation"] / "report-bundle.json")["poc_evidence_sha256"], None)
+            self.assertFalse((run_dir / "reviews/poc-evidence.json").exists())
+
+    def test_documented_report_cli_high_auto_discovers_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["High"])
+            result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["complete"])
+            self.assertEqual(payload["report_generation"]["status"], "CURRENT")
+            self.assertIn("poc_evidence", payload["report_generation"])
+
     def test_low_report_succeeds_without_poc(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
