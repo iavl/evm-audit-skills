@@ -255,6 +255,7 @@ class AuditRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
             self.prepare_clean_run(run_dir)
+            run_dir = run_dir.resolve()
             values = audit_controller.paths(run_dir)
             original_status = audit_controller.status_run
             calls = 0
@@ -286,6 +287,56 @@ class AuditRunTests(unittest.TestCase):
             with patch.object(audit_controller, "_report_bundle_status", side_effect=stale):
                 with self.assertRaisesRegex(ValueError, "report publication is stale"):
                     audit_controller.report_run(ROOT, run_dir)
+
+    def test_tmp_generation_without_pointer_is_ignored_as_uncommitted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            values = audit_controller.paths(run_dir)
+            staging = values["report_generations"] / ".tmp-crashed-publication"
+            staging.mkdir(parents=True)
+            manifest = self.read(values["manifest"])
+            state = self.read(values["audit_state"])
+            status = audit_controller._report_bundle_status(ROOT, values, manifest, state)
+            self.assertEqual(status["status"], "ABSENT", status)
+            self.assertFalse(status["current"])
+            self.assertIn(staging.name, status["staging_artifacts"])
+
+    def test_pointer_write_failure_after_rename_is_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            run_dir = run_dir.resolve()
+            values = audit_controller.paths(run_dir)
+            original = audit_controller.atomic_write_json
+
+            def fail_pointer(path: Path, value: dict) -> None:
+                if path == values["report_current"]:
+                    raise OSError("pointer write failure")
+                original(path, value)
+
+            with patch.object(audit_controller, "atomic_write_json", side_effect=fail_pointer):
+                with self.assertRaisesRegex(OSError, "pointer write failure"):
+                    audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse(values["report_current"].exists())
+            self.assertFalse(any(values["report_generations"].glob("generation-*")))
+            audit_controller.report_run(ROOT, run_dir)
+            self.assertTrue(values["report_current"].exists())
+
+    def test_orphan_generation_is_reported_but_not_current(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            orphan = values["report_generations"] / "generation-orphan"
+            orphan.mkdir()
+            manifest = self.read(values["manifest"])
+            state = self.read(values["audit_state"])
+            status = audit_controller._report_bundle_status(ROOT, values, manifest, state)
+            self.assertTrue(status["current"], status)
+            self.assertIn(orphan.name, status["orphaned_generations"])
+            self.assertNotEqual(status["generation"], orphan.name)
 
     def test_first_report_failure_does_not_create_fake_current_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

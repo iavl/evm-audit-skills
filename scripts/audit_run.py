@@ -743,15 +743,36 @@ def _pointer_references_generation(path: Path, generation: str) -> bool:
         return False
 
 
+def _report_generation_inventory(
+    values: dict[str, Any],
+    current_generation: str | None = None,
+) -> dict[str, list[str]]:
+    staging_artifacts: list[str] = []
+    orphaned_generations: list[str] = []
+    generations = values["report_generations"]
+    if generations.exists() and not generations.is_dir():
+        raise ValueError(f"report-generations is not a directory: {generations}")
+    if not generations.exists():
+        return {"orphaned_generations": orphaned_generations, "staging_artifacts": staging_artifacts}
+    for path in sorted(generations.iterdir(), key=lambda item: item.name):
+        if path.is_symlink() or not path.is_dir():
+            continue
+        if path.name.startswith(".tmp-"):
+            staging_artifacts.append(path.name)
+        elif path.name.startswith("generation-") and path.name != current_generation:
+            orphaned_generations.append(path.name)
+    return {
+        "orphaned_generations": orphaned_generations,
+        "staging_artifacts": staging_artifacts,
+    }
+
+
 def _current_report_generation(
     root: Path,
     values: dict[str, Any],
 ) -> tuple[dict[str, Path], dict[str, Any]] | None:
     pointer_path = values["report_current"]
     if not pointer_path.exists():
-        generations = values["report_generations"]
-        if generations.exists() and any(path.is_dir() for path in generations.iterdir()):
-            raise ValueError("report-current.json is missing for existing report generations")
         return None
     pointer = load_json(pointer_path)
     validate_schema(root, "report-current.schema.json", pointer)
@@ -827,13 +848,24 @@ def _report_bundle_status(
     try:
         current = _current_report_generation(root, values)
         artifacts, pointer = current if current is not None else (values, None)
+        inventory = _report_generation_inventory(values, pointer["generation"] if pointer else None)
         if pointer is None and values["report_bundle"].exists():
-            raise ValueError("report-current.json is missing for the report bundle")
+            return {
+                "status": "ABSENT",
+                "current": False,
+                "message": "legacy report outputs are uncommitted; rerun report to republish",
+                **inventory,
+            }
         marker = artifacts["report_bundle"]
         if not marker.exists():
             if pointer is not None:
                 raise ValueError("current report generation has no report bundle")
-            return {"status": "ABSENT", "current": False, "message": "report bundle has not been committed"}
+            return {
+                "status": "ABSENT",
+                "current": False,
+                "message": "report bundle has not been committed",
+                **inventory,
+            }
         metadata = load_json(marker)
         validate_schema(root, "report-bundle.schema.json", metadata)
         issue_candidates, issue_candidates_bytes = load_json_bytes(artifacts["issue_candidates"])
@@ -907,6 +939,7 @@ def _report_bundle_status(
         "current": True,
         "message": "report bundle matches current audit state",
         "convenience_synced": convenience_synced,
+        **inventory,
     }
     if pointer is not None:
         result.update(
