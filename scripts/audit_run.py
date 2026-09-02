@@ -747,7 +747,7 @@ def _sync_report_convenience_copies(
     artifacts: dict[str, Path],
     *,
     finding_report: bool,
-) -> None:
+) -> dict[str, Any]:
     # ponytail: convenience copies are best-effort; report-current.json is the commit boundary.
     copies = (
         (values["report"], artifacts["report"]),
@@ -759,11 +759,39 @@ def _sync_report_convenience_copies(
             (values["report_input_severity"], artifacts["report_input_severity"]),
             (values["report_input_details"], artifacts["report_input_details"]),
         )
+    failed_paths: list[str] = []
+    warnings: list[str] = []
     for destination, source in copies:
         try:
             atomic_write_bytes(destination, source.read_bytes())
         except OSError as exc:
-            warning(f"could not refresh convenience report copy {destination}: {exc}")
+            message = f"could not refresh convenience report copy {destination}: {exc}"
+            failed_paths.append(str(destination))
+            warnings.append(message)
+            warning(message)
+    return {"synced": not failed_paths, "failed_paths": failed_paths, "warnings": warnings}
+
+
+def _convenience_copies_current(
+    values: dict[str, Any],
+    artifacts: dict[str, Path],
+    *,
+    finding_report: bool,
+) -> bool:
+    copies = (
+        (values["report"], artifacts["report"]),
+        (values["issue_candidates"], artifacts["issue_candidates"]),
+        (values["report_bundle"], artifacts["report_bundle"]),
+    )
+    if finding_report:
+        copies += (
+            (values["report_input_severity"], artifacts["report_input_severity"]),
+            (values["report_input_details"], artifacts["report_input_details"]),
+        )
+    try:
+        return all(destination.exists() and destination.read_bytes() == source.read_bytes() for destination, source in copies)
+    except OSError:
+        return False
 
 
 def _report_bundle_status(
@@ -848,9 +876,36 @@ def _report_bundle_status(
             raise ValueError("report bundle marker or body hashes do not match current audit state")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         return {"status": "STALE", "current": False, "message": f"report bundle is not current: {error}"}
-    result = {"status": "CURRENT", "current": True, "message": "report bundle matches current audit state"}
+    finding_report = state.get("status") == "COMPLETE_WITH_FINDINGS"
+    convenience_synced = _convenience_copies_current(values, artifacts, finding_report=finding_report)
+    result = {
+        "status": "CURRENT",
+        "current": True,
+        "message": "report bundle matches current audit state",
+        "convenience_synced": convenience_synced,
+    }
     if pointer is not None:
-        result["generation"] = pointer["generation"]
+        result.update(
+            {
+                "generation": pointer["generation"],
+                "report": str(artifacts["report"]),
+                "issue_candidates": str(artifacts["issue_candidates"]),
+                "bundle": str(artifacts["report_bundle"]),
+            }
+        )
+    return result
+
+
+def _report_generation_status(values: dict[str, Any], bundle_status: dict[str, Any]) -> dict[str, Any]:
+    result = {
+        "status": bundle_status["status"],
+        "current": bundle_status["current"],
+        "current_pointer": str(values["report_current"]),
+        "convenience_synced": bundle_status.get("convenience_synced", False),
+    }
+    for key in ("generation", "report", "issue_candidates", "bundle"):
+        if key in bundle_status:
+            result[key] = bundle_status[key]
     return result
 
 
@@ -1097,9 +1152,9 @@ def status_run(
     atomic_write_json(values["audit_state"], state)
     if emit:
         _log_current_state(state, manifest, resolution, domain_context, run_dir=run_dir)
-    bundle_status = _report_bundle_status(root, values, manifest, state)
     if not include_execution:
         return state
+    bundle_status = _report_bundle_status(root, values, manifest, state)
     stage_name = _state_stage(state, manifest, resolution, domain_context)
     if stage_name is None:
         return state
@@ -1115,6 +1170,7 @@ def status_run(
         "recommended_execution": recommended_execution(run_dir, stage_name),
         "navigation": values["code_index_status"],
         "report_bundle": bundle_status,
+        "report_generation": _report_generation_status(values, bundle_status),
     }
 
 
@@ -1451,7 +1507,7 @@ def report_run(
         }
         validate_schema(root, "report-current.schema.json", pointer)
         atomic_write_json(values["report_current"], pointer)
-        _sync_report_convenience_copies(
+        convenience = _sync_report_convenience_copies(
             values,
             _report_generation_paths(generation),
             finding_report=current_state["status"] == "COMPLETE_WITH_FINDINGS",
@@ -1466,6 +1522,8 @@ def report_run(
         success("Audit complete")
     else:
         warning("Audit remains incomplete")
+    generation_artifacts = _report_generation_paths(generation)
+    bundle_status = _report_bundle_status(root, values, manifest, current_state)
     return _stage_result(
         run_dir,
         "REPORT",
@@ -1473,9 +1531,19 @@ def report_run(
         navigation=values["code_index_status"],
         status=current_state["status"],
         complete=current_state["complete"],
-        report=str(values["report"]),
-        issue_candidates=str(values["issue_candidates"]),
-        report_bundle=_report_bundle_status(root, values, manifest, current_state),
+        generation=generation.name,
+        report=str(generation_artifacts["report"]),
+        issue_candidates=str(generation_artifacts["issue_candidates"]),
+        report_bundle_path=str(generation_artifacts["report_bundle"]),
+        report_current=str(values["report_current"]),
+        convenience={
+            **convenience,
+            "report": str(values["report"]),
+            "issue_candidates": str(values["issue_candidates"]),
+            "report_bundle": str(values["report_bundle"]),
+        },
+        report_bundle=bundle_status,
+        report_generation=_report_generation_status(values, bundle_status),
     )
 
 

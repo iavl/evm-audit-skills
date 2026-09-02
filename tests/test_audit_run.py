@@ -126,6 +126,62 @@ class AuditRunTests(unittest.TestCase):
             audit_controller.report_run(ROOT, run_dir)
             self.assertNotEqual(values["report_current"].read_bytes(), original_pointer)
 
+    def test_report_result_points_to_current_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            run_dir = run_dir.resolve()
+            result = audit_controller.report_run(ROOT, run_dir)
+            pointer = self.read(run_dir / "report-current.json")
+            generation = run_dir / "report-generations" / pointer["generation"]
+            self.assertEqual(result["generation"], pointer["generation"])
+            self.assertEqual(result["report"], str(generation / "AUDIT-REPORT.md"))
+            self.assertEqual(result["issue_candidates"], str(generation / "issue-candidates.json"))
+            self.assertEqual(result["report_bundle_path"], str(generation / "report-bundle.json"))
+            self.assertEqual(result["report_current"], str(run_dir / "report-current.json"))
+            self.assertTrue(result["convenience"]["synced"])
+
+    def test_convenience_copy_failure_returns_authoritative_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            run_dir = run_dir.resolve()
+            original = audit_controller.atomic_write_bytes
+
+            def fail_convenience(path: Path, content: bytes) -> None:
+                if path == run_dir / "AUDIT-REPORT.md":
+                    raise OSError("convenience report copy failure")
+                original(path, content)
+
+            with patch.object(audit_controller, "atomic_write_bytes", side_effect=fail_convenience):
+                result = audit_controller.report_run(ROOT, run_dir)
+            self.assertFalse(result["convenience"]["synced"])
+            self.assertIn(str(run_dir / "AUDIT-REPORT.md"), result["convenience"]["failed_paths"])
+            self.assertTrue(Path(result["report"]).is_file())
+            self.assertTrue(audit_controller._report_bundle_status(
+                ROOT,
+                audit_controller.paths(run_dir),
+                self.read(run_dir / "routing/manifest.json"),
+                self.read(run_dir / "audit-state.json"),
+            )["current"])
+
+    def test_status_reports_authoritative_report_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            run_dir = run_dir.resolve()
+            audit_controller.report_run(ROOT, run_dir)
+            result = audit_controller.status_run(ROOT, run_dir, emit=False, include_execution=True)
+            pointer = self.read(run_dir / "report-current.json")
+            generation = run_dir / "report-generations" / pointer["generation"]
+            authority = result["report_generation"]
+            self.assertEqual(authority["status"], "CURRENT")
+            self.assertEqual(authority["generation"], pointer["generation"])
+            self.assertEqual(authority["report"], str(generation / "AUDIT-REPORT.md"))
+            self.assertEqual(authority["issue_candidates"], str(generation / "issue-candidates.json"))
+            self.assertEqual(authority["bundle"], str(generation / "report-bundle.json"))
+            self.assertEqual(authority["current_pointer"], str(run_dir / "report-current.json"))
+
     def test_first_report_failure_does_not_create_fake_current_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
