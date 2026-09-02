@@ -151,15 +151,8 @@ def lookup(
     for name, items in available_edges:
         returned[name] = items[:remaining]
         remaining -= len(returned[name])
-    returned["caller_edges"] = returned["selected_edges"] if include_callers else []
-    returned["callee_edges"] = returned["selected_edges"] if include_callees else []
     returned_edge_count = sum(
         len(returned[name]) for name in ("unresolved_edges", "selected_edges", "boundary_edges")
-    )
-    serialized_edge_count = len(returned["unresolved_edges"])
-    serialized_edge_count += len(returned["boundary_edges"])
-    serialized_edge_count += len(returned["selected_edges"]) * (
-        int(include_callers) + int(include_callees)
     )
     return {
         "schema_version": CODE_CONTEXT_QUERY_VERSION,
@@ -167,14 +160,14 @@ def lookup(
         "compilation_input_digest": index["compilation_input_digest"],
         "functions": {key: functions[key] for key in sorted(selected)},
         "source_ranges": {key: index.get("source_ranges", {}).get(key) for key in sorted(selected)},
-        "caller_edges": returned["caller_edges"],
-        "callee_edges": returned["callee_edges"],
+        "selected_edges": returned["selected_edges"],
         "boundary_edges": returned["boundary_edges"],
         "unresolved_edges": returned["unresolved_edges"],
+        "expansion": {"callers": include_callers, "callees": include_callees},
         "edge_count": edge_count,
         "unique_edge_count": edge_count,
         "returned_edge_count": returned_edge_count,
-        "serialized_edge_count": serialized_edge_count,
+        "serialized_edge_count": returned_edge_count,
         "max_edges": max_edges,
         "edges_truncated": returned_edge_count < edge_count,
         "depth": depth,

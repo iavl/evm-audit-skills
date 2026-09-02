@@ -367,17 +367,17 @@ class PlanHardeningTests(unittest.TestCase):
         self.assertEqual(set(result["functions"]), {entry_id, helper_id, callee_id})
         root_only = lookup(index, entry_id, depth=0)
         self.assertEqual(set(root_only["functions"]), {entry_id})
-        self.assertEqual(root_only["caller_edges"], [])
-        self.assertEqual(root_only["callee_edges"], [])
+        self.assertEqual(root_only["selected_edges"], [])
+        self.assertEqual(root_only["expansion"], {"callers": False, "callees": False})
         self.assertEqual({edge["target"] for edge in root_only["boundary_edges"]}, {helper_id})
         callers = lookup(index, helper_id, include_callers=True, depth=1)
         self.assertEqual(set(callers["functions"]), {entry_id, helper_id})
-        self.assertTrue(callers["caller_edges"])
-        self.assertEqual(callers["callee_edges"], [])
+        self.assertTrue(callers["selected_edges"])
+        self.assertEqual(callers["expansion"], {"callers": True, "callees": False})
         callees = lookup(index, entry_id, include_callees=True, depth=1)
         self.assertEqual(set(callees["functions"]), {entry_id, helper_id})
-        self.assertEqual(callees["caller_edges"], [])
-        self.assertTrue(callees["callee_edges"])
+        self.assertTrue(callees["selected_edges"])
+        self.assertEqual(callees["expansion"], {"callers": False, "callees": True})
         unresolved = json.loads(json.dumps(index))
         unresolved_target = "unresolved:dynamic target"
         unresolved["functions"][entry_id]["external_calls"] = [unresolved_target]
@@ -498,7 +498,7 @@ class PlanHardeningTests(unittest.TestCase):
         self.assertEqual(result["edge_count"], 3)
         self.assertEqual(result["unique_edge_count"], 3)
         self.assertEqual(result["returned_edge_count"], 3)
-        self.assertEqual(result["serialized_edge_count"], 6)
+        self.assertEqual(result["serialized_edge_count"], 3)
         self.assertFalse(result["edges_truncated"])
 
     def test_edge_budget_preserves_deterministic_unique_counts(self) -> None:
@@ -509,8 +509,22 @@ class PlanHardeningTests(unittest.TestCase):
         self.assertEqual(first["edge_count"], 3)
         self.assertEqual(first["unique_edge_count"], 3)
         self.assertEqual(first["returned_edge_count"], 2)
-        self.assertEqual(first["serialized_edge_count"], 4)
+        self.assertEqual(first["serialized_edge_count"], 2)
         self.assertTrue(first["edges_truncated"])
+
+    def test_both_directions_respect_serialized_edge_budget(self) -> None:
+        index, ids = self._cycle_index()
+        result = lookup(index, ids[0], include_callers=True, include_callees=True, depth=3, max_edges=2)
+        self.assertLessEqual(result["serialized_edge_count"], result["max_edges"])
+        self.assertEqual(result["serialized_edge_count"], result["returned_edge_count"])
+
+    def test_query_v5_does_not_duplicate_selected_edges(self) -> None:
+        index, ids = self._cycle_index()
+        result = lookup(index, ids[0], include_callers=True, include_callees=True, depth=3, max_edges=3)
+        self.assertEqual(result["expansion"], {"callers": True, "callees": True})
+        self.assertEqual(len(result["selected_edges"]), result["returned_edge_count"])
+        self.assertNotIn("caller_edges", result)
+        self.assertNotIn("callee_edges", result)
 
     def test_code_index_relational_validation_rejects_inconsistent_maps(self) -> None:
         digest = "a" * 64

@@ -7,7 +7,7 @@ SCHEMA_VERSIONS = {
     "audit-context": 1,
     "audit-state": 2,
     "benchmark-routing-fixture": 1,
-    "code-context-query": 4,
+    "code-context-query": 5,
     "code-context-benchmark": 2,
     "code-index": 2,
     "codex-model-profile": 1,

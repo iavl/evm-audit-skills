@@ -1,19 +1,27 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:code-context-query:v4",
+  "$id": "urn:evm-audit-skills:code-context-query:v5",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "source_digest", "compilation_input_digest", "functions", "source_ranges", "caller_edges", "callee_edges", "boundary_edges", "unresolved_edges", "edge_count", "unique_edge_count", "returned_edge_count", "serialized_edge_count", "max_edges", "edges_truncated", "depth", "max_nodes", "truncated"],
+  "required": ["schema_version", "source_digest", "compilation_input_digest", "functions", "source_ranges", "selected_edges", "boundary_edges", "unresolved_edges", "expansion", "edge_count", "unique_edge_count", "returned_edge_count", "serialized_edge_count", "max_edges", "edges_truncated", "depth", "max_nodes", "truncated"],
   "properties": {
-    "schema_version": {"const": 4},
+    "schema_version": {"const": 5},
     "source_digest": {"$ref": "#/$defs/hash"},
     "compilation_input_digest": {"$ref": "#/$defs/hash"},
     "functions": {"type": "object", "additionalProperties": {"$ref": "#/$defs/function"}},
     "source_ranges": {"type": "object", "additionalProperties": {"$ref": "#/$defs/range"}},
-    "caller_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
-    "callee_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "selected_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
     "boundary_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
     "unresolved_edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "expansion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["callers", "callees"],
+      "properties": {
+        "callers": {"type": "boolean"},
+        "callees": {"type": "boolean"}
+      }
+    },
     "edge_count": {"type": "integer", "minimum": 0},
     "unique_edge_count": {"type": "integer", "minimum": 0},
     "returned_edge_count": {"type": "integer", "minimum": 0},
