@@ -492,6 +492,66 @@ class AuditRunTests(unittest.TestCase):
             self.assertNotEqual(after["generation"], before["generation"])
             self.assertEqual(result["generation"], after["generation"])
 
+    def test_status_marks_medium_report_stale_after_severity_changes_to_high(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, severity, _, _ = self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
+            audit_controller.report_run(ROOT, run_dir)
+            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "High"
+            (run_dir / "reviews/severity-decisions.json").write_text(json_text(severity), encoding="utf-8")
+            result = audit_controller.status_run(ROOT, run_dir, emit=False, include_execution=True)
+            self.assertFalse(result["report_generation"]["current"])
+            self.assertEqual(result["report_generation"]["status"], "STALE")
+            self.assertTrue(result["poc_policy"]["pending_ids"])
+
+    def test_status_cannot_be_current_with_pending_required_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, severity, _, _ = self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
+            audit_controller.report_run(ROOT, run_dir)
+            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "High"
+            (run_dir / "reviews/severity-decisions.json").write_text(json_text(severity), encoding="utf-8")
+            result = audit_controller.status_run(ROOT, run_dir, emit=False, include_execution=True)
+            self.assertFalse(result["report_generation"]["current"])
+            self.assertTrue(result["poc_policy"]["pending_ids"])
+
+    def test_status_marks_high_report_stale_after_severity_changes_to_medium(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, _, severity, _, _ = self.prepare_finding_run(run_dir, ["High"])
+            audit_controller.report_run(ROOT, run_dir)
+            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "Medium"
+            (run_dir / "reviews/severity-decisions.json").write_text(json_text(severity), encoding="utf-8")
+            result = audit_controller.status_run(ROOT, run_dir, emit=False, include_execution=True)
+            self.assertFalse(result["report_generation"]["current"])
+            self.assertEqual(result["report_generation"]["status"], "STALE")
+
+    def test_status_marks_report_stale_after_finding_details_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
+            audit_controller.report_run(ROOT, run_dir)
+            details_path = run_dir / "reviews/finding-details.json"
+            details = self.read(details_path)
+            details["findings"][0]["description"] += " changed"
+            details_path.write_text(json_text(details), encoding="utf-8")
+            result = audit_controller.status_run(ROOT, run_dir, emit=False, include_execution=True)
+            self.assertFalse(result["report_generation"]["current"])
+            self.assertEqual(result["report_generation"]["status"], "STALE")
+
+    def test_status_marks_report_stale_after_current_poc_artifact_change(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["High"])
+            audit_controller.report_run(ROOT, run_dir)
+            poc_path = run_dir / "reviews/poc-evidence.json"
+            poc = self.read(poc_path)
+            poc["findings"][0]["result_summary"] += " changed"
+            poc_path.write_text(json_text(poc), encoding="utf-8")
+            result = audit_controller.status_run(ROOT, run_dir, emit=False, include_execution=True)
+            self.assertFalse(result["report_generation"]["current"])
+            self.assertEqual(result["report_generation"]["status"], "STALE")
+
     def test_existing_content_address_with_mismatched_contents_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
@@ -1464,7 +1524,7 @@ contract RetainedPoC {
             with self.assertRaisesRegex(ValueError, "INCOMPLETE_POC"):
                 audit_controller.report_run(ROOT, run_dir)
             self.assertEqual((run_dir / "report-current.json").read_bytes(), pointer)
-            self.assertTrue(audit_controller._report_bundle_status(
+            self.assertFalse(audit_controller._report_bundle_status(
                 ROOT,
                 audit_controller.paths(run_dir),
                 self.read(run_dir / "routing/manifest.json"),

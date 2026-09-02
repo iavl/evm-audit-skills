@@ -13,6 +13,7 @@ import sys
 import tempfile
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,7 @@ try:
         load_json,
         load_json_bytes,
         report_bundle_metadata,
+        reporting_inputs_digest,
         validate_report_generation,
         validate_artifact_identity,
         validate_domain_context,
@@ -85,6 +87,7 @@ except ImportError:  # pragma: no cover
         load_json,
         load_json_bytes,
         report_bundle_metadata,
+        reporting_inputs_digest,
         validate_report_generation,
         validate_artifact_identity,
         validate_domain_context,
@@ -113,6 +116,18 @@ REPORTING_IDENTITY_KEYS = (
     "registry_sha256", "source_digest", "compilation_input_digest",
 )
 POC_IDENTITY_KEYS = REPORTING_IDENTITY_KEYS + ("severity_decisions_sha256",)
+
+
+@dataclass(frozen=True)
+class CurrentReportingInputs:
+    severity: dict[str, Any] | None
+    severity_bytes: bytes | None
+    finding_details: dict[str, Any] | None
+    finding_details_bytes: bytes | None
+    poc_evidence: dict[str, Any] | None
+    poc_evidence_bytes: bytes | None
+    required_poc_ids: tuple[str, ...]
+    digest: str | None
 
 
 def paths(run_dir: Path) -> dict[str, Any]:
@@ -934,6 +949,11 @@ def _report_bundle_status(
         severity_decisions = finding_details = poc_evidence = None
         required_poc_ids: list[str] = []
         run_dir = values["manifest"].parent.parent
+        current_inputs = CurrentReportingInputs(None, None, None, None, None, None, (), None)
+        if pointer is not None:
+            current_inputs = load_current_reporting_inputs(
+                root, values, manifest, state, require_complete=True
+            )
         if state.get("status") == "COMPLETE_WITH_FINDINGS":
             severity_decisions, severity_decisions_bytes = load_json_bytes(artifacts["report_input_severity"])
             finding_details, finding_details_bytes = load_json_bytes(artifacts["report_input_details"])
@@ -1015,6 +1035,8 @@ def _report_bundle_status(
         )
         if metadata != expected:
             raise ValueError("report bundle marker or body hashes do not match current audit state")
+        if pointer is not None and pointer["reporting_inputs_sha256"] != current_inputs.digest:
+            raise ValueError("reporting inputs differ from the committed generation")
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         return {"status": "STALE", "current": False, "message": f"report bundle is not current: {error}"}
     finding_report = state.get("status") == "COMPLETE_WITH_FINDINGS"
@@ -1354,6 +1376,57 @@ def _poc_evidence_template(
             for canonical_id in required_ids
         ],
     }
+
+
+def load_current_reporting_inputs(
+    root: Path,
+    values: dict[str, Any],
+    manifest: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    require_complete: bool,
+) -> CurrentReportingInputs:
+    """Load and validate the current authoring inputs used by report status."""
+    empty = CurrentReportingInputs(None, None, None, None, None, None, (), None)
+    if state.get("status") != "COMPLETE_WITH_FINDINGS":
+        return empty
+    try:
+        severity, severity_bytes = load_json_bytes(values["severity_decisions"])
+        finding_details, finding_details_bytes = load_json_bytes(values["finding_details"])
+        validate_reporting_inputs(root, manifest, state, severity, finding_details)
+        required_ids = tuple(
+            derive_poc_required_ids(state["coverage"]["confirmed"], severity["decisions"])
+        )
+        poc_evidence = poc_evidence_bytes = None
+        if required_ids:
+            poc_evidence, poc_evidence_bytes = load_json_bytes(values["poc_evidence"])
+            validate_poc_evidence(
+                root,
+                manifest,
+                state,
+                severity,
+                severity_bytes,
+                poc_evidence,
+                run_dir=values["manifest"].parent.parent,
+            )
+        return CurrentReportingInputs(
+            severity,
+            severity_bytes,
+            finding_details,
+            finding_details_bytes,
+            poc_evidence,
+            poc_evidence_bytes,
+            required_ids,
+            reporting_inputs_digest(
+                severity_bytes=severity_bytes,
+                finding_details_bytes=finding_details_bytes,
+                poc_evidence_bytes=poc_evidence_bytes,
+            ),
+        )
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        if require_complete:
+            raise ValueError(f"current reporting inputs are incomplete: {exc}") from exc
+        return empty
 
 
 def _current_severity_for_poc(
@@ -1878,6 +1951,9 @@ def report_run(
     values, manifest, registry = _load_run(root, run_dir)
     state = status_run(root, run_dir, emit=False)
     _log_report(state, finished=False, run_dir=run_dir)
+    severity_override = severity_path is not None
+    finding_details_override = finding_details_path is not None
+    poc_evidence_override = poc_evidence_path is not None
     severity = severity_bytes = None
     finding_details = finding_details_bytes = None
     poc_evidence = poc_evidence_bytes = None
@@ -1954,6 +2030,22 @@ def report_run(
     if current_state["status"] == "COMPLETE_WITH_FINDINGS":
         if severity_bytes is None or finding_details_bytes is None:
             raise ValueError("finding report is missing exact reporting input bytes")
+        if severity_override and severity_path.resolve() != values["severity_decisions"].resolve():
+            atomic_write_bytes(values["severity_decisions"], severity_bytes)
+        if finding_details_override and finding_details_path.resolve() != values["finding_details"].resolve():
+            atomic_write_bytes(values["finding_details"], finding_details_bytes)
+        if (
+            poc_evidence_override
+            and required_poc_ids
+            and poc_evidence_bytes is not None
+            and poc_evidence_path.resolve() != values["poc_evidence"].resolve()
+        ):
+            atomic_write_bytes(values["poc_evidence"], poc_evidence_bytes)
+    consumed_reporting_digest = reporting_inputs_digest(
+        severity_bytes=(severity_bytes if current_state["status"] == "COMPLETE_WITH_FINDINGS" else None),
+        finding_details_bytes=(finding_details_bytes if current_state["status"] == "COMPLETE_WITH_FINDINGS" else None),
+        poc_evidence_bytes=(synthesis.poc_evidence_bytes if required_poc_ids else None),
+    )
     bundle = report_bundle_metadata(
         manifest,
         current_state,
@@ -2038,6 +2130,7 @@ def report_run(
                 "schema_version": REPORT_CURRENT_VERSION,
                 "generation": generation.name,
                 "report_bundle_sha256": bundle_digest,
+                "reporting_inputs_sha256": consumed_reporting_digest,
             }
             validate_schema(root, "report-current.schema.json", pointer)
             existing_pointer = None

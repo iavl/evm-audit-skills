@@ -47,7 +47,7 @@ audit artifacts.
 | code-index | no, navigation hint | Recon `navigation_artifacts.code_index.sha256` plus current target snapshot | disable navigation |
 | severity/finding details | reporting input | review-state digest | report admission error |
 | `poc-evidence` | reporting input for High/Critical only | severity-decision bytes, review/source/build lineage, source hashes, path safety | `INCOMPLETE_POC` |
-| final report + issue candidates | derived outputs | immutable report generation, `report-current.json` v2, report-bundle v3 marker, body hashes, and finding-input hashes | stale/incomplete |
+| final report + issue candidates | derived outputs | immutable report generation, `report-current.json` v3, report-bundle v3 marker, body hashes, and finding-input hashes | stale/incomplete |
 
 The machine-readable JSON/JSONL artifacts are authoritative. Runtime Markdown
 is paired with a schema-validated `.meta.json` sidecar containing
@@ -65,10 +65,14 @@ generation leaves the previous pointer and generation untouched. Stable
 top-level report files and `report-inputs/` files are convenience copies only,
 and their synchronization status is returned explicitly. The current bundle is
 accepted only when its identity, body hashes, exact generation snapshots, and
-deterministic synthesis match the current state. Report publication is
-serialized per run, and the pointer is committed only after a final state
-identity check. A validated `poc-evidence.json` snapshot is included only when
-the confirmed findings contain `High` or `Critical` severity.
+deterministic synthesis match the current state. `report-current.json` v3 also
+binds the generation to the exact current severity, finding-details, and
+conditional PoC input bytes; a cryptographically valid historical generation
+is not `CURRENT` when those authoring inputs change. Report publication is
+serialized per run, and the pointer is committed only after a final state and
+reporting-input identity check. A validated `poc-evidence.json` snapshot is
+included only when the confirmed findings contain `High` or `Critical`
+severity.
 
 `non-authoritative != integrity-unchecked`.
 
@@ -229,7 +233,9 @@ latest `SUSPICIOUS` records. `report` always runs `status_run()` first,
 validates and synthesizes in memory, then commits a complete immutable
 generation through `report-current.json`. A failed report leaves the previous
 current generation untouched and exits non-zero if current reporting is
-incomplete. It never trusts a previous `audit-state.json`.
+incomplete. `status` reports a historical generation as stale when current
+reporting inputs differ or a newly-required High/Critical PoC is pending. It
+never trusts a previous `audit-state.json`.
 
 `Proof != PoC`. Proof establishes that a finding is real and may be a trace,
 invariant violation, calculation, or test. A runnable PoC is a reporting gate

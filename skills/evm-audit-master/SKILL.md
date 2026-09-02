@@ -45,7 +45,8 @@ hashes; it discovers the current reporting inputs from the run directory and
 never runs the recorded command automatically. The explicit
 `--severity-decisions`, `--finding-details`, and `--poc-evidence` flags are
 advanced overrides; do not add `--poc-evidence` for an all-`Info`/`Low`/`Medium`
-report.
+report. A historical generation is `CURRENT` only while its exact reporting
+inputs still match the current run-directory artifacts.
 
 For `report` and `status` results, consume the paths under
 `report_generation` (and the report result's `report`, `issue_candidates`, and

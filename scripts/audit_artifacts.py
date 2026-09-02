@@ -59,6 +59,30 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def reporting_inputs_digest(
+    *,
+    severity_bytes: bytes | None,
+    finding_details_bytes: bytes | None,
+    poc_evidence_bytes: bytes | None,
+) -> str | None:
+    """Hash the exact current reporting-input bytes with stable field names."""
+    if severity_bytes is None and finding_details_bytes is None and poc_evidence_bytes is None:
+        return None
+    if severity_bytes is None or finding_details_bytes is None:
+        raise ValueError("finding reports require severity and finding-details bytes")
+    return canonical_sha256(
+        {
+            "artifact_type": "reporting-inputs",
+            "schema_version": 1,
+            "severity_decisions_sha256": sha256_bytes(severity_bytes),
+            "finding_details_sha256": sha256_bytes(finding_details_bytes),
+            "poc_evidence_sha256": (
+                sha256_bytes(poc_evidence_bytes) if poc_evidence_bytes is not None else None
+            ),
+        }
+    )
+
+
 def require_distinct_paths(*paths: tuple[str, Path | None]) -> None:
     seen: dict[Path, str] = {}
     for label, path in paths:

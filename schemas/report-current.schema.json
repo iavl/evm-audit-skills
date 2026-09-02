@@ -1,13 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:report-current:v2",
+  "$id": "urn:evm-audit-skills:report-current:v3",
   "type": "object",
   "additionalProperties": false,
-  "required": ["artifact_type", "schema_version", "generation", "report_bundle_sha256"],
+  "required": ["artifact_type", "schema_version", "generation", "report_bundle_sha256", "reporting_inputs_sha256"],
   "properties": {
     "artifact_type": {"const": "report-current"},
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "generation": {"type": "string", "pattern": "^generation-[0-9a-f]{64}$"},
-    "report_bundle_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    "report_bundle_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reporting_inputs_sha256": {"anyOf": [{"type": "string", "pattern": "^[0-9a-f]{64}$"}, {"type": "null"}]}
   }
 }
