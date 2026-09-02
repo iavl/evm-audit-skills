@@ -3,12 +3,12 @@
 A deterministic, evidence-gated EVM smart-contract audit Skill suite for
 Codex.
 
-It combines Slither-backed reconnaissance, immutable checklist routing,
-candidate-only Deep Review, proof-gated findings, and confirmed-only reporting.
+It combines evidence-backed Project Analysis and Context Analysis,
+candidate-only Deep Audit, proof-gated findings, and confirmed-only reporting.
 
 - `evm-audit-master` is the default entry point.
-- Evidence-backed routing keeps uncertainty visible.
-- Only proven `CONFIRMED` findings reach the final report.
+- Evidence-backed Project Analysis routing keeps uncertainty visible.
+- Only proven `CONFIRMED` findings reach the Final Report.
 
 ## Quick Start
 
@@ -43,16 +43,16 @@ only when you explicitly want issue creation.
 
 ## Codex Audit
 
-The default Codex profile assigns different models to different audit stages:
+The default Codex profile assigns different models to different audit phases:
 
-| Stage | Default Codex model |
+| Public phase | Default Codex model |
 | --- | --- |
-| Recon / Routing | Luna · Max |
-| Domain Resolution / Context | Terra · Medium |
-| Screen | Terra · High |
-| Deep Review | Sol · High |
-| Proof | Sol · Max |
-| Report | Terra · Medium |
+| Project Analysis | Luna · Max |
+| Context Analysis | Terra · Medium |
+| Initial Review | Terra · High |
+| Deep Audit | Sol · High |
+| Vulnerability Validation | Sol · Max |
+| Final Report | Terra · Medium |
 
 Use the defaults unless you explicitly customize the profile. It is confirmed
 once at audit startup. See the [Codex model profile](docs/codex-model-profile.md)
@@ -65,42 +65,53 @@ vulnerabilities, the audit progressively narrows a large security checklist
 into a small set of evidence-backed findings.
 
 ```text
+Project Analysis
+→ Context Analysis
+→ Initial Review
+→ Deep Audit
+→ Vulnerability Validation
+→ Final Report
+```
+
+```text
                       all security checks
                               │
                               ▼
-                      RECON + ROUTING
+                    Project Analysis
+                              │
+                              ▼
+                     Context Analysis
                               │
                               ▼
                        relevant checks
                               │
                               ▼
-                           SCREEN
+                      Initial Review
                          /        \
               proven irrelevant   candidate
                                      │
                                      ▼
-                               DEEP REVIEW
+                              Deep Audit
                                  /       \
                               safe     suspicious
                                           │
                                           ▼
-                                         PROOF
+                          Vulnerability Validation
                                       /        \
                                    safe      confirmed
                                                │
                                                ▼
-                                             REPORT
+                                         Final Report
 ```
 
-| Stage | What it does |
-| --- | --- |
-| **Recon** | Understands the audit scope, build environment, dependencies, and important protocol features. |
-| **Routing** | Selects relevant security checks while keeping uncertain checks visible. |
-| **Domain Resolution & Context** | Resolves protocol-specific facts such as oracle usage, permissions, assets, and liquidation assumptions. |
-| **Screen** | Separates checks that are provably irrelevant from checks that require deeper investigation. |
-| **Deep Review** | Analyzes candidate vulnerabilities against real code paths, state transitions, invariants, and economic assumptions. |
-| **Proof** | Uses PoCs, traces, invariants, or calculations to prove or disprove suspicious issues. |
-| **Report** | Re-validates the audit state and reports only confirmed findings. |
+| Public phase | Internal stage ID | What it does |
+| --- | --- | --- |
+| **Project Analysis** | `RECON`, `ROUTING` | Understands the audit scope, build environment, dependencies, protocol features, and applicable security checks. |
+| **Context Analysis** | `DOMAIN_RESOLUTION`, `DOMAIN_CONTEXT` | Resolves protocol-specific facts such as oracle usage, permissions, assets, and liquidation assumptions. |
+| **Initial Review** | `SCREEN` | Separates checks that are provably irrelevant from checks that require deeper investigation. |
+| **Deep Audit** | `DEEP_REVIEW` | Analyzes candidate vulnerabilities against real code paths, state transitions, invariants, and economic assumptions. |
+| **Vulnerability Validation** | `PROOF` | Uses traces, invariants, calculations, or PoCs to prove or disprove suspicious issues. |
+| **Final Report** | `REPORT` | Re-validates the audit state and reports only confirmed findings. |
 
 The key rule throughout the pipeline is:
 
@@ -110,7 +121,7 @@ uncertain ≠ safe
 ```
 
 This prevents incomplete analysis from silently becoming a clean audit. For a
-detailed walkthrough of every stage, see [Audit Workflow](docs/audit-workflow.md).
+detailed walkthrough of every phase, see [Audit Workflow](docs/audit-workflow.md).
 
 ## Safety Guarantees
 
@@ -120,14 +131,14 @@ UNKNOWN ≠ ABSENT
 incomplete compilation
 → cannot establish trusted absence
 
-SCREEN
+Initial Review (`SCREEN`)
 → CANDIDATE or NOT_APPLICABLE_CONFIRMED
 
 SUSPICIOUS
-→ PROOF required
+→ Vulnerability Validation (`PROOF`) required
 
 CONFIRMED
-→ final report only
+→ Final Report only
 
 stale artifacts
 → rejected
@@ -141,8 +152,9 @@ clean audit, and stale review artifacts are not reused. See
 
 Runs are written to an external sibling such as `../<repo>-audit-run/`, never
 inside the target or build root. `AUDIT-REPORT.md`
-contains only `CONFIRMED` findings; supporting Recon, routing, context, review,
-and proof artifacts remain beside it.
+contains only `CONFIRMED` findings; supporting Project Analysis, Context
+Analysis, Initial Review, Deep Audit, and Vulnerability Validation artifacts
+remain beside it.
 
 ## Using Individual Domain Skills
 
@@ -159,7 +171,7 @@ extend the repository.
 - [Audit Workflow](docs/audit-workflow.md)
 - [Architecture](docs/architecture.md)
 - [Audit Runtime](docs/audit-runtime.md)
-- [Recon and Routing](docs/recon-and-routing.md)
+- [Project Analysis details](docs/recon-and-routing.md)
 - [Codex Model Profile](docs/codex-model-profile.md)
 - [Knowledge Evidence](docs/knowledge-evidence.md)
 - [Knowledge Lineage](docs/knowledge-lineage.md)

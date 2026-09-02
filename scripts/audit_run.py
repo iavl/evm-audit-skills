@@ -22,7 +22,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from evm_audit_runtime.versions import POC_EVIDENCE_VERSION, POC_VERIFICATION_VERSION, REPORT_CURRENT_VERSION, REPORTING_VERSION
 from evm_audit_runtime.reporting import derive_poc_required_ids
-from evm_audit_runtime.controller_state import STAGE_PROGRESS, TOTAL_STAGES, display_stage as _display_stage, progress_metadata
+from evm_audit_runtime.controller_state import STAGE_PROGRESS, display_stage as _display_stage, progress_metadata
 
 try:
     from runtime_log import configure, error, info, stage, success, warning
@@ -241,8 +241,11 @@ def _render_screen(root: Path, values: dict[str, Path], *extra: str, verbose: bo
 
 
 def _emit_stage(stage_name: str, detail: str) -> None:
-    progress = progress_metadata(stage_name)
-    stage(progress["label"], step=progress["step"], total=progress["total"], detail=detail)
+    stage(stage_name, detail=detail)
+
+
+def _stage_label(stage_name: str) -> str:
+    return progress_metadata(stage_name)["label"]
 
 
 def _effective_model_profile(run_dir: Path) -> dict[str, Any]:
@@ -376,9 +379,9 @@ def _log_recon(feature_map: dict[str, Any], target: Path, strict: bool, *, run_d
     info(f"Compilation: {'COMPLETE' if complete else 'INCOMPLETE'}")
     _log_model_guidance(run_dir, "RECON")
     if complete:
-        success("Recon complete")
+        success(f"{_stage_label('RECON')} complete")
     else:
-        warning("Recon compilation coverage is incomplete")
+        warning(f"{_stage_label('RECON')} compilation coverage is incomplete")
         if strict:
             warning("Strict compilation policy rejected this scope")
 
@@ -391,21 +394,21 @@ def _log_routing(manifest: dict[str, Any], *, run_dir: Path | None = None) -> No
     info(f"Deferred checks: {manifest['deferred_count']}")
     info(f"Filtered checks: {manifest['filtered_count']}")
     _log_model_guidance(run_dir, "ROUTING")
-    success("Routing snapshot created")
+    success(f"{_stage_label('ROUTING')} snapshot created")
 
 
 def _log_domain_resolution(
     manifest: dict[str, Any], unresolved: set[str] | None = None, *, run_dir: Path | None = None
 ) -> None:
-    _emit_stage("DOMAIN_RESOLUTION", "Resolving Deferred Domains")
+    _emit_stage("DOMAIN_RESOLUTION", "Resolving deferred protocol context")
     _log_model_guidance(run_dir, "DOMAIN_RESOLUTION")
     total = len(manifest["deferred_domains"])
     remaining = unresolved if unresolved is not None else {entry["domain"] for entry in manifest["deferred_domains"]}
     info(f"Resolved: {total - len(remaining)} / {total}")
     if remaining:
-        warning(f"Deferred Domains remaining: {len(remaining)}")
+        warning(f"{_stage_label('DOMAIN_RESOLUTION')} items remaining: {len(remaining)}")
     else:
-        success("Deferred Domains resolved")
+        success(f"{_stage_label('DOMAIN_RESOLUTION')} routing resolved")
 
 
 def _context_requirement_count(manifest: dict[str, Any]) -> int:
@@ -426,8 +429,8 @@ def _domain_resolution_summary(
     )
     if remaining:
         suffix = "remain unresolved" if unresolved is not None else "require resolution"
-        return f"{len(remaining)} Deferred Domains {suffix}"
-    return "All Deferred Domains resolved"
+        return f"{len(remaining)} {_stage_label('DOMAIN_RESOLUTION')} items {suffix}"
+    return f"All {_stage_label('DOMAIN_RESOLUTION')} routing resolved"
 
 
 def _domain_context_summary(
@@ -446,7 +449,7 @@ def _domain_context_summary(
         suffix = "remain unresolved"
     if remaining:
         return f"{len(remaining)} required context fields {suffix}"
-    return "All required Domain context resolved"
+    return f"All {_stage_label('DOMAIN_CONTEXT')} resolved"
 
 
 def _screen_summary(
@@ -465,7 +468,7 @@ def _screen_summary(
         remaining = selected - classified
     else:
         remaining = selected
-    return f"{len(remaining)} checks require Screen classification"
+    return f"{len(remaining)} checks require {_stage_label('SCREEN')} classification"
 
 
 def _state_progress_summary(
@@ -486,10 +489,10 @@ def _state_progress_summary(
         candidates = coverage.get("deep_candidates", []) if isinstance(coverage, dict) else []
         reviewed = coverage.get("deep_reviewed", []) if isinstance(coverage, dict) else []
         pending = set(candidates) - set(reviewed) if isinstance(candidates, list) and isinstance(reviewed, list) else set()
-        return f"{len(pending)} Deep Review candidates remain"
+        return f"{len(pending)} {_stage_label(stage_name)} candidates remain"
     if stage_name == "PROOF":
         suspicious = coverage.get("suspicious", []) if isinstance(coverage, dict) else []
-        return f"{len(suspicious) if isinstance(suspicious, list) else 0} suspicious findings require Proof"
+        return f"{len(suspicious) if isinstance(suspicious, list) else 0} suspicious findings require {_stage_label(stage_name)}"
     if stage_name == "REPORT":
         return f"Audit state: {state.get('status', 'UNKNOWN')}"
     return progress_metadata(stage_name)["summary"]
@@ -498,7 +501,7 @@ def _state_progress_summary(
 def _log_domain_context(
     manifest: dict[str, Any], unresolved: set[str] | None = None, *, run_dir: Path | None = None
 ) -> None:
-    _emit_stage("DOMAIN_CONTEXT", "Resolving required Domain context")
+    _emit_stage("DOMAIN_CONTEXT", "Resolving required protocol context")
     _log_model_guidance(run_dir, "DOMAIN_CONTEXT")
     total = _context_requirement_count(manifest)
     if unresolved is None:
@@ -512,20 +515,20 @@ def _log_domain_context(
         remaining = unresolved
     info(f"Resolved: {total - len(remaining)} / {total}")
     if remaining:
-        warning(f"Required Domain context remaining: {len(remaining)}")
+        warning(f"{_stage_label('DOMAIN_CONTEXT')} items remaining: {len(remaining)}")
     else:
-        success("Domain Context resolved")
+        success(f"{_stage_label('DOMAIN_CONTEXT')} complete")
 
 
 def _log_screen(screen: dict[str, Any], candidates: set[str], *, run_dir: Path | None = None) -> None:
     results = screen.get("results", [])
     total = len(results) if isinstance(results, list) else 0
-    _emit_stage("SCREEN", "Screening routed checks")
+    _emit_stage("SCREEN", "Triaging routed checks")
     _log_model_guidance(run_dir, "SCREEN")
-    info(f"Screen checks: {total}")
-    info(f"Deep candidates: {len(candidates)}")
-    info(f"Screen NOT_APPLICABLE: {total - len(candidates)}")
-    success("Screen complete")
+    info(f"{_stage_label('SCREEN')} checks: {total}")
+    info(f"{_stage_label('DEEP_REVIEW')} candidates: {len(candidates)}")
+    info(f"{_stage_label('SCREEN')} NOT_APPLICABLE: {total - len(candidates)}")
+    success(f"{_stage_label('SCREEN')} complete")
 
 
 def _log_deep(candidates: set[str], records: dict[str, dict[str, Any]], pending: set[str]) -> None:
@@ -541,7 +544,7 @@ def _log_report(state: dict[str, Any], *, finished: bool, run_dir: Path | None =
     coverage = state.get("coverage", {})
     confirmed = coverage.get("confirmed", []) if isinstance(coverage, dict) else []
     suspicious = coverage.get("suspicious", []) if isinstance(coverage, dict) else []
-    _emit_stage("REPORT", "Deriving final audit state")
+    _emit_stage("REPORT", "Preparing the final report")
     _log_model_guidance(run_dir, "REPORT")
     info(f"Status: {state.get('status', 'UNKNOWN')}")
     info(f"Complete: {'yes' if state.get('complete') else 'no'}")
@@ -600,15 +603,15 @@ def _log_current_state(
         if unresolved_context:
             _log_domain_context(manifest, unresolved_context, run_dir=run_dir)
             return
-        _emit_stage("SCREEN", "Screening routed checks")
+        _emit_stage("SCREEN", "Triaging routed checks")
         _log_model_guidance(run_dir, "SCREEN")
         selected = coverage.get("selected", []) if isinstance(coverage, dict) else []
         candidates = coverage.get("deep_candidates", []) if isinstance(coverage, dict) else []
         not_applicable = coverage.get("screen_not_applicable", []) if isinstance(coverage, dict) else []
-        info(f"Screen checks: {len(selected) if isinstance(selected, list) else 0}")
-        info(f"Deep candidates: {len(candidates) if isinstance(candidates, list) else 0}")
-        info(f"Screen NOT_APPLICABLE: {len(not_applicable) if isinstance(not_applicable, list) else 0}")
-        warning("Screen coverage remains incomplete")
+        info(f"{_stage_label('SCREEN')} checks: {len(selected) if isinstance(selected, list) else 0}")
+        info(f"{_stage_label('DEEP_REVIEW')} candidates: {len(candidates) if isinstance(candidates, list) else 0}")
+        info(f"{_stage_label('SCREEN')} NOT_APPLICABLE: {len(not_applicable) if isinstance(not_applicable, list) else 0}")
+        warning(f"{_stage_label('SCREEN')} coverage remains incomplete")
         return
     if status == "INCOMPLETE_REVIEW":
         suspicious = coverage.get("suspicious", []) if isinstance(coverage, dict) else []
@@ -616,16 +619,16 @@ def _log_current_state(
         reviewed = coverage.get("deep_reviewed", []) if isinstance(coverage, dict) else []
         pending = set(candidates) - set(reviewed) if isinstance(candidates, list) and isinstance(reviewed, list) else set()
         if pending:
-            _emit_stage("DEEP_REVIEW", "Reviewing Deep candidates")
+            _emit_stage("DEEP_REVIEW", "Auditing candidate paths")
             _log_model_guidance(run_dir, "DEEP_REVIEW")
             info(f"Reviewed: {len(reviewed) if isinstance(reviewed, list) else 0} / {len(candidates) if isinstance(candidates, list) else 0}")
             info(f"Remaining: {len(pending)}")
         elif suspicious:
-            _emit_stage("PROOF", "Resolving suspicious findings")
+            _emit_stage("PROOF", "Validating suspicious findings")
             _log_model_guidance(run_dir, "PROOF")
             info(f"Remaining proof items: {len(suspicious)}")
         else:
-            _emit_stage("DEEP_REVIEW", "Reviewing Deep candidates")
+            _emit_stage("DEEP_REVIEW", "Auditing candidate paths")
             _log_model_guidance(run_dir, "DEEP_REVIEW")
             info(f"Reviewed: {len(reviewed) if isinstance(reviewed, list) else 0} / {len(candidates) if isinstance(candidates, list) else 0}")
             info(f"Remaining: {len(candidates) - len(reviewed) if isinstance(candidates, list) and isinstance(reviewed, list) else 0}")
@@ -740,7 +743,7 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         staged_run.replace(run_dir)
         staging = None
         next_result = _relocate_paths(next_result, staged_run, run_dir)
-        info(f"Next required stage: {_display_stage(next_result['stage'])}")
+        info(f"Next required phase: {_display_stage(next_result['stage'])}")
         _log_model_guidance(run_dir, next_result["stage"])
         values = paths(run_dir)
         progress_history = [
@@ -1927,10 +1930,10 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
 
     if not values["domain_context"].exists():
         if emit:
-            _emit_stage("DOMAIN_CONTEXT", "Resolving required Domain context")
+            _emit_stage("DOMAIN_CONTEXT", "Resolving required protocol context")
             _log_model_guidance(run_dir, "DOMAIN_CONTEXT")
             info(f"Resolved: 0 / {_context_requirement_count(manifest)}")
-            warning("Domain Context template required")
+            warning(f"{_stage_label('DOMAIN_CONTEXT')} template required")
         extra = []
         if resolution is not None:
             extra.extend(["--domain-resolution", str(values["resolution"])])
@@ -1943,7 +1946,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             verbose=verbose,
         )
         if emit:
-            info(f"Domain Context template required: {values['domain_context']}")
+            info(f"{_stage_label('DOMAIN_CONTEXT')} template required: {values['domain_context']}")
         return _stage_result(
             run_dir,
             "DOMAIN_CONTEXT",
@@ -1966,15 +1969,15 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
 
     if not values["screen_results"].exists():
         if emit:
-            _emit_stage("SCREEN", "Screening routed checks")
+            _emit_stage("SCREEN", "Triaging routed checks")
             _log_model_guidance(run_dir, "SCREEN")
-            info(f"Screen checks: {len(selected_entries(manifest, domain_resolution=resolution))}")
+            info(f"{_stage_label('SCREEN')} checks: {len(selected_entries(manifest, domain_resolution=resolution))}")
         extra = ["--domain-context", str(values["domain_context"]), "--screen-results-out", str(values["screen_results"])]
         if resolution is not None:
             extra[0:0] = ["--domain-resolution", str(values["resolution"])]
         _render_screen(root, values, *extra, verbose=verbose)
         if emit:
-            info(f"Screen result template required: {values['screen_results']}")
+            info(f"{_stage_label('SCREEN')} result template required: {values['screen_results']}")
         return _stage_result(
             run_dir,
             "SCREEN",
@@ -1991,7 +1994,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
     )
     if candidates:
         if emit:
-            _emit_stage("DEEP_REVIEW", "Reviewing Deep candidates")
+            _emit_stage("DEEP_REVIEW", "Auditing candidate paths")
             _log_model_guidance(run_dir, "DEEP_REVIEW")
         deep_views: set[Path] = set()
         for owner in sorted({entry["owner_domain"] for entry in selected_entries(manifest, domain_resolution=resolution) if entry["canonical_id"] in candidates}):
@@ -2019,7 +2022,7 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
             return _stage_result(
                 run_dir,
                 "DEEP_REVIEW",
-                summary=f"{len(pending)} Deep Review candidates remain",
+                summary=f"{len(pending)} {_stage_label('DEEP_REVIEW')} candidates remain",
                 navigation=values["code_index_status"],
                 pending=sorted(pending),
             )
@@ -2046,20 +2049,20 @@ def next_step(root: Path, run_dir: Path, *, verbose: bool = False, emit: bool = 
                 proof_views.add(output.resolve())
             _prune_runtime_views(run_dir, "proof", proof_views)
             if emit:
-                success("Deep review complete")
-                _emit_stage("PROOF", "Resolving suspicious findings")
+                success(f"{_stage_label('DEEP_REVIEW')} complete")
+                _emit_stage("PROOF", "Validating suspicious findings")
                 _log_model_guidance(run_dir, "PROOF")
                 info(f"Remaining proof items: {len(suspicious)}")
             return _stage_result(
                 run_dir,
                 "PROOF",
-                summary=f"{len(suspicious)} suspicious findings require Proof",
+                summary=f"{len(suspicious)} suspicious findings require {_stage_label('PROOF')}",
                 navigation=values["code_index_status"],
                 pending=sorted(suspicious),
                 runtime_views=[str(path) for path in sorted(proof_views)],
             )
         if emit:
-            success("Deep review complete")
+            success(f"{_stage_label('DEEP_REVIEW')} complete")
 
     if not candidates:
         _prune_runtime_views(run_dir, "deep", set())

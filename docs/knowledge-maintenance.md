@@ -44,7 +44,7 @@ source history and external integration policy, use
 Each canonical check stores an explicit `all_of` / `any_of` / `none_of`
 predicate. Historically keyword-derived predicates are marked `inferred`, and
 hand-reviewed combinations are marked `curated`. Predicate filtering semantics
-are described in [`Recon and Routing`](recon-and-routing.md). Evidence classes
+are described in [`Project Analysis details`](recon-and-routing.md). Evidence classes
 and freshness requirements are described in [`Knowledge Evidence`](knowledge-evidence.md).
 
 ## Validation and reproducibility

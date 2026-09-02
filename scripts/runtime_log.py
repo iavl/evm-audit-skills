@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 
+from evm_audit_runtime.controller_state import STAGE_PROGRESS, progress_metadata
+
 
 _WIDTH = 46
 _quiet = False
@@ -23,13 +25,22 @@ def _emit(message: str, *, force: bool = False) -> None:
 
 
 def stage(name: str, *, step: int | None = None, total: int | None = None, detail: str | None = None) -> None:
+    stage_name = name
+    metadata = progress_metadata(stage_name)
+    name = metadata["label"]
+    banner_name = name.upper()
+    step = metadata["step"]
+    total = metadata["total"]
     _emit(f"+{'-' * _WIDTH}+")
-    _emit(f"|{f'EVM AUDIT :: {name}':^{_WIDTH}}|")
+    _emit(f"|{f'EVM AUDIT :: {banner_name}':^{_WIDTH}}|")
     _emit(f"+{'-' * _WIDTH}+")
     if step is not None:
         progress = f"[{step}/{total}]" if total is not None else f"[{step}]"
-        info(f"{progress} {detail or ''}".rstrip())
-    elif detail:
+        info(f"{progress} {name}")
+        substage = STAGE_PROGRESS[stage_name].get("substage")
+        if _verbose and substage:
+            info(f"{progress} {name} · {substage}")
+    if detail:
         info(detail)
 
 

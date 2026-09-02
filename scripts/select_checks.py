@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.controller_state import progress_metadata
 from evm_audit_runtime.versions import ENVIRONMENT_CONTEXT_VERSION, FEATURE_MAP_VERSION, FEATURE_REGISTRY_VERSION, ROUTING_MANIFEST_VERSION
 
 try:
@@ -853,7 +854,7 @@ def main(argv: list[str] | None = None) -> int:
     configure(quiet=args.quiet, verbose=args.verbose)
 
     try:
-        stage("ROUTING", step=2, total=7, detail="Creating immutable routing snapshot")
+        stage("ROUTING", detail="Selecting checks and creating the immutable routing snapshot")
         registry = load_json(root / "data" / "canonical-checks.json")
         feature_data = load_json(root / "data" / "features.json")
         names, policies = vocabulary(feature_data)
@@ -947,7 +948,7 @@ def main(argv: list[str] | None = None) -> int:
         for bucket in ("selected_domains", "deferred_domains", "filtered_domains"):
             for domain in manifest[bucket]:
                 verbose_log(f"[DOMAIN] {domain['domain']} {domain['state']}")
-        success(f"Routing snapshot created: {manifest['routing_snapshot_id'][:12]}")
+        success(f"{progress_metadata('ROUTING')['label']} snapshot created: {manifest['routing_snapshot_id'][:12]}")
         return 0
     except (OSError, KeyError, SelectionInputError, ValueError) as exc:
         error(exc)

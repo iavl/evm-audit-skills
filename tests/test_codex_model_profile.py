@@ -18,6 +18,7 @@ from scripts.audit_run import main as audit_run_main, recommended_execution
 from scripts.codex_model_profile import (
     DEFAULT_CODEX_MODEL_PROFILE,
     STAGES,
+    compact_summary,
     default_profile,
     load_global_profile,
     validate_profile,
@@ -58,6 +59,24 @@ class CodexModelProfileTests(unittest.TestCase):
             expected,
         )
         validate_profile(default_profile())
+
+    def test_compact_summary_uses_public_phases_and_preserves_distinct_substages(self) -> None:
+        self.assertEqual(
+            compact_summary(default_profile()).splitlines(),
+            [
+                "Project Analysis: gpt-5.6-luna max",
+                "Context Analysis: gpt-5.6-terra medium",
+                "Initial Review: gpt-5.6-terra high",
+                "Deep Audit: gpt-5.6-sol high",
+                "Vulnerability Validation: gpt-5.6-sol max",
+                "Final Report: gpt-5.6-terra medium",
+            ],
+        )
+        custom = default_profile()
+        custom["stages"]["ROUTING"] = {"model": "gpt-5.6-terra", "reasoning_effort": "high"}
+        summary = compact_summary(custom)
+        self.assertIn("Project Analysis · Recon: gpt-5.6-luna max", summary)
+        self.assertIn("Project Analysis · Routing: gpt-5.6-terra high", summary)
 
     def test_invalid_model_and_effort_are_rejected(self) -> None:
         invalid = default_profile()

@@ -34,7 +34,7 @@ Choose an external sibling run directory, for example:
 The target/build tree is authoritative input and the run directory is mutable
 authoring state; equal or descendant run paths are rejected.
 
-Open `AUDIT-REPORT.md` for the final findings. Supporting Recon, routing,
-runtime, Domain Resolution, Domain Context, and review evidence is kept beside
-it; only `CONFIRMED` records enter the final report. Required context and
-unresolved Deferred Domains prevent a clean completion.
+Open `AUDIT-REPORT.md` for the final findings. Supporting Project Analysis,
+Context Analysis, Initial Review, Deep Audit, and Vulnerability Validation
+evidence is kept beside it; only `CONFIRMED` records enter the Final Report.
+Required context and unresolved Deferred Domains prevent a clean completion.

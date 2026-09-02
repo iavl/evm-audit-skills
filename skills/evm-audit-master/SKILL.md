@@ -11,15 +11,40 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 ## Invariants
 
 - `<suite-root>/data/canonical-checks.json` is the only checklist knowledge source. Generated Markdown is a view; do not load the full registry into model context.
-- Run Recon and immutable routing once. Preserve `routing_snapshot_id`, `registry_sha256`, `source_digest`, and `compilation_input_digest` across every artifact.
-- Recon may emit `recon/code-index.json` as a navigation hint; inspect it first, load only targeted source ranges, and expand callers/callees whenever reachability is uncertain. Source remains authoritative.
+- Run Project Analysis (`RECON`, `ROUTING`) once. Preserve `routing_snapshot_id`, `registry_sha256`, `source_digest`, and `compilation_input_digest` across every artifact.
+- Project Analysis may emit `recon/code-index.json` as a navigation hint; inspect it first, load only targeted source ranges, and expand callers/callees whenever reachability is uncertain. Source remains authoritative.
 - Query only through the run-bound command (`code_context.py --run-dir <run-dir>`); use `--depth 2 --max-nodes 25 --max-edges 200` when a second hop is needed. Treat node/edge truncation and unresolved edges as reasons to verify more source, never as proof of safety.
-- `UNKNOWN` is never absence. Only trusted absence or confirmed environment mismatch may filter; Screen may emit only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`.
-- Deep reviews consume only Screen candidates. Every candidate needs one owner-Domain append-only JSONL event stream with valid revisions, typed evidence, and a terminal status.
-- `SUSPICIOUS` has no severity and must go through a later `PROOF` event. Only `CONFIRMED` records enter the final report.
+- `UNKNOWN` is never absence. Only trusted absence or confirmed environment mismatch may filter; Initial Review (`SCREEN`) may emit only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`.
+- Deep Audit (`DEEP_REVIEW`) consumes only Initial Review candidates. Every candidate needs one owner-Domain append-only JSONL event stream with valid revisions, typed evidence, and a terminal status.
+- `SUSPICIOUS` has no severity and must go through a later Vulnerability Validation (`PROOF`) event. Only `CONFIRMED` records enter the Final Report.
 - `CONFIRMED` requires strong proof of reachability, satisfiable preconditions, exploitability, and impact. A runnable PoC is a separate reporting requirement: only confirmed `High` and `Critical` findings require one; confirmed `Info`, `Low`, and `Medium` findings remain reportable without it.
 - Solidity POC source is user-owned evidence: archive audit-created or modified tests, helpers, and mocks under `<run-dir>/poc/` before proof, record the durable path in `proof` or `evidence.location`, and never delete or overwrite them after `PROOF` or report generation. Do not add new PoC files to the audited target after routing.
 - Keep `<run-dir>` as an external sibling of both the audit and build roots. The controller rejects equal or descendant paths, and pipeline outputs cannot overwrite authoritative source/build inputs.
+
+## Audit lifecycle
+
+```text
+Project Analysis
+  ├─ Recon
+  └─ Routing
+        ↓
+Context Analysis
+  ├─ Domain Resolution
+  └─ Domain Context
+        ↓
+Initial Review
+        ↓
+Deep Audit
+        ↓
+Vulnerability Validation
+        ↓
+Final Report
+```
+
+Names such as `RECON`, `SCREEN`, and `PROOF` are stable internal identifiers
+used by configuration, persisted artifacts, and runtime control flow. The
+public phase names above are presentation labels; they do not rename or
+migrate those internal IDs.
 
 ## Controller
 
@@ -35,10 +60,11 @@ The controller emits compact progress to stderr by default. Use `--verbose` to
 forward child diagnostics or `--quiet` to suppress normal progress; the flags
 are available on `init`, `next`, `status`, and `report`, and are mutually exclusive.
 
-Repeat `next` until it returns a template or `REPORT`. Resolve only generated
-evidence-bound templates. `DEEP_REVIEW` means candidate records are missing;
-`PROOF` means the latest record is `SUSPICIOUS` and the controller exposes a
-suspicious-only `runtime/proof-<owner-domain>.md` view. `report` re-derives state from
+Repeat `next` until it returns a template or Final Report (`REPORT`). Resolve
+only generated evidence-bound templates. Deep Audit (`DEEP_REVIEW`) means
+candidate records are missing; Vulnerability Validation (`PROOF`) means the
+latest record is `SUSPICIOUS` and the controller exposes a suspicious-only
+`runtime/proof-<owner-domain>.md` view. `report` re-derives state from
 current artifacts and refuses stale, incomplete, or under-specified reporting
 inputs. The `--poc-evidence` input is required only when current severity
 decisions contain a confirmed `High` or `Critical` finding. The controller
@@ -63,10 +89,10 @@ For `report` and `status` results, consume the paths under
 their synchronization status is explicit and a failed copy must not change the
 authoritative generation.
 
-## Codex-visible stage progress
+## Codex-visible phase progress
 
 Controller stderr is terminal-oriented and may be collapsed by the Codex UI.
-After `init`, `next`, `status`, or `report` returns a user-relevant stage,
+After `init`, `next`, `status`, or `report` returns a user-relevant phase,
 render compact chat banners from its `progress` and `recommended_execution`
 fields before continuing model-owned work. For `init`, render exactly one
 banner for each entry in `progress_history`, in order; the first entries are
@@ -76,16 +102,16 @@ returned stage fields.
 
 ```text
 +----------------------------------------------+
-|         EVM AUDIT :: <STAGE LABEL>           |
+|         EVM AUDIT :: <PHASE NAME>             |
 +----------------------------------------------+
-  Stage: <step>/<total>
+  Phase: <step>/<total>
   <summary>
   Model: <model>
   Reasoning: <reasoning_effort>
 ```
 
-Use only controller-provided stage and counts; never infer them from stderr.
-Keep UI-only last-stage state to avoid repeating a banner when no stage
+Use only controller-provided phase and counts; never infer them from stderr.
+Keep UI-only last-phase state to avoid repeating a banner when no phase
 transition occurred, and never persist that state into audit artifacts. Do not
 show these banners for internal helper calls such as `recon.py`,
 `select_checks.py`, `render_runtime.py`, or `validate_audit_run.py`. The model
@@ -97,12 +123,12 @@ For a new Codex audit with no confirmed profile, ask once before starting:
 
 ```text
 EVM AUDIT :: CODEX MODEL PROFILE
-RECON / ROUTING: gpt-5.6-luna max
-DOMAIN_RESOLUTION / DOMAIN_CONTEXT: gpt-5.6-terra medium
-SCREEN: gpt-5.6-terra high
-DEEP_REVIEW: gpt-5.6-sol high
-PROOF: gpt-5.6-sol max
-REPORT: gpt-5.6-terra medium
+Project Analysis: gpt-5.6-luna max
+Context Analysis: gpt-5.6-terra medium
+Initial Review: gpt-5.6-terra high
+Deep Audit: gpt-5.6-sol high
+Vulnerability Validation: gpt-5.6-sol max
+Final Report: gpt-5.6-terra medium
 
 Use this default profile?
 1. Use defaults
@@ -119,7 +145,7 @@ creates it once with canonical defaults. For confirmation, use
 edits and pass it with `--model-profile`. Persist the resolved choice in
 `<run-dir>/config/codex-model-profile.json`; once present, do not ask again.
 For customization, show the full current profile once and accept only changed
-lines such as `SCREEN = gpt-5.6-sol/high`, preserving omitted stages.
+lines such as `SCREEN = gpt-5.6-sol/high`, preserving omitted internal stages.
 At each transition, follow `recommended_execution`. This is a handoff only:
 do not claim an active Codex model switch unless a documented runtime mechanism
 actually provides one. The profile is execution metadata and never security
@@ -128,14 +154,14 @@ lineage or artifact identity.
 ## Model decisions
 
 The model may choose the audit scope, provide evidence-backed environment and
-Domain resolutions, complete required context, classify Screen cards, write
-Deep/Proof records, and assign structured severity plus reporting details after
-confirmation. It may parallelize independent Domain work only when the active
+Domain resolutions, complete required context, classify Initial Review cards,
+write Deep Audit/Vulnerability Validation records, and assign structured
+severity plus reporting details after confirmation. It may parallelize independent Domain work only when the active
 runtime supports it; otherwise use sequential execution.
 
 The model must not treat pattern matches as findings, turn `UNKNOWN` into
 absence, rerun routing in a Domain Skill, assign severity to `SUSPICIOUS`, or
-emit a final report from missing/malformed coverage. Do not proactively build
+emit a Final Report from missing/malformed coverage. Do not proactively build
 Foundry or Hardhat exploit tests for `Info`, `Low`, or `Medium` findings after
 strong proof is otherwise sufficient. Build the smallest deterministic
 runnable PoC after severity for `High` and `Critical`; if a reproduction is

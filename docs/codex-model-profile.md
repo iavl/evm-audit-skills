@@ -1,22 +1,23 @@
 # Codex Model Profile
 
-This is the default stage profile for Codex-driven EVM audits. Confirm one
+This is the default execution profile for Codex-driven EVM audits. Confirm one
 profile at audit startup; explicit stage overrides may customize that profile
 for the audit.
 
-| Stage | Default Codex model |
+| Public phase | Default Codex model |
 | --- | --- |
-| Recon / Routing | Luna · Max |
-| Domain Resolution / Context | Terra · Medium |
-| Screen | Terra · High |
-| Deep Review | Sol · High |
-| Proof | Sol · Max |
-| Report | Terra · Medium |
+| Project Analysis | Luna · Max |
+| Context Analysis | Terra · Medium |
+| Initial Review | Terra · High |
+| Deep Audit | Sol · High |
+| Vulnerability Validation | Sol · Max |
+| Final Report | Terra · Medium |
 
 Use the defaults unless a stage needs a deliberate model or reasoning
 override. The selected profile is stored as
 `config/codex-model-profile.json` inside the audit run and must contain every
-stage exactly once.
+internal stage ID exactly once. The public phase names group those stable
+machine keys for human-readable presentation.
 
 To set defaults for future audits, create and edit
 `~/.codex/evm-audit-model-profile.json`:

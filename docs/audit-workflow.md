@@ -5,13 +5,41 @@
 An EVM audit is an evidence-gated funnel, not one model reading an entire
 repository and guessing vulnerabilities. The runtime starts with a broad
 security checklist, narrows it using evidence about the target, investigates
-the remaining candidates, and reports only issues that survive proof.
+the remaining candidates, and reports only issues that survive Vulnerability
+Validation.
 
-The stages are deliberately ordered: later stages rely on the scope and
+The phases are deliberately ordered: later phases rely on the scope and
 decisions established earlier, while uncertainty stays visible until it can
 be resolved.
 
-## 1. RECON
+```text
+Project Analysis
+  ├─ Recon
+  └─ Routing
+        ↓
+Context Analysis
+  ├─ Domain Resolution
+  └─ Domain Context
+        ↓
+Initial Review
+        ↓
+Deep Audit
+        ↓
+Vulnerability Validation
+        ↓
+Final Report
+```
+
+Names such as `RECON`, `SCREEN`, and `PROOF` are stable internal identifiers
+used by configuration, artifacts, and runtime control flow. The phase names
+above are the user-facing presentation layer.
+
+## 1. Project Analysis (`RECON`, `ROUTING`)
+
+Project Analysis builds a trustworthy picture of the project and uses it to
+select the checks that belong in the audit.
+
+### Recon (`RECON`)
 
 Recon builds a trustworthy picture of what is being audited. It establishes:
 
@@ -42,7 +70,7 @@ Main outputs are:
 - scope and build metadata; and
 - source and build fingerprints.
 
-## 2. ROUTING
+### Routing (`ROUTING`)
 
 The suite contains checks for many EVM and DeFi attack classes. Applying every
 check to every contract wastes time and model context, so Routing uses Recon
@@ -63,18 +91,19 @@ Examples:
 Routing creates an immutable snapshot. Later stages consume that snapshot and
 cannot silently change the set of checks under review.
 
-## 3. DOMAIN RESOLUTION & CONTEXT
+## 2. Context Analysis (`DOMAIN_RESOLUTION`, `DOMAIN_CONTEXT`)
 
 Some security questions require protocol-specific facts that syntax alone
 cannot establish. The audit may need to understand the oracle, accepted
 assets, upgrade authority, liquidation mechanism, or trusted external
 protocols.
 
-This user-facing stage combines two related runtime activities:
+This phase combines two related runtime activities:
 
-- **Domain Resolution** decides whether a deferred Domain applies to the
-  target.
-- **Domain Context** records the facts required to review an active Domain.
+- **Domain Resolution (`DOMAIN_RESOLUTION`)** decides whether a deferred Domain
+  applies to the target.
+- **Domain Context (`DOMAIN_CONTEXT`)** records the facts required to review an
+  active Domain.
 
 For example, the audit may resolve Chainlink as the oracle, WETH and WBTC as
 collateral, a 2-of-3 multisig as the upgrade authority, and a permissionless
@@ -82,10 +111,10 @@ liquidation path with a 5% incentive. If an important fact remains unknown,
 the audit cannot claim a clean completion; it must investigate or disclose the
 unresolved context.
 
-## 4. SCREEN
+## 3. Initial Review (`SCREEN`)
 
-Screen is the fast triage stage. Each routed check ends in exactly one of two
-user-facing outcomes:
+Initial Review is the fast triage phase. Each routed check ends in exactly one
+of two user-facing outcomes:
 
 - `NOT_APPLICABLE_CONFIRMED`
 - `CANDIDATE`
@@ -105,12 +134,12 @@ The invariant is:
 uncertain → CANDIDATE
 ```
 
-Screen does not emit a “probably safe” result. This keeps uncertain attack
-paths in the review rather than filtering them out early.
+Initial Review does not emit a “probably safe” result. This keeps uncertain
+attack paths in the review rather than filtering them out early.
 
-## 5. DEEP REVIEW
+## 4. Deep Audit (`DEEP_REVIEW`)
 
-Deep Review examines each candidate against the actual implementation. It
+Deep Audit examines each candidate against the actual implementation. It
 traces state transitions, permissions, external calls, invariants, and
 economic assumptions instead of relying on a pattern match.
 
@@ -130,12 +159,12 @@ withdraw()
 
 The reviewer asks whether the suspected behavior is reachable, which state and
 permission checks matter, and whether the claimed impact follows from the
-real call path. Deep Review can resolve a candidate as `REVIEWED_SAFE` or leave
-it `SUSPICIOUS`; `CONFIRMED` is reserved for Proof.
+real call path. Deep Audit can resolve a candidate as `REVIEWED_SAFE` or leave
+it `SUSPICIOUS`; `CONFIRMED` is reserved for Vulnerability Validation.
 
-## 6. PROOF
+## 5. Vulnerability Validation (`PROOF`)
 
-`SUSPICIOUS` is a hypothesis, not a finding. Proof tests whether the suspected
+`SUSPICIOUS` is a hypothesis, not a finding. Vulnerability Validation tests whether the suspected
 attack is reachable and exploitable under the target's actual conditions.
 
 Evidence may include:
@@ -146,30 +175,31 @@ Evidence may include:
 - arithmetic or economic calculations; or
 - deterministic reproduction of the exploit path.
 
-Proof also considers attacker privileges, required capital, guards, external
+Vulnerability Validation also considers attacker privileges, required capital, guards, external
 dependencies, repeatability, and measurable impact. For a suspected share-price
 manipulation issue, it asks whether an attacker can reach the state, whether a
 guard blocks it, and whether value can actually be extracted.
 
 Only strong evidence can move a record to `CONFIRMED`. If the invariant or
 guard prevents exploitation, the suspicious candidate is resolved as safe
-instead. `Proof != PoC`: a runnable exploit PoC is a separate reporting input,
-not a prerequisite for confirmation.
+instead. `Proof != PoC`: proof is a separate validation activity from a
+runnable exploit PoC, which is a reporting input and not a prerequisite for
+confirmation.
 
-## 7. REPORT
+## 6. Final Report (`REPORT`)
 
-Report independently re-validates the current audit state before producing
+Final Report independently re-validates the current audit state before producing
 results. It requires:
 
 - current routing;
 - complete required context;
 - complete Screen coverage;
-- a review for every Deep candidate; and
+- a review for every Deep Audit candidate; and
 - no unresolved `SUSPICIOUS` item; and
 - reporting artifacts that match the current review and proof state; and
 - a validated runnable PoC for each confirmed `High` or `Critical` finding.
 
-Only `CONFIRMED` records enter the final report. The main artifacts are:
+Only `CONFIRMED` records enter the Final Report. The main artifacts are:
 
 - `AUDIT-REPORT.md` for confirmed findings; and
 - `issue-candidates.json` for structured issue candidates.
@@ -202,15 +232,15 @@ ERC-4626 vault detected
         ↓
 vault checks routed in
         ↓
-donation attack survives Screen
+donation attack survives Initial Review
         ↓
-Deep Review finds possible share manipulation
+Deep Audit finds possible share manipulation
         ↓
-Proof runs a Foundry PoC
+Vulnerability Validation runs a Foundry PoC
         ↓
 CONFIRMED
         ↓
-final report
+Final Report
 ```
 
 This is a generic illustration of the evidence flow; a real report includes a

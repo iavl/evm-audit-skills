@@ -622,7 +622,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure(quiet=args.quiet, verbose=args.verbose)
     try:
-        stage("DEEP REVIEW", step=5, total=7, detail="Tracking candidate review progress")
+        stage("DEEP_REVIEW", detail="Tracking candidate progress")
         manifest, registry = read_json(args.manifest), read_json(args.registry)
         validate_manifest(ROOT, manifest, registry)
         validate_target_snapshot(manifest)

@@ -553,7 +553,7 @@ def main(argv: list[str] | None = None) -> int:
             ("feature-map", args.output),
             ("code-index", args.code_index_out),
         )
-        stage("RECON", step=1, total=7, detail="Building scope-bound Feature Map")
+        stage("RECON", detail="Analyzing the project and building the scope-bound Feature Map")
         payload = build_feature_map(
             args.root.resolve(),
             args.target,

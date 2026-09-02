@@ -5,11 +5,11 @@ The suite has four planes:
 ```text
  KNOWLEDGE  canonical-checks.json + domains/*.json + feature-detectors.json
      ↓
-ROUTING    Recon/Feature Map v4 → environment → Domain → check gates → immutable manifest v7
+ROUTING    Project Analysis (`RECON`, `ROUTING`) → environment → Domain → check gates → immutable manifest v7
      ↓
-RUNTIME    manifest → Domain Resolution → Domain Context → Screen results → candidate-only Deep JSONL → proof
+RUNTIME    manifest → Context Analysis → Initial Review (`SCREEN`) → candidate-only Deep Audit (`DEEP_REVIEW`) → Vulnerability Validation (`PROOF`)
      ↓
-REPORTING  confirmed-only synthesis → severity → conditional PoC gate → report generation → report-current.json
+REPORTING  Final Report (`REPORT`) → confirmed-only synthesis → severity → conditional PoC gate → report generation → report-current.json
 ```
 
 The authority boundary is explicit: the target/build tree is immutable audit
@@ -26,7 +26,7 @@ User-facing Skill packages live under `skills/`; runtime assets remain in
 The registry is the only checklist knowledge source. The generator renders
 human-readable reference Markdown; Skills execute the selected runtime artifacts.
 
-Safety invariants: UNKNOWN, Screen uncertainty, and DECLARED environment facts
+Safety invariants: UNKNOWN, Initial Review uncertainty, and DECLARED environment facts
 never filter; only trusted absence or CONFIRMED environment mismatch filters;
 all filtered/Deferred items stay manifest-visible; Deferred Domains must resolve
 before clean completion; required Domain Context is a separate snapshot-bound

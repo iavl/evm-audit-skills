@@ -20,7 +20,9 @@ from scripts.audit_run import (
     _stage_result,
     progress_metadata,
 )
-from scripts.runtime_log import configure
+from evm_audit_runtime.controller_state import TOTAL_DISPLAY_PHASES, display_stage
+from scripts.codex_model_profile import STAGES
+from scripts.runtime_log import configure, stage
 
 
 class ObservabilityTests(unittest.TestCase):
@@ -55,9 +57,9 @@ class ObservabilityTests(unittest.TestCase):
         self.assertEqual(
             payload["next"]["progress"],
             {
-                "step": 3,
-                "total": 7,
-                "label": "DOMAIN CONTEXT",
+                "step": 2,
+                "total": 6,
+                "label": "Context Analysis",
                 "summary": "4 required context fields need resolution",
             },
         )
@@ -72,11 +74,11 @@ class ObservabilityTests(unittest.TestCase):
         )
         self.assertEqual(
             [entry["progress"]["step"] for entry in history],
-            [1, 2, 3],
+            [1, 1, 2],
         )
         self.assertEqual(
             [entry["progress"]["total"] for entry in history],
-            [7, 7, 7],
+            [6, 6, 6],
         )
         self.assertEqual(history[-1]["progress"], payload["next"]["progress"])
         self.assertEqual(
@@ -85,17 +87,17 @@ class ObservabilityTests(unittest.TestCase):
         )
         self.assertIn("Solidity files analyzed", history[0]["progress"]["summary"])
         self.assertIn("checks selected", history[1]["progress"]["summary"])
-        self.assertIn("EVM AUDIT :: RECON", result.stderr)
-        self.assertIn("EVM AUDIT :: ROUTING", result.stderr)
-        self.assertIn("Next required stage: DOMAIN CONTEXT", result.stderr)
+        self.assertIn("EVM AUDIT :: PROJECT ANALYSIS", result.stderr)
+        self.assertEqual(result.stderr.count("EVM AUDIT :: PROJECT ANALYSIS"), 2)
+        self.assertIn("Next required phase: Context Analysis", result.stderr)
         self.assertIn("Codex model: gpt-5.6-terra", result.stderr)
         self.assertIn("Handoff: controller does not switch the active Codex model", result.stderr)
-        self.assertEqual(result.stderr.count("EVM AUDIT :: RECON"), 1)
-        self.assertEqual(result.stderr.count("EVM AUDIT :: ROUTING"), 1)
+        self.assertNotIn("EVM AUDIT :: RECON", result.stderr)
+        self.assertNotIn("EVM AUDIT :: ROUTING", result.stderr)
         self.assertNotIn("Feature Map ready", result.stderr)
         self.assertIsInstance(payload, dict)
 
-    def test_init_history_exposes_domain_resolution_as_step_three(self) -> None:
+    def test_init_history_exposes_domain_resolution_as_step_two(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
             result = self.run_cli(
@@ -113,7 +115,7 @@ class ObservabilityTests(unittest.TestCase):
         self.assertEqual(payload["next"]["stage"], "DOMAIN_RESOLUTION")
         self.assertEqual(
             [(entry["stage"], entry["progress"]["step"]) for entry in history],
-            [("RECON", 1), ("ROUTING", 2), ("DOMAIN_RESOLUTION", 3)],
+            [("RECON", 1), ("ROUTING", 1), ("DOMAIN_RESOLUTION", 2)],
         )
         self.assertEqual(history[-1]["state"], "CURRENT")
 
@@ -123,11 +125,11 @@ class ObservabilityTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
             self.assertIsInstance(payload, dict)
-            self.assertEqual(payload["next"]["progress"]["label"], "DOMAIN CONTEXT")
+            self.assertEqual(payload["next"]["progress"]["label"], "Context Analysis")
             self.assertEqual(payload["next"]["recommended_execution"]["model"], "gpt-5.6-terra")
             self.assertEqual(
                 [entry["progress"]["step"] for entry in payload["progress_history"]],
-                [1, 2, 3],
+                [1, 1, 2],
             )
             self.assertEqual(result.stderr, "")
 
@@ -189,15 +191,21 @@ class ObservabilityTests(unittest.TestCase):
 
     def test_stage_results_use_one_canonical_progress_mapping(self) -> None:
         expected = {
-            "RECON": (1, "RECON"),
-            "ROUTING": (2, "ROUTING"),
-            "DOMAIN_RESOLUTION": (3, "DOMAIN RESOLUTION"),
-            "DOMAIN_CONTEXT": (3, "DOMAIN CONTEXT"),
-            "SCREEN": (4, "SCREEN"),
-            "DEEP_REVIEW": (5, "DEEP REVIEW"),
-            "PROOF": (6, "PROOF"),
-            "REPORT": (7, "REPORT"),
+            "RECON": (1, "Project Analysis"),
+            "ROUTING": (1, "Project Analysis"),
+            "DOMAIN_RESOLUTION": (2, "Context Analysis"),
+            "DOMAIN_CONTEXT": (2, "Context Analysis"),
+            "SCREEN": (3, "Initial Review"),
+            "DEEP_REVIEW": (4, "Deep Audit"),
+            "PROOF": (5, "Vulnerability Validation"),
+            "REPORT": (6, "Final Report"),
         }
+        self.assertEqual(set(STAGE_PROGRESS), set(STAGES))
+        self.assertEqual({metadata["step"] for metadata in STAGE_PROGRESS.values()}, set(range(1, TOTAL_DISPLAY_PHASES + 1)))
+        self.assertEqual({stage: metadata["label"] for stage, metadata in STAGE_PROGRESS.items()}, {stage: label for stage, (_, label) in expected.items()})
+        self.assertEqual(display_stage("PROOF"), "Vulnerability Validation")
+        with self.assertRaisesRegex(ValueError, "unknown audit stage"):
+            display_stage("UNKNOWN")
         self.assertEqual(
             {
                 stage: (metadata["step"], metadata["label"])
@@ -211,7 +219,7 @@ class ObservabilityTests(unittest.TestCase):
                 result = _stage_result(run_dir, stage_name, summary=f"{label} summary")
                 self.assertEqual(
                     result["progress"],
-                    {"step": step, "total": 7, "label": label, "summary": f"{label} summary"},
+                    {"step": step, "total": 6, "label": label, "summary": f"{label} summary"},
                 )
                 self.assertEqual(result["stage"], stage_name)
             self.assertEqual(
@@ -225,19 +233,32 @@ class ObservabilityTests(unittest.TestCase):
 
         self.assertEqual(
             progress_metadata("PROOF"),
-            {"step": 6, "total": 7, "label": "PROOF", "summary": "PROOF stage"},
+            {"step": 5, "total": 6, "label": "Vulnerability Validation", "summary": "Vulnerability Validation stage"},
         )
 
     def test_domain_substages_keep_distinct_labels_at_step_three(self) -> None:
         for stage_name, label in (
-            ("DOMAIN_RESOLUTION", "DOMAIN RESOLUTION"),
-            ("DOMAIN_CONTEXT", "DOMAIN CONTEXT"),
+            ("DOMAIN_RESOLUTION", "Context Analysis"),
+            ("DOMAIN_CONTEXT", "Context Analysis"),
         ):
             with self.subTest(stage=stage_name):
                 result = _stage_result(Path("/tmp/run"), stage_name)
-                self.assertEqual(result["progress"]["step"], 3)
-                self.assertEqual(result["progress"]["total"], 7)
+                self.assertEqual(result["progress"]["step"], 2)
+                self.assertEqual(result["progress"]["total"], 6)
                 self.assertEqual(result["progress"]["label"], label)
+
+    def test_verbose_stage_output_exposes_internal_substage_without_promoting_it(self) -> None:
+        output = io.StringIO()
+        configure(verbose=True)
+        with redirect_stderr(output):
+            stage("RECON", step=99, total=99, detail="test detail")
+        configure()
+        rendered = output.getvalue()
+        self.assertIn("EVM AUDIT :: PROJECT ANALYSIS", rendered)
+        self.assertIn("[1/6] Project Analysis · Recon", rendered)
+        self.assertNotIn("EVM AUDIT :: RECON", rendered)
+        with self.assertRaisesRegex(ValueError, "unknown audit stage"):
+            stage("UNKNOWN")
 
     def test_init_next_status_and_report_keep_quiet_stdout_as_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -259,8 +280,8 @@ class ObservabilityTests(unittest.TestCase):
         for result in (init, next_result, status):
             self.assertEqual(result.stderr, "")
             self.assertIsInstance(json.loads(result.stdout), dict)
-        self.assertEqual(json.loads(next_result.stdout)["progress"]["label"], "DOMAIN CONTEXT")
-        self.assertEqual(json.loads(status.stdout)["progress"]["label"], "DOMAIN CONTEXT")
+        self.assertEqual(json.loads(next_result.stdout)["progress"]["label"], "Context Analysis")
+        self.assertEqual(json.loads(status.stdout)["progress"]["label"], "Context Analysis")
         self.assertEqual(report.stdout, "")
         self.assertIn("ERROR:", report.stderr)
 
@@ -278,12 +299,12 @@ class ObservabilityTests(unittest.TestCase):
             "confirmed": [],
         }
         cases = (
-            ("INCOMPLETE_DOMAIN_ROUTING", "EVM AUDIT :: DOMAIN RESOLUTION", None, manifest, None),
-            ("INCOMPLETE_CONTEXT", "EVM AUDIT :: DOMAIN CONTEXT", None, {**manifest, "deferred_domains": []}, None),
-            ("INCOMPLETE_COVERAGE", "EVM AUDIT :: SCREEN", None, {**manifest, "deferred_domains": []}, {}),
-            ("INCOMPLETE_REVIEW", "EVM AUDIT :: DEEP REVIEW", None, {**manifest, "deferred_domains": []}, {}),
-            ("INCOMPLETE_REVIEW", "EVM AUDIT :: PROOF", ["A"], {**manifest, "deferred_domains": []}, {}),
-            ("COMPLETE_CLEAN", "EVM AUDIT :: REPORT", "Audit complete", {**manifest, "deferred_domains": []}, {}),
+            ("INCOMPLETE_DOMAIN_ROUTING", "EVM AUDIT :: CONTEXT ANALYSIS", None, manifest, None),
+            ("INCOMPLETE_CONTEXT", "EVM AUDIT :: CONTEXT ANALYSIS", None, {**manifest, "deferred_domains": []}, None),
+            ("INCOMPLETE_COVERAGE", "EVM AUDIT :: INITIAL REVIEW", None, {**manifest, "deferred_domains": []}, {}),
+            ("INCOMPLETE_REVIEW", "EVM AUDIT :: DEEP AUDIT", None, {**manifest, "deferred_domains": []}, {}),
+            ("INCOMPLETE_REVIEW", "EVM AUDIT :: VULNERABILITY VALIDATION", ["A"], {**manifest, "deferred_domains": []}, {}),
+            ("COMPLETE_CLEAN", "EVM AUDIT :: FINAL REPORT", "Audit complete", {**manifest, "deferred_domains": []}, {}),
         )
         for status, expected_stage, expected_success, current_manifest, current_context in cases:
             with self.subTest(status=status, expected_stage=expected_stage):

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.controller_state import STAGE_PROGRESS, progress_metadata
 from evm_audit_runtime.versions import CODEX_MODEL_PROFILE_VERSION
 
 try:
@@ -120,7 +121,27 @@ def stage_model(profile: dict[str, Any], stage: str) -> dict[str, str]:
 
 def compact_summary(profile: dict[str, Any]) -> str:
     validate_profile(profile)
-    return "\n".join(
-        f"{stage:<20} {profile['stages'][stage]['model']:<15} {profile['stages'][stage]['reasoning_effort']}"
-        for stage in STAGES
-    )
+    groups: dict[tuple[int, str], list[str]] = {}
+    for stage in STAGES:
+        metadata = progress_metadata(stage)
+        groups.setdefault((metadata["step"], metadata["label"]), []).append(stage)
+
+    lines: list[str] = []
+    for _, stages in sorted(groups.items()):
+        label = progress_metadata(stages[0])["label"]
+        executions = {
+            (profile["stages"][stage]["model"], profile["stages"][stage]["reasoning_effort"])
+            for stage in stages
+        }
+        if len(executions) == 1:
+            model, effort = next(iter(executions))
+            lines.append(f"{label}: {model} {effort}")
+            continue
+        for stage in stages:
+            metadata = progress_metadata(stage)
+            entry = profile["stages"][stage]
+            lines.append(
+                f"{metadata['label']} · {STAGE_PROGRESS[stage].get('substage', stage)}: "
+                f"{entry['model']} {entry['reasoning_effort']}"
+            )
+    return "\n".join(lines)

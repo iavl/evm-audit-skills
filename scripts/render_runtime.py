@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from evm_audit_runtime.controller_state import progress_metadata
 from evm_audit_runtime.versions import DOMAIN_CONTEXT_VERSION, DOMAIN_RESOLUTION_VERSION, RUNTIME_METADATA_VERSION, SCREEN_RESULTS_VERSION
 from evm_audit_runtime.limits import MAX_SCREEN_GATE_LENGTH
 
@@ -398,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
         unresolved_domains: set[str] = set()
         if args.domain_resolution or args.domain_resolution_out:
-            stage("DOMAIN RESOLUTION", step=3, total=7, detail="Resolving deferred audit Domains")
+            stage("DOMAIN_RESOLUTION", detail="Resolving deferred protocol context")
         if domain_resolution is not None:
             unresolved_domains = validate_domain_resolution(
                 ROOT, manifest, domain_resolution
@@ -408,9 +409,10 @@ def main(argv: list[str] | None = None) -> int:
             if unresolved_domains:
                 warning(f"{len(unresolved_domains)} Deferred Domain(s) remain UNKNOWN")
                 if args.profile in {"deep", "proof"}:
-                    raise ValueError("Deep Review blocked: unresolved Deferred Domains")
+                    blocked_stage = "PROOF" if args.profile == "proof" else "DEEP_REVIEW"
+                    raise ValueError(f"{progress_metadata(blocked_stage)['label']} blocked: unresolved Deferred Domains")
             else:
-                success("Domain routing resolved")
+                success(f"{progress_metadata('DOMAIN_RESOLUTION')['label']} routing resolved")
         elif args.domain_resolution_out and manifest["deferred_domains"]:
             warning(f"{len(manifest['deferred_domains'])} Deferred Domain(s) remain UNKNOWN")
         domain_context = load_json(args.domain_context) if args.domain_context else None
@@ -425,17 +427,17 @@ def main(argv: list[str] | None = None) -> int:
             if unresolved_context:
                 warning(f"{len(unresolved_context)} required Domain context item(s) remain UNKNOWN")
             else:
-                success("Domain Context validated")
+                success(f"{progress_metadata('DOMAIN_CONTEXT')['label']} validated")
         review_snapshot: str | None = None
         screen_results: dict[str, Any] | None = None
         proof_records: dict[str, dict[str, Any]] | None = None
         if args.profile in {"deep", "proof"}:
-            stage_name = "PROOF" if args.profile == "proof" else "DEEP REVIEW"
-            stage(stage_name, step=6 if args.profile == "proof" else 5, total=7, detail=f"Rendering candidate-only {stage_name.title()}")
+            stage_name = "PROOF" if args.profile == "proof" else "DEEP_REVIEW"
+            stage(stage_name, detail="Rendering the candidate-only runtime view")
             if not args.screen_results:
                 raise ValueError(f"--profile {args.profile} requires --screen-results")
             if manifest["deferred_domains"] and not domain_resolution:
-                raise ValueError(f"{stage_name} blocked: --domain-resolution is required for Deferred Domains")
+                raise ValueError(f"{progress_metadata(stage_name)['label']} blocked: --domain-resolution is required for Deferred Domains")
             if not args.domain_context:
                 raise ValueError(f"--profile {args.profile} requires --domain-context")
             screen_results = load_json(args.screen_results)
@@ -462,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
                 }
                 candidates = set(proof_records)
         else:
-            stage("SCREEN", step=4, total=7, detail="Screening routed checks")
+            stage("SCREEN", detail="Triaging routed checks")
             candidates = set()
             if args.screen_results or args.ledger:
                 raise ValueError("--screen-results/--ledger are only used by Deep or Proof")

@@ -13,6 +13,7 @@ _SUITE_ROOT = str(Path(__file__).resolve().parents[1])
 if _SUITE_ROOT not in sys.path:
     sys.path.insert(0, _SUITE_ROOT)
 from evm_audit_runtime.state import COMPLETE_STATES, derive_status
+from evm_audit_runtime.controller_state import progress_metadata
 from evm_audit_runtime.versions import AUDIT_STATE_VERSION
 
 try:
@@ -248,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     configure(quiet=args.quiet)
     try:
-        stage("VALIDATE", step=6, total=7, detail="Deriving audit state independently")
+        stage("REPORT", detail="Deriving the final audit state independently")
         manifest = load_json(args.manifest)
         registry = load_json(args.registry)
         require_distinct_paths(
@@ -291,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
         if snapshot_valid and coverage_valid and domain_valid and review_complete:
             success("Candidate Deep coverage complete")
         if snapshot_valid and domain_valid:
-            success("Deferred Domains resolved")
+            success(f"{progress_metadata('DOMAIN_RESOLUTION')['label']} routing resolved")
         if snapshot_valid:
             success("Artifact identities match")
         info(f"Confirmed: {len(coverage['confirmed'])}")
@@ -311,10 +312,10 @@ def main(argv: list[str] | None = None) -> int:
             pass
         info(f"Reviewed safe: {reviewed_safe}")
         if state["status"] in {"COMPLETE_CLEAN", "COMPLETE_WITH_FINDINGS"}:
-            stage("COMPLETE")
+            success(f"{progress_metadata('REPORT')['label']} state complete")
             info(f"Status: {state['status']}")
         else:
-            stage("INCOMPLETE")
+            warning(f"{progress_metadata('REPORT')['label']} state incomplete")
             info(f"Status: {state['status']}")
             if coverage["unresolved"]:
                 warning(f"{len(coverage['unresolved'])} candidate(s) require further review")

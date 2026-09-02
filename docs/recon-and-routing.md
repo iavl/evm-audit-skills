@@ -1,6 +1,6 @@
-# Recon and Routing
+# Project Analysis (`RECON`, `ROUTING`)
 
-Run Recon against the audit scope and its distinct compilation/build root. Its Feature Map v4 records the
+Run Project Analysis against the audit scope and its distinct compilation/build root. Its Feature Map v4 records the
 scope digest, compilation-input digest, compilation coverage, analyzed files,
 tool versions, actual compiler versions, and a scope-bound `recon_context`. The
 map also classifies each presence evidence item as `AUDIT_SCOPE`, `DEPENDENCY`,
@@ -18,7 +18,7 @@ coverage and acceptable typed evidence. Evidence for confirmed states uses
 `kind`, `location`, and `reason`; absence is accepted only when the feature's
 `absence_policy` allows that evidence kind.
 
-## Recon
+## Project Analysis: Recon (`RECON`)
 
 Build the initial Feature Map from Slither's AST/IR, then supplement remaining
 `UNKNOWN` features from deployment evidence. Feature-to-detector mapping lives
@@ -36,9 +36,9 @@ python3 scripts/recon.py <target-project-or-solidity-file> --audit-root <audit-s
   --output recon-features.json --code-index-out code-index.json
 ```
 
-## Routing
+## Project Analysis: Routing (`ROUTING`)
 
-Routing v7 applies environment, Domain, and canonical feature gates. Domains
+Project Analysis routing v7 applies environment, Domain, and canonical feature gates. Domains
 are `SELECTED`, `DEFERRED`, or `FILTERED`; an `UNKNOWN` Domain is Deferred with
 a small screening card, and only confirmed absence or confirmed environment
 mismatch can filter. Related Domains never auto-expand.
@@ -66,7 +66,7 @@ top-level dependency roots default to `lib` and `node_modules`, while
 `src/lib/` remains first-party. Use `--include lib/MyProtocol.sol` to audit an
 explicit first-party path under a default dependency root, and repeat
 `--dependency-root` when a project uses a different dependency layout. Those
-effective policies are recorded in Recon and therefore change routing identity.
+effective policies are recorded in Project Analysis and therefore change routing identity.
 
 Canonical predicates use `all_of` / `any_of` / `none_of`. Only a curated
 predicate can filter on `FALSE`; an inferred `FALSE` becomes `UNKNOWN` and
@@ -100,8 +100,8 @@ Older v4 Feature Maps without that additive field are treated as the
 conservative fallback for navigation/lineage purposes and never upgraded to
 exact-closure provenance.
 
-The manifest is immutable; `render_runtime.py` never re-runs routing. Screen
-cards can promote candidates to Deep Review but never filter uncertainty.
-Deferred Domain resolution, Domain Context, and `screen-results.json` are
+The manifest is immutable; `render_runtime.py` never re-runs routing. Initial
+Review (`SCREEN`) cards can promote candidates to Deep Audit but never filter
+uncertainty. Context Analysis artifacts and `screen-results.json` are
 separately evidenced snapshot-bound artifacts. A Deferred `UNKNOWN` or required
-Domain Context `UNKNOWN` blocks Deep and completion.
+Domain Context `UNKNOWN` blocks Deep Audit and completion.
