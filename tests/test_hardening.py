@@ -722,14 +722,14 @@ class HardeningTests(unittest.TestCase):
 
             report = report_path.read_text(encoding="utf-8")
             report_path.write_text(report + "tampered\n", encoding="utf-8")
-            self.assertEqual(_report_bundle_status(ROOT, values, manifest, state)["status"], "STALE")
+            self.assertEqual(_report_bundle_status(ROOT, values, manifest, state)["status"], "ABSENT")
             self.assertEqual(synthesize_main(command), 0)
 
             issues = json.loads(issues_path.read_text(encoding="utf-8"))
             issues_path.write_text(json.dumps(issues, separators=(",", ":")) + "\n", encoding="utf-8")
-            self.assertEqual(_report_bundle_status(ROOT, values, manifest, state)["status"], "STALE")
+            self.assertEqual(_report_bundle_status(ROOT, values, manifest, state)["status"], "ABSENT")
             stale_state = {**state, "review_state_digest": "0" * 64}
-            self.assertEqual(_report_bundle_status(ROOT, values, manifest, stale_state)["status"], "STALE")
+            self.assertEqual(_report_bundle_status(ROOT, values, manifest, stale_state)["status"], "ABSENT")
 
             base_issues = json.loads(issues_path.read_text(encoding="utf-8"))
             mutations = {
