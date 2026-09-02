@@ -38,16 +38,35 @@ registry editing rules are in
 
 ## Core PR validation
 
-The normal PR workflow runs the fast repository and runtime contracts. It
-installs Slither and solc because the Recon and packaging smoke tests use them;
-it does not install Foundry.
+The normal PR workflow runs independent test layers in parallel. The layer
+boundaries are explicit in [`scripts/run_test_suite.py`](../scripts/run_test_suite.py):
+
+- `fast-unit` covers pure routing, state, schema, reporting, generation, and knowledge checks.
+- `controller-integration` covers real run directories, report publication, rollback, lifecycle, and CLI behavior.
+- `slither-integration` covers real Slither/compiler, Recon, code-index, closure, and packaging compatibility.
+- `platform-concurrency` covers cross-process locking and publication; Windows runs only this focused layer.
+
+Run one layer locally with:
+
+```bash
+python3 scripts/run_fast_tests.py
+python3 scripts/run_controller_tests.py
+python3 scripts/run_slither_tests.py
+python3 scripts/run_platform_tests.py
+```
+
+The complete local command remains available and discovers the full suite:
 
 ```bash
 python3 scripts/generate_checklists.py --check
 python3 scripts/validate_checklists.py --strict
-python3 -m unittest discover -s tests -v
+python3 scripts/run_all_tests.py
 git diff --check
 ```
+
+Each layer reports its test count, elapsed time, and slowest ten tests. The
+timing-only baseline tool is [`scripts/test_timing.py`](../scripts/test_timing.py)
+and can emit JSON with `--json`.
 
 ## Heavy quality validation
 

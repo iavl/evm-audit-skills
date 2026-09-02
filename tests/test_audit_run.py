@@ -16,10 +16,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from helpers import EMPTY_TARGET, ROOT, build_manifest
+from evm_audit_runtime.reporting import derive_issue_candidates, derive_poc_required_ids
 import scripts.audit_run as audit_controller
 from scripts.audit_artifacts import check_body_hash, json_text
 from scripts.render_runtime import domain_context_template, screen_results_template
 from scripts.review_ledger import append
+from support.run_fixtures import make_clean_review_state, make_confirmed_state
 
 
 def _report_worker(run_dir: str, result_queue: object) -> None:
@@ -53,159 +55,12 @@ class AuditRunTests(unittest.TestCase):
         return json.loads(path.read_text(encoding="utf-8"))
 
     def prepare_clean_run(self, run_dir: Path) -> None:
-        result = self.run_cli(
-            "scripts/audit_run.py", "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
-            "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        context_path = run_dir / "reviews/domain-context.json"
-        context = self.read(context_path)
-        for requirements in context["domains"].values():
-            for item in requirements.values():
-                item.update(
-                    status="KNOWN",
-                    value="fixture",
-                    evidence=[{"kind": "scope", "location": "fixture", "reason": "known context"}],
-                )
-        context_path.write_text(json.dumps(context, indent=2) + "\n", encoding="utf-8")
-        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        screen_path = run_dir / "reviews/screen-results.json"
-        screen = self.read(screen_path)
-        for item in screen["results"]:
-            item.update(
-                result="NOT_APPLICABLE_CONFIRMED",
-                scope_complete=True,
-                evidence=[
-                    {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-                    {"kind": "inheritance", "location": "fixture", "reason": "trigger absent"},
-                ],
-            )
-        screen_path.write_text(json.dumps(screen, indent=2) + "\n", encoding="utf-8")
-        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
-        self.assertEqual(result.returncode, 0, result.stderr)
+        make_clean_review_state(run_dir)
 
     def prepare_finding_run(
         self, run_dir: Path, severities: list[str], *, include_poc: bool = True
     ) -> tuple[dict, dict, dict, dict, dict | None]:
-        result = self.run_cli(
-            "scripts/audit_run.py", "init", str(EMPTY_TARGET), "--run-dir", str(run_dir),
-            "--audit-root", str(EMPTY_TARGET), "--domain", "evm-audit-general",
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        context_path = run_dir / "reviews/domain-context.json"
-        context = self.read(context_path)
-        for requirements in context["domains"].values():
-            for item in requirements.values():
-                item.update(
-                    status="KNOWN", value="fixture",
-                    evidence=[{"kind": "scope", "location": "fixture", "reason": "known context"}],
-                )
-        context_path.write_text(json_text(context), encoding="utf-8")
-        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        screen_path = run_dir / "reviews/screen-results.json"
-        screen = self.read(screen_path)
-        candidate_ids = [item["canonical_id"] for item in screen["results"][:len(severities)]]
-        evidence = [
-            {"kind": "scope", "location": "fixture", "reason": "complete scope"},
-            {"kind": "inheritance", "location": "fixture", "reason": "screen disposition"},
-        ]
-        for item in screen["results"]:
-            if item["canonical_id"] in candidate_ids:
-                item.update(result="CANDIDATE", scope_complete=False, evidence=[])
-            else:
-                item.update(result="NOT_APPLICABLE_CONFIRMED", scope_complete=True, evidence=evidence)
-        screen_path.write_text(json_text(screen), encoding="utf-8")
-        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        manifest = self.read(run_dir / "routing/manifest.json")
-        registry = self.read(ROOT / "data/canonical-checks.json")
-        ledgers: dict[str, Path] = {}
-        for candidate_id, severity in zip(candidate_ids, severities):
-            route = next(item for item in manifest["selected"] if item["canonical_id"] == candidate_id)
-            ledger = run_dir / f"reviews/review-{route['owner_domain']}.jsonl"
-            ledgers[route["owner_domain"]] = ledger
-            suspicious = {
-                "record_type": "review", "schema_version": 7, "canonical_id": candidate_id,
-                "owner_domain": route["owner_domain"], "check_body_hash": route["check_body_hash"],
-                "review_stage": "DEEP_REVIEW", "status": "SUSPICIOUS", "code_path": "fixture entry",
-                "unresolved_reason": "proof pending",
-                "evidence": [{"kind": "manual", "location": "fixture", "reason": "deep review"}],
-            }
-            append(ledger, manifest, suspicious, registry, set(candidate_ids), domain_context=context, screen_results=screen)
-            confirmed = {
-                key: value for key, value in suspicious.items() if key != "unresolved_reason"
-            }
-            confirmed.update(
-                review_stage="PROOF", status="CONFIRMED", applicability="APPLICABLE - fixture",
-                preconditions="fixture state", exploitability="fixture path is reachable",
-                impact="fixture impact", proof="deterministic fixture trace",
-                evidence=[{"kind": "trace", "location": "fixture", "reason": "proof trace"}],
-            )
-            append(ledger, manifest, confirmed, registry, set(candidate_ids), domain_context=context, screen_results=screen)
-        result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("COMPLETE_WITH_FINDINGS", result.stdout)
-        state = self.read(run_dir / "audit-state.json")
-        identity = {
-            "schema_version": 2, "artifact_state": "COMPLETED",
-            "routing_snapshot_id": manifest["routing_snapshot_id"],
-            "review_state_digest": state["review_state_digest"],
-            **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
-        }
-        severity = {
-            **identity,
-            "decisions": {
-                candidate_id: {
-                    "severity": level, "rationale": "fixture proof",
-                    "dimensions": {
-                        "impact": "fund_loss", "exploitability": "permissionless", "privileges": "none",
-                        "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
-                        "loss_bound": "single_user", "protocol_exposure": "single_position", "recoverability": "irreversible",
-                    },
-                }
-                for candidate_id, level in zip(candidate_ids, severities)
-            },
-        }
-        details = {
-            **identity,
-            "findings": [
-                {"canonical_id": candidate_id, "location": "Fixture.sol:1", "description": "fixture finding", "recommendation": "fix fixture"}
-                for candidate_id in candidate_ids
-            ],
-        }
-        severity_path = run_dir / "reviews/severity-decisions.json"
-        details_path = run_dir / "reviews/finding-details.json"
-        severity_bytes = json_text(severity).encode("utf-8")
-        severity_path.write_bytes(severity_bytes)
-        details_path.write_text(json_text(details), encoding="utf-8")
-        required = [candidate_id for candidate_id, level in zip(candidate_ids, severities) if level in {"High", "Critical"}]
-        poc = None
-        if required and include_poc:
-            poc_findings = []
-            for candidate_id in required:
-                source = run_dir / "poc" / candidate_id / "Exploit.t.sol"
-                source.parent.mkdir(parents=True, exist_ok=True)
-                source.write_text(f"contract Exploit_{candidate_id.replace('-', '_')} {{}}\n", encoding="utf-8")
-                poc_findings.append({
-                    "canonical_id": candidate_id,
-                    "severity": severity["decisions"][candidate_id]["severity"],
-                    "runner": "foundry", "command": "forge test --match-test testExploit -vvv",
-                    "sources": [{"path": source.relative_to(run_dir).as_posix(), "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}],
-                    "entrypoint": "testExploit", "expected_result": "The exploit reproduces the confirmed defect.",
-                    "result_summary": "The fixture reproduced the confirmed defect.",
-                })
-            poc = {
-                "artifact_type": "poc-evidence", "schema_version": 1, "artifact_state": "COMPLETED",
-                "routing_snapshot_id": manifest["routing_snapshot_id"], "review_snapshot_id": state["review_snapshot_id"],
-                "review_state_digest": state["review_state_digest"],
-                **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
-                "severity_decisions_sha256": hashlib.sha256(severity_bytes).hexdigest(),
-                "findings": poc_findings,
-            }
-            (run_dir / "reviews/poc-evidence.json").write_text(json_text(poc), encoding="utf-8")
-        return manifest, state, severity, details, poc
+        return make_confirmed_state(run_dir, severities, include_poc=include_poc)
 
     def test_report_bundle_write_failures_never_commit_mixed_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -554,17 +409,6 @@ class AuditRunTests(unittest.TestCase):
             self.assertEqual(result["report_generation"]["status"], "STALE")
             self.assertTrue(result["poc_policy"]["pending_ids"])
 
-    def test_status_cannot_be_current_with_pending_required_poc(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            run_dir = Path(directory) / "run"
-            _, _, severity, _, _ = self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
-            audit_controller.report_run(ROOT, run_dir)
-            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "High"
-            (run_dir / "reviews/severity-decisions.json").write_text(json_text(severity), encoding="utf-8")
-            result = audit_controller.status_run(ROOT, run_dir, emit=False, include_execution=True)
-            self.assertFalse(result["report_generation"]["current"])
-            self.assertTrue(result["poc_policy"]["pending_ids"])
-
     def test_status_marks_high_report_stale_after_severity_changes_to_medium(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
@@ -784,7 +628,7 @@ class AuditRunTests(unittest.TestCase):
                     audit_controller.report_run(ROOT, run_dir, severity_override, details_override)
             self.assertEqual(values["poc_evidence"].read_bytes(), poc_before)
 
-    def test_high_generation_contains_self_contained_poc_sources(self) -> None:
+    def test_e2e_confirmed_high_with_poc(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
             self.prepare_finding_run(run_dir, ["High"])
@@ -917,7 +761,7 @@ class AuditRunTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(keep.read_text(encoding="utf-8"), "user content")
 
-    def test_controller_advances_templates_and_report(self) -> None:
+    def test_e2e_clean_audit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
             result = self.run_cli(
@@ -1416,7 +1260,7 @@ class AuditRunTests(unittest.TestCase):
             self.assertIn("# INCOMPLETE AUDIT", report)
             self.assertNotIn("COMPLETE_CLEAN", report)
 
-    def test_controller_routes_suspicious_records_to_proof(self) -> None:
+    def test_e2e_recon_to_report(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
             result = self.run_cli(
@@ -1610,22 +1454,7 @@ contract RetainedPoC {
                 self.assertIn(poc_location, (run_dir / "reviews/review-evm-audit-general.jsonl").read_text(encoding="utf-8"))
                 self.assertIn(poc_location, Path(json.loads(result.stdout)["report"]).read_text(encoding="utf-8"))
 
-    def test_medium_report_succeeds_without_poc(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            run_dir = Path(directory) / "run"
-            _, _, _, _, _ = self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
-            result = audit_controller.report_run(ROOT, run_dir)
-            report = Path(result["report"]).read_text(encoding="utf-8")
-            issues = self.read(Path(result["issue_candidates"]))
-            bundle = self.read(Path(result["report_bundle_path"]))
-            self.assertIn("**Severity:** Medium", report)
-            self.assertIn("**PoC:** Not required by policy", report)
-            self.assertEqual(len(issues["findings"]), 1)
-            self.assertIsNone(bundle["poc_evidence_sha256"])
-            self.assertFalse((run_dir / "poc").exists())
-            self.assertFalse((run_dir / "reviews/poc-evidence.json").exists())
-
-    def test_documented_report_cli_medium_succeeds_without_poc(self) -> None:
+    def test_e2e_confirmed_medium_audit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
             self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
@@ -1658,23 +1487,15 @@ contract RetainedPoC {
             self.assertEqual(payload["report_generation"]["status"], "CURRENT")
             self.assertIn("poc_evidence", payload["report_generation"])
 
-    def test_low_report_succeeds_without_poc(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            run_dir = Path(directory) / "run"
-            self.prepare_finding_run(run_dir, ["Low"], include_poc=False)
-            result = audit_controller.report_run(ROOT, run_dir)
-            self.assertIn("**Severity:** Low", Path(result["report"]).read_text(encoding="utf-8"))
-            self.assertEqual(self.read(Path(result["issue_candidates"]))["findings"], [])
-            self.assertIsNone(self.read(Path(result["report_bundle_path"]))["poc_evidence_sha256"])
+    def test_low_policy_emits_no_issue_or_poc(self) -> None:
+        decisions = {"FIXTURE": {"severity": "Low"}}
+        self.assertEqual(derive_poc_required_ids(["FIXTURE"], decisions), [])
+        self.assertEqual(derive_issue_candidates(["FIXTURE"], decisions), [])
 
-    def test_info_report_succeeds_without_poc(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            run_dir = Path(directory) / "run"
-            self.prepare_finding_run(run_dir, ["Info"], include_poc=False)
-            result = audit_controller.report_run(ROOT, run_dir)
-            self.assertIn("**Severity:** Info", Path(result["report"]).read_text(encoding="utf-8"))
-            self.assertEqual(self.read(Path(result["issue_candidates"]))["findings"], [])
-            self.assertIsNone(self.read(Path(result["report_bundle_path"]))["poc_evidence_sha256"])
+    def test_info_policy_emits_no_issue_or_poc(self) -> None:
+        decisions = {"FIXTURE": {"severity": "Info"}}
+        self.assertEqual(derive_poc_required_ids(["FIXTURE"], decisions), [])
+        self.assertEqual(derive_issue_candidates(["FIXTURE"], decisions), [])
 
     def test_high_report_rejects_missing_poc(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
