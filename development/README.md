@@ -14,6 +14,7 @@ This repository is forward-only while it is under active development.
 - Old CLI aliases are not preserved.
 - Canonical data is updated in place.
 - Schema changes update code, data, tests, and docs atomically; unsupported artifacts must be regenerated.
+- `poc-evidence` is v1; report bundles are v3 with optional `poc_evidence_sha256`. Review records remain v7.
 - Unsupported schema versions fail fast and must be regenerated.
 
 Runtime inputs remain outside this directory: [`../skills/`](../skills/),

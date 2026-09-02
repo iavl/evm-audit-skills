@@ -5,15 +5,17 @@ Filtered and Deferred IDs remain manifest-visible. Each deep-review record is
 append-only JSONL at `reviews/review-<owner-domain>.jsonl`; Markdown is a generated view.
 
 Global review contract: verify every reachable path before `REVIEWED_SAFE`.
-Use `CONFIRMED` only with reachable preconditions, concrete impact, and a
-runnable PoC/trace or deterministic invariant violation.
+Use `CONFIRMED` only with reachable preconditions, concrete impact, and strong
+deterministic proof such as a trace, invariant violation, calculation, or test.
+A runnable exploit PoC is a separate post-confirmation reporting requirement
+for final-severity `High` and `Critical` findings only.
 
 ## Terminal statuses
 
 - `NOT_APPLICABLE`: concrete scope/code evidence proves the selected check cannot apply.
 - `REVIEWED_SAFE`: every relevant reachable path preserves the required guard or invariant.
 - `SUSPICIOUS`: a plausible concern remains but reachability, preconditions, exploitability, impact, or proof is unresolved. Never assign severity.
-- `CONFIRMED`: the defect has a reachable path, satisfiable preconditions, concrete exploitability and impact, plus a runnable PoC/trace or deterministic invariant violation.
+- `CONFIRMED`: the defect has a reachable path, satisfiable preconditions, concrete exploitability and impact, plus strong deterministic proof such as a trace, invariant violation, calculation, or test. A runnable PoC is not required merely to mark the record `CONFIRMED`.
 
 Use exactly one terminal status. `LIKELY_SAFE` is not a status. Pattern similarity, an unavailable test, or one
 safe path cannot establish `REVIEWED_SAFE` or `CONFIRMED`.
@@ -53,7 +55,7 @@ helpers and mocks, is user-owned audit evidence and remains a deliverable.
 - **Preconditions**: caller, state, timing, balances, roles, and deployment facts
 - **Exploitability**: concrete actor actions, or the guard that blocks them
 - **Impact**: concrete consequence, or N/A with the preserved invariant
-- **PoC / Invariant violation**: named runnable proof, deterministic invariant, or UNRESOLVED
+- **Strong proof evidence**: named runnable proof, deterministic invariant, calculation, trace, or UNRESOLVED
 - **Evidence**: file:line, test, trace, calculation, or scope inventory
 ```
 

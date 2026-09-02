@@ -7,6 +7,7 @@ source → Recon/Feature Map v4 → Environment Gate → Domain Gate → Check G
        → Deferred Domain Resolution → Required Domain Context → Screen
        → review snapshot → candidate-only Deep → proof → review-state digest
        → independently derived state → confirmed-only synthesis
+       → severity → runnable PoC gate for High/Critical → final report
 ```
 
 Standalone runs create `audits/<repo>-<UTC timestamp>/` and run Recon/Selector
@@ -45,7 +46,8 @@ audit artifacts.
 | runtime Markdown | no, generated view | sidecar identity + body SHA-256 | regenerate |
 | code-index | no, navigation hint | Recon `navigation_artifacts.code_index.sha256` plus current target snapshot | disable navigation |
 | severity/finding details | reporting input | review-state digest | report admission error |
-| final report + issue candidates | derived outputs | immutable report generation, `report-current.json` v2, report-bundle v2 marker, body hashes, and finding-input hashes | stale/incomplete |
+| `poc-evidence` | reporting input for High/Critical only | severity-decision bytes, review/source/build lineage, source hashes, path safety | `INCOMPLETE_POC` |
+| final report + issue candidates | derived outputs | immutable report generation, `report-current.json` v2, report-bundle v3 marker, body hashes, and finding-input hashes | stale/incomplete |
 
 The machine-readable JSON/JSONL artifacts are authoritative. Runtime Markdown
 is paired with a schema-validated `.meta.json` sidecar containing
@@ -65,7 +67,8 @@ and their synchronization status is returned explicitly. The current bundle is
 accepted only when its identity, body hashes, exact generation snapshots, and
 deterministic synthesis match the current state. Report publication is
 serialized per run, and the pointer is committed only after a final state
-identity check.
+identity check. A validated `poc-evidence.json` snapshot is included only when
+the confirmed findings contain `High` or `Critical` severity.
 
 `non-authoritative != integrity-unchecked`.
 
@@ -215,7 +218,8 @@ python3 scripts/audit_run.py next --run-dir <run-dir>
 python3 scripts/audit_run.py status --run-dir <run-dir>
 python3 scripts/audit_run.py report --run-dir <run-dir> \
   --severity-decisions <run-dir>/reviews/severity-decisions.json \
-  --finding-details <run-dir>/reviews/finding-details.json
+  --finding-details <run-dir>/reviews/finding-details.json \
+  --poc-evidence <run-dir>/reviews/poc-evidence.json
 ```
 
 `next` returns `DEEP_REVIEW` for missing candidate records and `PROOF` for
@@ -224,6 +228,26 @@ validates and synthesizes in memory, then commits a complete immutable
 generation through `report-current.json`. A failed report leaves the previous
 current generation untouched and exits non-zero if current reporting is
 incomplete. It never trusts a previous `audit-state.json`.
+
+`Proof != PoC`. Proof establishes that a finding is real and may be a trace,
+invariant violation, calculation, or test. A runnable PoC is a reporting gate
+after severity is assigned: `Info`, `Low`, and `Medium` findings report without
+one; `High` and `Critical` findings require a completed, lineage-bound
+`poc-evidence` artifact. The controller records the reproduction command but
+does not execute arbitrary commands during `status` or ordinary reporting.
+
+When severity is current, controller output exposes the policy projection:
+
+```json
+{
+  "poc_policy": {
+    "minimum_severity": "High",
+    "required_count": 1,
+    "skipped_below_high_count": 2,
+    "required_ids": ["EVM-..."]
+  }
+}
+```
 
 The returned `report` and `issue_candidates` paths point into the committed
 generation. Use `report_generation.report`, `.issue_candidates`, `.bundle`, and
@@ -286,7 +310,7 @@ Confirmed findings use this format:
 **Preconditions**: Concrete conditions
 **Exploitability**: How the conditions are satisfied
 **Impact**: Concrete consequence
-**Proof of Concept / Invariant Violation**: Runnable proof or deterministic invariant violation
+**Strong proof evidence**: Trace, calculation, test, or deterministic invariant violation
 **Description**: What the issue is and why it matters.
 **Recommendation**: Concrete fix with code snippet.
 ```
@@ -311,10 +335,21 @@ or `INCOMPLETE_REPORTING`), not a new audit-state status.
 
 The controller stores the exact validated UTF-8 reporting inputs in the
 committed generation as `severity-decisions.json` and `finding-details.json`.
-The report-bundle v2 marker hashes those snapshots; clean reports record
-`null` for both input hashes. Previous generations remain available for
-reproducibility; operators may remove unreferenced generations only under an
-explicit retention policy after preserving any required audit evidence.
+The report-bundle v3 marker hashes those snapshots and adds
+`poc_evidence_sha256`. Clean reports set all three reporting-input hashes to
+`null`. A report with only sub-High findings hashes severity and finding details
+but leaves `poc_evidence_sha256` as `null`. A High/Critical report stores the
+exact validated PoC bytes in the immutable generation. Previous generations
+remain available for reproducibility; operators may remove unreferenced
+generations only under an explicit retention policy after preserving any
+required audit evidence.
+
+For a completed PoC, `poc-evidence.json` contains only the exact current
+High/Critical projection. Each entry records its runner, non-empty reproduction
+command, entrypoint, expected result, result summary, durable source path, and
+SHA-256. Sources must resolve inside the audited target/build tree or
+`<run-dir>/poc/`; symlink escapes, missing files, changed bytes, stale severity
+bytes, and `TEMPLATE` artifacts are rejected.
 
 Severity is assigned only after confirmation using the dimensions and mapping
 in [`severity-scoring.md`](../skills/evm-audit-master/references/severity-scoring.md).

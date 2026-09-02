@@ -37,3 +37,20 @@ rationale supporting each value.
 When dimensions disagree, explain the limiting factor instead of averaging away
 the impact. Keep unresolved economic assumptions as `SUSPICIOUS`; do not assign a
 severity until they are established.
+
+## PoC threshold
+
+Severity is assigned only after strong proof confirms the finding. The runnable
+PoC gate is then applied to reporting:
+
+| Final severity | Runnable PoC required for final publication? |
+|---|---:|
+| Info | No |
+| Low | No |
+| Medium | No |
+| High | Yes |
+| Critical | Yes |
+
+Do not generate a PoC for a confirmed sub-High finding merely to satisfy
+reporting. Create a reproduction when it is genuinely necessary to establish
+correctness, not because the reporting policy requires it.

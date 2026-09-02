@@ -9,7 +9,7 @@ ROUTING    Recon/Feature Map v4 → environment → Domain → check gates → i
      ↓
 RUNTIME    manifest → Domain Resolution → Domain Context → Screen results → candidate-only Deep JSONL → proof
      ↓
-REPORTING  confirmed-only synthesis → report generation → report-current.json
+REPORTING  confirmed-only synthesis → severity → conditional PoC gate → report generation → report-current.json
 ```
 
 User-facing Skill packages live under `skills/`; runtime assets remain in
@@ -26,4 +26,8 @@ all filtered/Deferred items stay manifest-visible; Deferred Domains must resolve
 before clean completion; required Domain Context is a separate snapshot-bound
 artifact; only CONFIRMED records reach reporting and SUSPICIOUS records never
 receive severity. `validate_audit_run.py` derives completion from the artifacts
-instead of trusting an upstream completion flag.
+instead of trusting an upstream completion flag. Strong proof establishes
+`CONFIRMED`; a runnable PoC is separate reporting evidence required only for
+confirmed `High` and `Critical` findings. The PoC artifact is lineage-bound to
+severity-decision bytes and source hashes, and is snapshotted in report-bundle
+v3 without changing the review lifecycle.

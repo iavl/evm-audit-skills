@@ -17,6 +17,7 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 - `UNKNOWN` is never absence. Only trusted absence or confirmed environment mismatch may filter; Screen may emit only `NOT_APPLICABLE_CONFIRMED` or `CANDIDATE`.
 - Deep reviews consume only Screen candidates. Every candidate needs one owner-Domain append-only JSONL event stream with valid revisions, typed evidence, and a terminal status.
 - `SUSPICIOUS` has no severity and must go through a later `PROOF` event. Only `CONFIRMED` records enter the final report.
+- `CONFIRMED` requires strong proof of reachability, satisfiable preconditions, exploitability, and impact. A runnable PoC is a separate reporting requirement: only confirmed `High` and `Critical` findings require one; confirmed `Info`, `Low`, and `Medium` findings remain reportable without it.
 - Solidity POC source is user-owned evidence: keep audit-created or modified tests, helpers, and mocks in the target tree or archive temporary copies under `<run-dir>/poc/` before proof, record the durable path in `proof` or `evidence.location`, and never delete or overwrite them after `PROOF` or report generation.
 
 ## Controller
@@ -27,7 +28,8 @@ python3 <suite-root>/scripts/audit_run.py next --run-dir <run-dir>
 python3 <suite-root>/scripts/audit_run.py status --run-dir <run-dir>
 python3 <suite-root>/scripts/audit_run.py report --run-dir <run-dir> \
   --severity-decisions <run-dir>/reviews/severity-decisions.json \
-  --finding-details <run-dir>/reviews/finding-details.json
+  --finding-details <run-dir>/reviews/finding-details.json \
+  --poc-evidence <run-dir>/reviews/poc-evidence.json
 ```
 
 The controller emits compact progress to stderr by default. Use `--verbose` to
@@ -39,7 +41,10 @@ evidence-bound templates. `DEEP_REVIEW` means candidate records are missing;
 `PROOF` means the latest record is `SUSPICIOUS` and the controller exposes a
 suspicious-only `runtime/proof-<owner-domain>.md` view. `report` re-derives state from
 current artifacts and refuses stale, incomplete, or under-specified reporting
-inputs.
+inputs. The `--poc-evidence` input is required only when current severity
+decisions contain a confirmed `High` or `Critical` finding. The controller
+validates its lineage, exact required-ID projection, source paths, and source
+hashes; it never runs the recorded command automatically.
 
 For `report` and `status` results, consume the paths under
 `report_generation` (and the report result's `report`, `issue_candidates`, and
@@ -120,8 +125,13 @@ runtime supports it; otherwise use sequential execution.
 
 The model must not treat pattern matches as findings, turn `UNKNOWN` into
 absence, rerun routing in a Domain Skill, assign severity to `SUSPICIOUS`, or
-emit a final report from missing/malformed coverage. Filing GitHub issues is
-separate and requires explicit scope; only confirmed Medium+ findings qualify.
+emit a final report from missing/malformed coverage. Do not proactively build
+Foundry or Hardhat exploit tests for `Info`, `Low`, or `Medium` findings after
+strong proof is otherwise sufficient. Build the smallest deterministic
+runnable PoC after severity for `High` and `Critical`; if a reproduction is
+needed to establish correctness, keep the finding `SUSPICIOUS` until it is
+available. Filing GitHub issues is separate and requires explicit scope; only
+confirmed Medium+ findings qualify.
 
 Apply the compact review contract at
 `<suite-root>/skills/evm-audit-master/references/check-review-contract.runtime.md`.

@@ -134,7 +134,7 @@ attack is reachable and exploitable under the target's actual conditions.
 
 Evidence may include:
 
-- a Foundry proof-of-concept;
+- strong proof such as a Foundry test, trace, invariant violation, or calculation;
 - transaction traces;
 - an invariant violation;
 - arithmetic or economic calculations; or
@@ -147,7 +147,8 @@ guard blocks it, and whether value can actually be extracted.
 
 Only strong evidence can move a record to `CONFIRMED`. If the invariant or
 guard prevents exploitation, the suspicious candidate is resolved as safe
-instead.
+instead. `Proof != PoC`: a runnable exploit PoC is a separate reporting input,
+not a prerequisite for confirmation.
 
 ## 7. REPORT
 
@@ -159,7 +160,8 @@ results. It requires:
 - complete Screen coverage;
 - a review for every Deep candidate; and
 - no unresolved `SUSPICIOUS` item; and
-- reporting artifacts that match the current review and proof state.
+- reporting artifacts that match the current review and proof state; and
+- a validated runnable PoC for each confirmed `High` or `Critical` finding.
 
 Only `CONFIRMED` records enter the final report. The main artifacts are:
 
@@ -171,7 +173,17 @@ generation and the `report-current.json` pointer; controller output exposes the
 generation paths as authoritative, while top-level files are convenience copies.
 
 Incomplete or stale evidence prevents the runtime from presenting a clean,
-completed audit.
+completed audit. Confirmed `Info`, `Low`, and `Medium` findings do not need a
+PoC merely to report, and remain visible in the Markdown report. `Medium` and
+above remain issue candidates.
+
+The reporting rule is severity-gated:
+
+```text
+CONFIRMED + Medium → report normally; no PoC required
+CONFIRMED + High   → INCOMPLETE_POC until a validated PoC is present
+PoC admitted       → report after admission and snapshot validation
+```
 
 ## Example End-to-End Audit
 
