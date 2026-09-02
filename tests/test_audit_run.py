@@ -1525,7 +1525,12 @@ contract RetainedPoC {
             self.assertEqual(payload["report_generation"]["status"], "CURRENT")
             report = (run_dir / "report-generations" / pointer["generation"] / "AUDIT-REPORT.md").read_text(encoding="utf-8")
             self.assertIn("**Severity:** Medium", report)
-            self.assertEqual(self.read(run_dir / "report-generations" / pointer["generation"] / "report-bundle.json")["poc_evidence_sha256"], None)
+            generation_root = run_dir / "report-generations" / pointer["generation"]
+            self.assertEqual(
+                self.read(generation_root / "issue-candidates.json")["findings"][0]["severity"],
+                "Medium",
+            )
+            self.assertIsNone(self.read(generation_root / "report-bundle.json")["poc_evidence_sha256"])
             self.assertFalse((run_dir / "reviews/poc-evidence.json").exists())
 
     def test_documented_report_cli_high_auto_discovers_poc(self) -> None:
