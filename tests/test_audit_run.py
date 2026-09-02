@@ -1307,11 +1307,12 @@ contract RetainedPoC {
             resolved = {
                 **{key: value for key, value in suspicious.items() if key != "unresolved_reason"},
                 "review_stage": "PROOF",
-                "status": "REVIEWED_SAFE",
-                "exploitability": "guard holds",
-                "impact": "none",
+                "status": "CONFIRMED",
+                "applicability": "APPLICABLE - fixture",
+                "preconditions": "fixture state",
+                "exploitability": "fixture path is reachable",
+                "impact": "fixture impact",
                 "proof": f"POC source retained at {poc_location}; fixture invariant holds",
-                "preserved_invariant": "fixture invariant",
                 "evidence": [{"kind": "test", "location": poc_location, "reason": "proof source and test result"}],
             }
             append(
@@ -1326,15 +1327,64 @@ contract RetainedPoC {
             result = self.run_cli("scripts/audit_run.py", "next", "--run-dir", str(run_dir))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("REPORT", result.stdout)
-            self.assertIn("COMPLETE_CLEAN", result.stdout)
+            self.assertIn("COMPLETE_WITH_FINDINGS", result.stdout)
             report_payload = json.loads(result.stdout)
             self.assertEqual(report_payload["progress"]["step"], 7)
             self.assertEqual(report_payload["progress"]["label"], "REPORT")
+            state = self.read(run_dir / "audit-state.json")
+            manifest = self.read(run_dir / "routing/manifest.json")
+            identity = {
+                "schema_version": 2, "artifact_state": "COMPLETED",
+                "routing_snapshot_id": manifest["routing_snapshot_id"],
+                "review_state_digest": state["review_state_digest"],
+                **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
+            }
+            candidate_id = candidate["canonical_id"]
+            severity = {
+                **identity,
+                "decisions": {
+                    candidate_id: {
+                        "severity": "High", "rationale": "retained fixture PoC proves impact",
+                        "dimensions": {
+                            "impact": "fund_loss", "exploitability": "permissionless", "privileges": "none",
+                            "capital_required": "none", "repeatability": "one_shot", "user_interaction": "none",
+                            "loss_bound": "single_user", "protocol_exposure": "single_position", "recoverability": "irreversible",
+                        },
+                    }
+                },
+            }
+            details = {
+                **identity,
+                "findings": [{
+                    "canonical_id": candidate_id, "location": "RetainedPoC.t.sol:4",
+                    "description": "The retained fixture proves the confirmed finding.",
+                    "recommendation": "Fix the fixture target path.",
+                }],
+            }
+            severity_bytes = json_text(severity).encode("utf-8")
+            (run_dir / "reviews/severity-decisions.json").write_bytes(severity_bytes)
+            (run_dir / "reviews/finding-details.json").write_text(json_text(details), encoding="utf-8")
+            poc = {
+                "artifact_type": "poc-evidence", "schema_version": 1, "artifact_state": "COMPLETED",
+                "routing_snapshot_id": manifest["routing_snapshot_id"], "review_snapshot_id": state["review_snapshot_id"],
+                "review_state_digest": state["review_state_digest"],
+                **{key: manifest["audit_context"][key] for key in ("registry_sha256", "source_digest", "compilation_input_digest")},
+                "severity_decisions_sha256": hashlib.sha256(severity_bytes).hexdigest(),
+                "findings": [{
+                    "canonical_id": candidate_id, "severity": "High", "runner": "foundry",
+                    "command": "forge test --match-test testExploit -vvv",
+                    "sources": [{"path": poc_location, "sha256": hashlib.sha256(poc_path.read_bytes()).hexdigest()}],
+                    "entrypoint": "testExploit", "expected_result": "The exploit reproduces the confirmed defect.",
+                    "result_summary": "The retained fixture reproduced the confirmed defect.",
+                }],
+            }
+            (run_dir / "reviews/poc-evidence.json").write_text(json_text(poc), encoding="utf-8")
             for _ in range(2):
                 result = self.run_cli("scripts/audit_run.py", "report", "--run-dir", str(run_dir))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(poc_path.read_text(encoding="utf-8"), poc_source)
                 self.assertIn(poc_location, (run_dir / "reviews/review-evm-audit-general.jsonl").read_text(encoding="utf-8"))
+                self.assertIn(poc_location, Path(json.loads(result.stdout)["report"]).read_text(encoding="utf-8"))
 
     def test_medium_report_succeeds_without_poc(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
