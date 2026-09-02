@@ -708,6 +708,120 @@ class AuditRunTests(unittest.TestCase):
             self.assertTrue(Path(result["report"]).is_file())
             self.assertTrue(values["report_current"].exists())
 
+    def test_report_pointer_reporting_digest_is_bound_to_generation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            pointer = self.read(values["report_current"])
+            pointer["reporting_inputs_sha256"] = "0" * 64
+            values["report_current"].write_text(json_text(pointer), encoding="utf-8")
+            status = audit_controller._report_bundle_status(
+                ROOT, values, self.read(values["manifest"]), self.read(values["audit_state"])
+            )
+            self.assertFalse(status["current"])
+            self.assertIn("reporting inputs do not match", status["message"])
+
+    def test_failed_override_restores_all_authoring_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = root / "run"
+            self.prepare_finding_run(run_dir, ["Medium"], include_poc=False)
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            severity_override = root / "severity.json"
+            details_override = root / "details.json"
+            severity_override.write_bytes(values["severity_decisions"].read_bytes())
+            details_override.write_bytes(values["finding_details"].read_bytes())
+            before = {
+                key: (values[key].exists(), values[key].read_bytes() if values[key].exists() else None)
+                for key in ("severity_decisions", "finding_details", "poc_evidence", "report_current")
+            }
+            original = audit_controller.atomic_write_bytes
+
+            def fail_after_first(path: Path, content: bytes) -> None:
+                if path.resolve() == values["severity_decisions"].resolve():
+                    original(path, content)
+                elif path.resolve() == values["finding_details"].resolve():
+                    raise OSError("details override failure")
+                else:
+                    original(path, content)
+
+            with patch.object(audit_controller, "atomic_write_bytes", side_effect=fail_after_first):
+                with self.assertRaisesRegex(OSError, "details override failure"):
+                    audit_controller.report_run(ROOT, run_dir, severity_override, details_override)
+            for key, (existed, content) in before.items():
+                self.assertEqual(values[key].exists(), existed, key)
+                if existed:
+                    self.assertEqual(values[key].read_bytes(), content, key)
+            manifest = self.read(values["manifest"])
+            state = self.read(values["audit_state"])
+            self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
+
+    def test_failed_high_to_medium_override_does_not_retire_current_poc(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = root / "run"
+            _, _, severity, _, _ = self.prepare_finding_run(run_dir, ["High"])
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            poc_before = values["poc_evidence"].read_bytes()
+            severity["decisions"][next(iter(severity["decisions"]))]["severity"] = "Medium"
+            severity_override = root / "severity-medium.json"
+            details_override = root / "details.json"
+            severity_override.write_bytes(json_text(severity).encode("utf-8"))
+            details_override.write_bytes(values["finding_details"].read_bytes())
+            original = audit_controller.atomic_write_bytes
+
+            def fail_details(path: Path, content: bytes) -> None:
+                if path.resolve() == values["finding_details"].resolve():
+                    raise OSError("details override failure")
+                original(path, content)
+
+            with patch.object(audit_controller, "atomic_write_bytes", side_effect=fail_details):
+                with self.assertRaisesRegex(OSError, "details override failure"):
+                    audit_controller.report_run(ROOT, run_dir, severity_override, details_override)
+            self.assertEqual(values["poc_evidence"].read_bytes(), poc_before)
+
+    def test_high_generation_contains_self_contained_poc_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["High"])
+            result = audit_controller.report_run(ROOT, run_dir)
+            generation = Path(result["report"]).parent
+            source = next((run_dir / "poc").rglob("*.t.sol"))
+            snapshot = generation / "poc-sources" / f"{hashlib.sha256(source.read_bytes()).hexdigest()}.sol"
+            self.assertEqual(snapshot.read_bytes(), source.read_bytes())
+            source.unlink()
+            listed = audit_controller.reports_run(ROOT, run_dir, list_only=True)
+            current = next(item for item in listed["generations"] if item["current"])
+            self.assertTrue(current["verified"], current)
+
+    def test_verify_poc_is_explicit_and_uses_structured_argv(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_finding_run(run_dir, ["High"])
+            completed = subprocess.CompletedProcess(
+                ["forge", "test"], 0, stdout=b"passed", stderr=b""
+            )
+            real_run = audit_controller.subprocess.run
+
+            def run_command(command, **kwargs):
+                if command and Path(command[0]).name == "forge":
+                    return completed
+                return real_run(command, **kwargs)
+
+            with patch.object(audit_controller.subprocess, "run", side_effect=run_command) as runner:
+                result = audit_controller.verify_poc(ROOT, run_dir)
+            self.assertEqual(result["state"], "PASSED")
+            receipt = self.read(run_dir / "reviews/poc-verification.json")
+            self.assertEqual(receipt["state"], "PASSED")
+            self.assertNotIn("stdout", receipt)
+            call = runner.call_args
+            self.assertFalse(call.kwargs["shell"])
+            self.assertEqual(call.kwargs["cwd"], Path(self.read(run_dir / "routing/manifest.json")["feature_map"]["recon_context"]["build_root"]))
+
     def test_reports_cli_defaults_gc_to_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
@@ -1587,6 +1701,17 @@ contract RetainedPoC {
                 self.read(run_dir / "routing/manifest.json"),
                 self.read(run_dir / "audit-state.json"),
             )["current"])
+
+    def test_missing_high_poc_exposes_per_id_reason_code(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            _, state, _, _, _ = self.prepare_finding_run(run_dir, ["High"], include_poc=False)
+            result = audit_controller.status_run(ROOT, run_dir, emit=False, include_execution=True)
+            canonical_id = state["coverage"]["confirmed"][0]
+            self.assertEqual(
+                result["poc_policy"]["poc_errors"],
+                [{"canonical_id": canonical_id, "code": "POC_METADATA_MISSING"}],
+            )
 
     def test_critical_report_rejects_missing_poc(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

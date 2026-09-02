@@ -25,11 +25,14 @@ Audit this Solidity repository with evm-audit-master: /path/to/project
 
 ## 3. Read the artifacts
 
-The run is written to:
+Choose an external sibling run directory, for example:
 
 ```text
-audits/<repo>-<UTC timestamp>/
+../<repo>-audit-run/
 ```
+
+The target/build tree is authoritative input and the run directory is mutable
+authoring state; equal or descendant run paths are rejected.
 
 Open `AUDIT-REPORT.md` for the final findings. Supporting Recon, routing,
 runtime, Domain Resolution, Domain Context, and review evidence is kept beside

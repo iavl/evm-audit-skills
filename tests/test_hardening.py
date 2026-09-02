@@ -3,16 +3,27 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from scripts.audit_artifacts import canonical_sha256, check_body_hash, derive_review_snapshot_id, validate_issue_candidates
+from scripts.audit_artifacts import (
+    canonical_sha256,
+    check_body_hash,
+    derive_review_snapshot_id,
+    fsync_parent_directory,
+    reporting_inputs_digest,
+    reporting_inputs_digest_from_hashes,
+    validate_generated_artifact_path,
+    validate_issue_candidates,
+)
 from scripts.audit_run import _ensure_reporting_templates, _report_bundle_status, _runtime_view_current, paths as audit_paths
 from scripts.render_runtime import domain_context_template, domain_resolution_template, render, runtime_identity, runtime_metadata, screen_results_template
 from scripts.review_ledger import append
-from scripts.scope_context import compilation_digests, resolve_build_root, scope_inventory
+from scripts.scope_context import compilation_digests, resolve_build_root, scope_inventory, validate_run_dir_isolation
 from scripts.synthesize_report import main as synthesize_main, synthesize
 from scripts.validate_audit_run import validate_run
 
@@ -45,6 +56,59 @@ class HardeningTests(unittest.TestCase):
             "review_state_digest": "2" * 64,
             "coverage": {"confirmed": confirmed},
         }
+
+    def test_reporting_digest_from_hashes_matches_exact_bytes_helper(self) -> None:
+        severity = b"severity\n"
+        details = b"details\n"
+        poc = b"poc\n"
+        self.assertEqual(
+            reporting_inputs_digest_from_hashes(
+                severity_decisions_sha256=hashlib.sha256(severity).hexdigest(),
+                finding_details_sha256=hashlib.sha256(details).hexdigest(),
+                poc_evidence_sha256=hashlib.sha256(poc).hexdigest(),
+            ),
+            reporting_inputs_digest(
+                severity_bytes=severity,
+                finding_details_bytes=details,
+                poc_evidence_bytes=poc,
+            ),
+        )
+        self.assertIsNone(
+            reporting_inputs_digest_from_hashes(
+                severity_decisions_sha256=None,
+                finding_details_sha256=None,
+                poc_evidence_sha256=None,
+            )
+        )
+
+    def test_generated_artifact_and_run_directory_roots_are_isolated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audit = root / "project"
+            build = root / "build"
+            audit.mkdir()
+            build.mkdir()
+            for candidate in (audit, audit / "run", build / "run"):
+                with self.subTest(candidate=candidate):
+                    with self.assertRaisesRegex(ValueError, "outside"):
+                        validate_generated_artifact_path(
+                            candidate,
+                            audit_root=audit,
+                            build_root=build,
+                            label="artifact",
+                        )
+            with self.assertRaisesRegex(ValueError, "outside audit_root"):
+                validate_run_dir_isolation(audit / "run", audit_root=audit, build_root=build)
+            validate_run_dir_isolation(root / "run", audit_root=audit, build_root=build)
+
+    def test_parent_directory_fsync_only_ignores_unsupported_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "artifact.json"
+            with patch("scripts.audit_artifacts.os.fsync", side_effect=OSError(errno.EINVAL, "unsupported")):
+                self.assertFalse(fsync_parent_directory(path))
+            with patch("scripts.audit_artifacts.os.fsync", side_effect=OSError(errno.EIO, "io")):
+                with self.assertRaisesRegex(OSError, "io"):
+                    fsync_parent_directory(path)
 
     def test_bundle_rejects_missing_required_high_issue_candidate(self) -> None:
         _, _, _, manifest = build_manifest()

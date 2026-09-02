@@ -1,0 +1,3 @@
+# Direct runtime roots; requirements-runtime.lock contains the full universal hash-locked closure.
+jsonschema==4.25.1
+slither-analyzer==0.11.6

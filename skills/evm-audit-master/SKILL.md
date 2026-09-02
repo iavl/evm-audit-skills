@@ -19,6 +19,7 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 - `SUSPICIOUS` has no severity and must go through a later `PROOF` event. Only `CONFIRMED` records enter the final report.
 - `CONFIRMED` requires strong proof of reachability, satisfiable preconditions, exploitability, and impact. A runnable PoC is a separate reporting requirement: only confirmed `High` and `Critical` findings require one; confirmed `Info`, `Low`, and `Medium` findings remain reportable without it.
 - Solidity POC source is user-owned evidence: archive audit-created or modified tests, helpers, and mocks under `<run-dir>/poc/` before proof, record the durable path in `proof` or `evidence.location`, and never delete or overwrite them after `PROOF` or report generation. Do not add new PoC files to the audited target after routing.
+- Keep `<run-dir>` as an external sibling of both the audit and build roots. The controller rejects equal or descendant paths, and pipeline outputs cannot overwrite authoritative source/build inputs.
 
 ## Controller
 
@@ -27,6 +28,7 @@ python3 <suite-root>/scripts/audit_run.py init <target> --run-dir <run-dir> --do
 python3 <suite-root>/scripts/audit_run.py next --run-dir <run-dir>
 python3 <suite-root>/scripts/audit_run.py status --run-dir <run-dir>
 python3 <suite-root>/scripts/audit_run.py report --run-dir <run-dir>
+python3 <suite-root>/scripts/audit_run.py verify-poc --run-dir <run-dir>
 ```
 
 The controller emits compact progress to stderr by default. Use `--verbose` to
@@ -47,6 +49,12 @@ never runs the recorded command automatically. The explicit
 advanced overrides; do not add `--poc-evidence` for an all-`Info`/`Low`/`Medium`
 report. A historical generation is `CURRENT` only while its exact reporting
 inputs still match the current run-directory artifacts.
+
+`verify-poc` is the only command that executes recorded Foundry or Hardhat
+commands. It uses a controlled build workspace, structured argv, and
+`shell=False`, and writes a non-gating `poc-verification` receipt containing
+only execution status and output hashes. `status`, `next`, and `report` never
+execute PoC commands.
 
 For `report` and `status` results, consume the paths under
 `report_generation` (and the report result's `report`, `issue_candidates`, and

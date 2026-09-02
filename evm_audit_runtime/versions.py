@@ -20,6 +20,7 @@ SCHEMA_VERSIONS = {
     "issue-candidates": 2,
     "knowledge-metrics": 1,
     "poc-evidence": 1,
+    "poc-verification": 1,
     "review-record": 7,
     "routing-manifest": 7,
     "report-bundle": 3,
@@ -43,6 +44,7 @@ FINDING_DETAILS_VERSION = SCHEMA_VERSIONS["finding-details"]
 ISSUE_CANDIDATES_VERSION = SCHEMA_VERSIONS["issue-candidates"]
 KNOWLEDGE_METRICS_VERSION = SCHEMA_VERSIONS["knowledge-metrics"]
 POC_EVIDENCE_VERSION = SCHEMA_VERSIONS["poc-evidence"]
+POC_VERIFICATION_VERSION = SCHEMA_VERSIONS["poc-verification"]
 REVIEW_RECORD_VERSION = SCHEMA_VERSIONS["review-record"]
 ROUTING_MANIFEST_VERSION = SCHEMA_VERSIONS["routing-manifest"]
 REPORT_BUNDLE_VERSION = SCHEMA_VERSIONS["report-bundle"]

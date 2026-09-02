@@ -17,13 +17,16 @@ from evm_audit_runtime.versions import AUDIT_STATE_VERSION
 
 try:
     from audit_artifacts import (
+        atomic_write_text,
         derive_review_snapshot_id,
         load_json,
+        require_distinct_paths,
         review_state_digest,
         validate_artifact_identity,
         validate_context,
         validate_domain_context,
         validate_domain_resolution,
+        validate_generated_artifact_path,
         validate_schema,
         validate_target_snapshot,
     )
@@ -31,13 +34,16 @@ try:
     from review_ledger import collect_review_records
 except ImportError:  # pragma: no cover
     from scripts.audit_artifacts import (
+        atomic_write_text,
         derive_review_snapshot_id,
         load_json,
+        require_distinct_paths,
         review_state_digest,
         validate_artifact_identity,
         validate_context,
         validate_domain_context,
         validate_domain_resolution,
+        validate_generated_artifact_path,
         validate_schema,
         validate_target_snapshot,
     )
@@ -245,6 +251,23 @@ def main(argv: list[str] | None = None) -> int:
         stage("VALIDATE", step=6, total=7, detail="Deriving audit state independently")
         manifest = load_json(args.manifest)
         registry = load_json(args.registry)
+        require_distinct_paths(
+            ("manifest", args.manifest),
+            ("registry", args.registry),
+            ("screen results", args.screen_results),
+            ("domain resolution", args.domain_resolution),
+            ("domain context", args.domain_context),
+            ("context", args.context),
+            ("audit state", args.output),
+        )
+        if args.output:
+            recon_context = manifest.get("feature_map", {}).get("recon_context", {})
+            validate_generated_artifact_path(
+                args.output,
+                audit_root=Path(recon_context["target_root"]),
+                build_root=Path(recon_context["build_root"]),
+                label="audit state",
+            )
         screen = load_json(args.screen_results) if args.screen_results.exists() else None
         domain = load_json(args.domain_resolution) if args.domain_resolution else None
         domain_context = load_json(args.domain_context)
@@ -252,8 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         state = validate_run(ROOT, manifest, registry, screen, domain, domain_context, context, args.ledger)
         rendered = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
         if args.output:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(rendered, encoding="utf-8")
+            atomic_write_text(args.output, rendered)
         print(rendered, end="")
         coverage = state["coverage"]
         snapshot_valid = state["status"] != "INVALID_SNAPSHOT"

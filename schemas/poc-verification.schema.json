@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:poc-verification:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "state", "routing_snapshot_id", "review_snapshot_id",
+    "review_state_digest", "severity_decisions_sha256", "poc_evidence_sha256", "results"
+  ],
+  "properties": {
+    "artifact_type": {"const": "poc-verification"},
+    "schema_version": {"const": 1},
+    "state": {"enum": ["UNVERIFIED", "PASSED", "FAILED"]},
+    "routing_snapshot_id": {"$ref": "#/$defs/hash"},
+    "review_snapshot_id": {"$ref": "#/$defs/hash"},
+    "review_state_digest": {"$ref": "#/$defs/hash"},
+    "severity_decisions_sha256": {"$ref": "#/$defs/hash"},
+    "poc_evidence_sha256": {"$ref": "#/$defs/hash"},
+    "runner": {"enum": ["foundry", "hardhat", "custom"]},
+    "normalized_argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "source_manifest_sha256": {"$ref": "#/$defs/hash"},
+    "exit_code": {"type": ["integer", "null"]},
+    "stdout_sha256": {"$ref": "#/$defs/hash"},
+    "stderr_sha256": {"$ref": "#/$defs/hash"},
+    "results": {"type": "array", "items": {"$ref": "#/$defs/result"}}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_id", "state", "runner", "normalized_argv", "source_manifest_sha256",
+        "exit_code", "stdout_sha256", "stderr_sha256"
+      ],
+      "properties": {
+        "canonical_id": {"type": "string", "minLength": 1},
+        "state": {"enum": ["UNVERIFIED", "PASSED", "FAILED"]},
+        "runner": {"enum": ["foundry", "hardhat", "custom"]},
+        "normalized_argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "source_manifest_sha256": {"$ref": "#/$defs/hash"},
+        "exit_code": {"type": ["integer", "null"]},
+        "stdout_sha256": {"$ref": "#/$defs/hash"},
+        "stderr_sha256": {"$ref": "#/$defs/hash"},
+        "reason": {"type": "string", "minLength": 1},
+        "error_code": {"enum": [
+          "POC_METADATA_MISSING", "POC_TEMPLATE_INCOMPLETE", "POC_SOURCE_MISSING",
+          "POC_SOURCE_HASH_MISMATCH", "POC_SEVERITY_STALE", "POC_PATH_INVALID",
+          "POC_VERIFICATION_FAILED"
+        ]}
+      }
+    }
+  }
+}

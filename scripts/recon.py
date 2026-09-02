@@ -21,14 +21,14 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
-    from scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
+    from scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, conservative_input_snapshot, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 except ImportError:  # pragma: no cover - supports importing from another cwd
-    from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
+    from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, conservative_input_snapshot, relative_scope_path, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 
 try:
-    from audit_artifacts import atomic_write_text, require_distinct_paths, sha256_bytes, validate_schema
+    from audit_artifacts import atomic_write_text, require_distinct_paths, restore_file, sha256_bytes, snapshot_file, validate_generated_artifact_path, validate_schema
 except ImportError:  # pragma: no cover - supports importing from another cwd
-    from scripts.audit_artifacts import atomic_write_text, require_distinct_paths, sha256_bytes, validate_schema
+    from scripts.audit_artifacts import atomic_write_text, require_distinct_paths, restore_file, sha256_bytes, snapshot_file, validate_generated_artifact_path, validate_schema
 
 try:
     from code_context import build_code_index
@@ -380,7 +380,22 @@ def build_feature_map(
         scope_files,
         (("feature-map", feature_map_out), ("code-index", code_index_out)),
     )
+    for label, output in (("feature-map", feature_map_out), ("code-index", code_index_out)):
+        if output is not None:
+            validate_generated_artifact_path(
+                output,
+                audit_root=scope_root,
+                build_root=compilation_root,
+                label=label,
+            )
     audit_files = set(scope_files)
+    pre_snapshot = conservative_input_snapshot(
+        scope_root,
+        build_root=compilation_root,
+        exclusions=exclusions,
+        include_patterns=include_patterns,
+        dependency_roots=dependency_roots,
+    )
     Slither = ensure_slither_import()
     kwargs: dict[str, Any] = {}
     if solc:
@@ -459,6 +474,7 @@ def build_feature_map(
     navigation_binding: dict[str, Any] | None = None
     if closure_files is not None:
         recon_context["compilation_files"] = closure_files
+    code_index_serialized: str | None = None
     if code_index_out is not None:
         code_index = build_code_index(
             slither,
@@ -469,18 +485,50 @@ def build_feature_map(
             recon_context["compilation_input_digest"],
         )
         validate_schema(root, "code-index.schema.json", code_index)
-        serialized = json.dumps(code_index, ensure_ascii=False, indent=2) + "\n"
-        atomic_write_text(code_index_out, serialized)
+        code_index_serialized = json.dumps(code_index, ensure_ascii=False, indent=2) + "\n"
         navigation_binding = {
             "schema_version": code_index["schema_version"],
-            "sha256": sha256_bytes(serialized.encode("utf-8")),
+            "sha256": sha256_bytes(code_index_serialized.encode("utf-8")),
         }
     recon_context["navigation_artifacts"] = {"code_index": navigation_binding}
-    return {
+    post_snapshot = conservative_input_snapshot(
+        scope_root,
+        build_root=compilation_root,
+        exclusions=exclusions,
+        include_patterns=include_patterns,
+        dependency_roots=dependency_roots,
+    )
+    if pre_snapshot != post_snapshot:
+        raise ValueError("source/build inputs changed during Recon; retry from a stable checkout")
+    payload = {
         "schema_version": FEATURE_MAP_VERSION,
         "recon_context": recon_context,
         "features": features,
     }
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    output_snapshots = {
+        path: snapshot_file(path)
+        for path in (feature_map_out, code_index_out)
+        if path is not None
+    }
+    try:
+        if feature_map_out is not None:
+            atomic_write_text(feature_map_out, rendered)
+        if code_index_out is not None and code_index_serialized is not None:
+            atomic_write_text(code_index_out, code_index_serialized)
+        if conservative_input_snapshot(
+            scope_root,
+            build_root=compilation_root,
+            exclusions=exclusions,
+            include_patterns=include_patterns,
+            dependency_roots=dependency_roots,
+        ) != pre_snapshot:
+            raise ValueError("source/build inputs changed during Recon; retry from a stable checkout")
+    except Exception:
+        for path, snapshot in output_snapshots.items():
+            restore_file(path, snapshot)
+        raise
+    return payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -520,9 +568,7 @@ def main(argv: list[str] | None = None) -> int:
             args.output,
         )
         rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
-        if args.output:
-            args.output.write_text(rendered, encoding="utf-8")
-        else:
+        if not args.output:
             print(rendered, end="")
         statuses = [entry["status"] for entry in payload["features"].values()]
         info(f"Solidity files analyzed: {len(payload['recon_context']['files_analyzed'])}")

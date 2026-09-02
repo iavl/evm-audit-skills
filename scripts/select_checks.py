@@ -16,10 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from evm_audit_runtime.versions import ENVIRONMENT_CONTEXT_VERSION, FEATURE_MAP_VERSION, FEATURE_REGISTRY_VERSION, ROUTING_MANIFEST_VERSION
 
 try:
-    from audit_artifacts import bind_routing_snapshot, check_body_hash, registry_sha256, validate_schema
+    from audit_artifacts import atomic_write_text, bind_routing_snapshot, check_body_hash, registry_sha256, require_distinct_paths, restore_file, snapshot_file, validate_generated_artifact_path, validate_schema
     from scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 except ImportError:  # pragma: no cover
-    from scripts.audit_artifacts import bind_routing_snapshot, check_body_hash, registry_sha256, validate_schema
+    from scripts.audit_artifacts import atomic_write_text, bind_routing_snapshot, check_body_hash, registry_sha256, require_distinct_paths, restore_file, snapshot_file, validate_generated_artifact_path, validate_schema
     from scripts.scope_context import DEFAULT_DEPENDENCY_ROOTS, compilation_digests, resolve_build_root, resolve_scope_root, scope_inventory, source_digest
 
 try:
@@ -809,8 +809,7 @@ def parse_domains(args: argparse.Namespace, known: set[str]) -> list[str] | None
 
 
 def write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    atomic_write_text(path, content)
 
 
 def environment_artifact(context: dict[str, Any], snapshot_id: str) -> dict[str, Any]:
@@ -863,6 +862,25 @@ def main(argv: list[str] | None = None) -> int:
         include_patterns = tuple(args.include)
         dependency_roots = tuple(args.dependency_root) if args.dependency_root is not None else tuple(sorted(DEFAULT_DEPENDENCY_ROOTS))
         resolved_build_root = resolve_build_root(args.target_root, args.build_root)
+        require_distinct_paths(
+            ("feature-map", args.feature_map),
+            ("environment-context", args.environment_context),
+            ("manifest", args.manifest_out),
+            ("context", args.context_out),
+            ("environment", args.environment_out),
+        )
+        for label, output in (
+            ("manifest", args.manifest_out),
+            ("context", args.context_out),
+            ("environment", args.environment_out),
+        ):
+            if output is not None:
+                validate_generated_artifact_path(
+                    output,
+                    audit_root=resolve_scope_root(args.target_root),
+                    build_root=resolved_build_root,
+                    label=label,
+                )
         feature_map = normalize_feature_map(
             raw_feature_map,
             names,
@@ -900,12 +918,20 @@ def main(argv: list[str] | None = None) -> int:
         environment["environment_facts"] = context["environment_facts"]
         manifest, _ = select(registry, feature_map, names, scope_domains, context, domain_configs, environment, recon_context)
 
-        if args.manifest_out:
-            write_text(args.manifest_out, json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-        if args.context_out:
-            write_text(args.context_out, json.dumps({**context, "routing_snapshot_id": manifest["routing_snapshot_id"]}, ensure_ascii=False, indent=2) + "\n")
-        if args.environment_out:
-            write_text(args.environment_out, json.dumps(environment_artifact(context, manifest["routing_snapshot_id"]), ensure_ascii=False, indent=2) + "\n")
+        outputs = {
+            args.manifest_out: json.dumps(manifest, ensure_ascii=False, indent=2) + "\n" if args.manifest_out else None,
+            args.context_out: json.dumps({**context, "routing_snapshot_id": manifest["routing_snapshot_id"]}, ensure_ascii=False, indent=2) + "\n" if args.context_out else None,
+            args.environment_out: json.dumps(environment_artifact(context, manifest["routing_snapshot_id"]), ensure_ascii=False, indent=2) + "\n" if args.environment_out else None,
+        }
+        outputs = {path: content for path, content in outputs.items() if path is not None and content is not None}
+        snapshots = {path: snapshot_file(path) for path in outputs}
+        try:
+            for path, content in outputs.items():
+                write_text(path, content)
+        except Exception:
+            for path, snapshot in snapshots.items():
+                restore_file(path, snapshot)
+            raise
         if args.format == "json":
             print(json.dumps(manifest, ensure_ascii=False, indent=2))
         else:

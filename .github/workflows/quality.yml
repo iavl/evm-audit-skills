@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
       - name: Install Slither and solc
         run: |
-          python3 -m pip install -r requirements-runtime.lock
+          python3 -m pip install --require-hashes -r requirements-runtime.lock
           solc-select install 0.8.24
           solc-select use 0.8.24
       - name: Set up Foundry

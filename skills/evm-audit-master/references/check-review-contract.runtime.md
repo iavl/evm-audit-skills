@@ -46,6 +46,14 @@ helpers and mocks, is user-owned audit evidence and remains a deliverable.
 - After proof succeeds, and after final-report generation or regeneration, do
   not delete or overwrite the source. Cleanup may remove only generated views
   and disposable build/cache artifacts that do not contain POC source.
+- A successful report generation copies each explicitly referenced source byte
+  into `report-generations/generation-<bundle-sha256>/poc-sources/` as
+  `<sha256>.<extension>`. Historical generation validation uses this snapshot,
+  not the mutable run-dir source.
+- Recorded commands are never executed implicitly. Use the explicit
+  `audit_run.py verify-poc --run-dir <run-dir>` command for supported runners;
+  its optional `poc-verification` receipt is additional assurance, not a report
+  admission gate.
 
 ```markdown
 ### <canonical-id> — <title>

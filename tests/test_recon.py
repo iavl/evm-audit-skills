@@ -10,8 +10,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from scripts.recon import DETECTOR_IMPLEMENTATIONS, SAFE_ABSENCE_IMPLEMENTATIONS, load_detector_config
+from scripts.recon import DETECTOR_IMPLEMENTATIONS, SAFE_ABSENCE_IMPLEMENTATIONS, build_feature_map, load_detector_config
 
 from helpers import ROOT, load_json
 
@@ -143,6 +145,52 @@ class ReconTests(unittest.TestCase):
             )
             self.assertNotEqual(strict.returncode, 0)
             self.assertIn("complete compilation", strict.stderr)
+
+    def test_recon_rejects_input_change_before_output_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project"
+            target = project / "Target.sol"
+            feature_map = Path(directory) / "feature-map.json"
+            code_index = Path(directory) / "code-index.json"
+            project.mkdir()
+            target.write_text("pragma solidity ^0.8.24; contract Target {}\n", encoding="utf-8")
+            fake_slither = SimpleNamespace(
+                contracts=[],
+                crytic_compile=SimpleNamespace(compilation_units={}),
+            )
+            original_digests = __import__("scripts.recon", fromlist=["compilation_digests"]).compilation_digests
+
+            def digest_and_mutate(*args, **kwargs):
+                value = original_digests(*args, **kwargs)
+                target.write_text(target.read_text(encoding="utf-8") + "// changed during Recon\n", encoding="utf-8")
+                return value
+
+            def fake_index(_slither, scope_root, build_root, _audit_files, source_digest, compilation_digest):
+                return {
+                    "schema_version": 2,
+                    "target_root": str(scope_root),
+                    "build_root": str(build_root),
+                    "source_digest": source_digest,
+                    "compilation_input_digest": compilation_digest,
+                    "contracts": {}, "functions": {}, "inheritance": {},
+                    "external_calls": [], "storage_writes": [], "modifiers": {}, "source_ranges": {},
+                }
+
+            with patch("scripts.recon.ensure_slither_import", return_value=lambda *_args, **_kwargs: fake_slither), \
+                patch("scripts.recon.compilation_digests", side_effect=digest_and_mutate), \
+                patch("scripts.recon.build_code_index", side_effect=fake_index):
+                with self.assertRaisesRegex(ValueError, "changed during Recon"):
+                    build_feature_map(
+                        ROOT,
+                        target,
+                        None,
+                        False,
+                        build_root=project,
+                        code_index_out=code_index,
+                        feature_map_out=feature_map,
+                    )
+            self.assertFalse(feature_map.exists())
+            self.assertFalse(code_index.exists())
 
 
 if __name__ == "__main__":

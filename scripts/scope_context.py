@@ -53,6 +53,20 @@ def resolve_scope_root(target: Path, audit_root: Path | None = None) -> Path:
     return root
 
 
+def validate_run_dir_isolation(
+    run_dir: Path,
+    *,
+    audit_root: Path,
+    build_root: Path,
+) -> None:
+    """Keep mutable run state outside both authoritative input trees."""
+    resolved_run = run_dir.resolve()
+    for label, root in (("audit_root", audit_root), ("build_root", build_root)):
+        resolved_root = root.resolve()
+        if resolved_run == resolved_root or resolved_root in resolved_run.parents:
+            raise ValueError(f"run-dir must be outside {label}: {resolved_run}")
+
+
 def relative_scope_path(root: Path, path: Path) -> str | None:
     path = path.resolve()
     if root.is_file():
@@ -270,3 +284,56 @@ def compilation_digests(
         compiler_versions = (compiler_version,)
     compilation = _compilation_digest(audit, dependency, build, compiler_version, compiler_versions)
     return {"audit_source_digest": audit, "dependency_digest": dependency, "build_config_digest": build, "compilation_input_digest": compilation}
+
+
+def _snapshot_update(digest: "hashlib._Hash", label: str, value: str | bytes) -> None:
+    encoded = value.encode("utf-8") if isinstance(value, str) else value
+    digest.update(label.encode("utf-8") + b"\0" + str(len(encoded)).encode("ascii") + b"\0" + encoded + b"\0")
+
+
+def _snapshot_files(digest: "hashlib._Hash", label: str, root: Path, files: Iterable[Path]) -> None:
+    resolved_root = root.resolve()
+    for path in sorted(set(files), key=lambda item: item.as_posix()):
+        resolved = path.resolve()
+        try:
+            relative = resolved.relative_to(resolved_root).as_posix()
+        except ValueError as error:
+            raise ValueError(f"snapshot input is outside build root: {resolved}") from error
+        data = path.read_bytes()
+        _snapshot_update(digest, f"{label}:path", relative)
+        _snapshot_update(digest, f"{label}:bytes", data)
+        if path.is_symlink():
+            _snapshot_update(digest, f"{label}:symlink", path.readlink().as_posix())
+
+
+def conservative_input_snapshot(
+    audit_root: Path,
+    *,
+    build_root: Path | None = None,
+    exclusions: Iterable[str] = (),
+    include_patterns: Iterable[str] = (),
+    dependency_roots: Iterable[str] = DEFAULT_DEPENDENCY_ROOTS,
+) -> str:
+    """Hash the conservative source/build state independently of the compiler."""
+    audit_root = audit_root.resolve()
+    build_root = resolve_build_root(audit_root, build_root)
+    scope_files, excluded = scope_inventory(
+        audit_root,
+        exclusions,
+        include_patterns,
+        dependency_roots,
+    )
+    build_sources = _compilation_sources(build_root)
+    build_configs = _build_configs(build_root, dependency_roots)
+    digest = hashlib.sha256()
+    _snapshot_update(digest, "snapshot-version", "1")
+    _snapshot_update(digest, "audit-root", str(audit_root))
+    _snapshot_update(digest, "build-root", str(build_root))
+    _snapshot_update(digest, "audit-scope-files", "\n".join(sorted(scope_files)))
+    _snapshot_update(digest, "audit-excluded-files", "\n".join(sorted(excluded)))
+    audit_paths = [audit_root if audit_root.is_file() else audit_root / relative for relative in scope_files]
+    _snapshot_files(digest, "audit-source", audit_root, audit_paths)
+    _snapshot_files(digest, "build-source", build_root, build_sources)
+    _snapshot_files(digest, "build-config", build_root, build_configs)
+    _snapshot_update(digest, "gitlinks", _submodule_commits(build_root, dependency_roots))
+    return digest.hexdigest()

@@ -32,10 +32,12 @@ try:
         derive_review_snapshot_id,
         has_unresolved_marker,
         load_json,
+        require_distinct_paths,
         resolved_routes,
         trusted_absence_policy,
         validate_domain_resolution,
         validate_artifact_identity,
+        validate_generated_artifact_path,
         validate_non_applicability,
         validate_schema,
         validate_target_snapshot,
@@ -48,10 +50,12 @@ except ImportError:  # pragma: no cover
         derive_review_snapshot_id,
         has_unresolved_marker,
         load_json,
+        require_distinct_paths,
         resolved_routes,
         trusted_absence_policy,
         validate_domain_resolution,
         validate_artifact_identity,
+        validate_generated_artifact_path,
         validate_non_applicability,
         validate_schema,
         validate_target_snapshot,
@@ -622,6 +626,30 @@ def main(argv: list[str] | None = None) -> int:
         manifest, registry = read_json(args.manifest), read_json(args.registry)
         validate_manifest(ROOT, manifest, registry)
         validate_target_snapshot(manifest)
+        recon_context = manifest["feature_map"]["recon_context"]
+        audit_root = Path(recon_context["target_root"])
+        build_root = Path(recon_context["build_root"])
+        for ledger in args.ledger:
+            validate_generated_artifact_path(
+                ledger, audit_root=audit_root, build_root=build_root, label="review ledger"
+            )
+        require_distinct_paths(
+            ("manifest", args.manifest),
+            ("registry", args.registry),
+            ("screen results", args.screen_results),
+            ("domain resolution", args.domain_resolution),
+            ("domain context", args.domain_context),
+            ("append record", args.append_record),
+            ("review Markdown", args.render_markdown),
+            *[("review ledger", ledger) for ledger in args.ledger],
+        )
+        if args.render_markdown:
+            validate_generated_artifact_path(
+                args.render_markdown,
+                audit_root=audit_root,
+                build_root=build_root,
+                label="review Markdown",
+            )
         screen = read_json(args.screen_results)
         domain_resolution = read_json(args.domain_resolution) if args.domain_resolution else None
         domain_context = read_json(args.domain_context)

@@ -22,12 +22,14 @@ try:
         check_body_hash,
         derive_review_snapshot_id,
         load_json,
+        require_distinct_paths,
         registry_sha256,
         resolved_routes,
         trusted_absence_policy,
         validate_domain_context,
         validate_domain_resolution,
         validate_artifact_identity,
+        validate_generated_artifact_path,
         validate_non_applicability,
         validate_routing_snapshot,
         validate_schema,
@@ -41,12 +43,14 @@ except ImportError:  # pragma: no cover
         check_body_hash,
         derive_review_snapshot_id,
         load_json,
+        require_distinct_paths,
         registry_sha256,
         resolved_routes,
         trusted_absence_policy,
         validate_domain_context,
         validate_domain_resolution,
         validate_artifact_identity,
+        validate_generated_artifact_path,
         validate_non_applicability,
         validate_routing_snapshot,
         validate_schema,
@@ -369,6 +373,28 @@ def main(argv: list[str] | None = None) -> int:
         manifest, registry = load_json(args.manifest), load_json(args.registry)
         validate_manifest(ROOT, manifest, registry)
         validate_target_snapshot(manifest)
+        recon_context = manifest["feature_map"]["recon_context"]
+        audit_root = Path(recon_context["target_root"])
+        build_root = Path(recon_context["build_root"])
+        outputs = (
+            ("runtime view", args.output),
+            ("screen results", args.screen_results_out),
+            ("domain resolution", args.domain_resolution_out),
+            ("domain context", args.domain_context_out),
+        )
+        require_distinct_paths(
+            ("manifest", args.manifest),
+            ("registry", args.registry),
+            ("screen results input", args.screen_results),
+            ("domain resolution input", args.domain_resolution),
+            ("domain context input", args.domain_context),
+            *outputs,
+        )
+        for label, output in outputs:
+            if output is not None:
+                validate_generated_artifact_path(
+                    output, audit_root=audit_root, build_root=build_root, label=label
+                )
         domain_resolution = load_json(args.domain_resolution) if args.domain_resolution else None
         unresolved_domains: set[str] = set()
         if args.domain_resolution or args.domain_resolution_out:

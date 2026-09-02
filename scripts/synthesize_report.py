@@ -27,6 +27,7 @@ try:
         load_json_bytes,
         require_distinct_paths,
         report_bundle_metadata,
+        validate_generated_artifact_path,
         review_state_digest,
         validate_poc_evidence,
         validate_artifact_identity,
@@ -47,6 +48,7 @@ except ImportError:  # pragma: no cover
         load_json_bytes,
         require_distinct_paths,
         report_bundle_metadata,
+        validate_generated_artifact_path,
         review_state_digest,
         validate_poc_evidence,
         validate_artifact_identity,
@@ -493,12 +495,35 @@ def main(argv: list[str] | None = None) -> int:
     try:
         bundle_path = args.bundle_metadata_out or (args.output.with_name("report-bundle.json") if args.output and args.issue_candidates_out else None)
         require_distinct_paths(
+            ("manifest", args.manifest),
+            ("registry", args.registry),
+            ("audit state", args.audit_state),
+            ("screen results", args.screen_results),
+            ("domain resolution", args.domain_resolution),
+            ("domain context", args.domain_context),
+            ("context", args.context),
+            ("severity decisions", args.severity_decisions),
+            ("finding details", args.finding_details),
+            ("poc evidence", args.poc_evidence),
             ("report", args.output),
             ("issue-candidates", args.issue_candidates_out),
             ("report-bundle", bundle_path),
         )
         manifest = load_json(args.manifest)
         registry = load_json(args.registry)
+        recon_context = manifest.get("feature_map", {}).get("recon_context", {})
+        for label, output in (
+            ("report", args.output),
+            ("issue-candidates", args.issue_candidates_out),
+            ("report-bundle", bundle_path),
+        ):
+            if output is not None:
+                validate_generated_artifact_path(
+                    output,
+                    audit_root=Path(recon_context["target_root"]),
+                    build_root=Path(recon_context["build_root"]),
+                    label=label,
+                )
         state = load_json(args.audit_state) if args.audit_state else {}
         severity = severity_bytes = None
         if args.severity_decisions:

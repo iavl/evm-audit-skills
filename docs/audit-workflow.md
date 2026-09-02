@@ -26,6 +26,12 @@ context comes from the surrounding Foundry project and its configured
 dependencies. Recon keeps those two boundaries distinct so the audit does not
 silently omit code needed to understand the target.
 
+Keep mutable run artifacts in an external sibling directory such as
+`../protocol-audit-run/`; the target and build trees remain read-only
+authoritative inputs. Recon rejects source/build changes observed during its
+analysis window and publishes no Feature Map or code index from an unstable
+snapshot.
+
 Recon is conservative when traversal or compilation is incomplete. Presence
 evidence can still identify code that was seen, but missing evidence is not
 treated as proof that a feature or dependency is absent.
@@ -184,6 +190,10 @@ CONFIRMED + Medium → report normally; no PoC required
 CONFIRMED + High   → INCOMPLETE_POC until a validated PoC is present
 PoC admitted       → report after admission and snapshot validation
 ```
+
+High/Critical PoC source bytes are retained in the immutable report generation.
+If execution evidence is desired, run the explicit `verify-poc` command; it is
+additional assurance and is not executed automatically by status or report.
 
 ## Example End-to-End Audit
 

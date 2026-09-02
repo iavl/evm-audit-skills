@@ -139,7 +139,8 @@ clean audit, and stale review artifacts are not reused. See
 
 ## Audit Output
 
-Runs are written to `audits/<repo>-<UTC timestamp>/`. `AUDIT-REPORT.md`
+Runs are written to an external sibling such as `../<repo>-audit-run/`, never
+inside the target or build root. `AUDIT-REPORT.md`
 contains only `CONFIRMED` findings; supporting Recon, routing, context, review,
 and proof artifacts remain beside it.
 

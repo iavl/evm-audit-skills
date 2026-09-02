@@ -10,9 +10,14 @@ source → Recon/Feature Map v4 → Environment Gate → Domain Gate → Check G
        → severity → runnable PoC gate for High/Critical → final report
 ```
 
-Standalone runs create `audits/<repo>-<UTC timestamp>/` and run Recon/Selector
-once. Orchestrated Domain agents consume the shared context, immutable manifest,
+Standalone runs use an external run directory and run Recon/Selector once.
+Orchestrated Domain agents consume the shared context, immutable manifest,
 Screen results, and rendered runtime file without rerunning routing.
+
+Place the run directory outside the target and build roots, preferably as an
+external sibling such as `../protocol-audit-run/`. Resolved equal or descendant
+paths are rejected, and generated pipeline artifacts are forbidden from writing
+into authoritative source/build trees.
 
 The low-level CLIs below are runtime interfaces. The short user-facing entry
 point is `scripts/audit_run.py`; its `next` command returns the next required
@@ -47,6 +52,7 @@ audit artifacts.
 | code-index | no, navigation hint | Recon `navigation_artifacts.code_index.sha256` plus current target snapshot | disable navigation |
 | severity/finding details | reporting input | review-state digest | report admission error |
 | `poc-evidence` | reporting input for High/Critical only | severity-decision bytes, review/source/build lineage, source hashes, path safety | `INCOMPLETE_POC` |
+| `poc-verification` | optional execution receipt | report/review/PoC identities, source manifest, runner argv, exit/output hashes | non-gating |
 | final report + issue candidates | derived outputs | immutable report generation, `report-current.json` v3, report-bundle v3 marker, body hashes, and finding-input hashes | stale/incomplete |
 
 The machine-readable JSON/JSONL artifacts are authoritative. Runtime Markdown
@@ -106,6 +112,23 @@ controller logic; the recommendation applies only to Codex model judgment.
 The profile is execution metadata only. It is excluded from routing, review,
 source, compilation, registry, and report identity digests; changing it cannot
 stale valid security evidence.
+
+Runtime dependencies are locked with versions and distribution hashes in
+`requirements-runtime.lock`. Install reproducibly with:
+
+```bash
+python3 -m pip install --require-hashes -r requirements-runtime.lock
+```
+
+Maintainers can regenerate the Python 3.12 universal lock (including Linux and
+Windows artifacts) with:
+
+```bash
+uv pip compile requirements-runtime.in --universal --generate-hashes \
+  --python-version 3.12 --no-annotate --output-file requirements-runtime.lock
+```
+
+Review the resulting lock diff before committing it.
 
 Build and route one immutable snapshot:
 
@@ -221,6 +244,7 @@ python3 scripts/audit_run.py init <target> --run-dir <run-dir> --domain <domain>
 python3 scripts/audit_run.py next --run-dir <run-dir>
 python3 scripts/audit_run.py status --run-dir <run-dir>
 python3 scripts/audit_run.py report --run-dir <run-dir>
+python3 scripts/audit_run.py verify-poc --run-dir <run-dir>
 ```
 
 The explicit `--severity-decisions`, `--finding-details`, and
@@ -235,7 +259,9 @@ generation through `report-current.json`. A failed report leaves the previous
 current generation untouched and exits non-zero if current reporting is
 incomplete. `status` reports a historical generation as stale when current
 reporting inputs differ or a newly-required High/Critical PoC is pending. It
-never trusts a previous `audit-state.json`.
+never trusts a previous `audit-state.json`. `verify-poc` is explicit and
+non-gating; supported Foundry/Hardhat commands use structured argv and
+`shell=False`, while default output records hashes rather than command output.
 
 `Proof != PoC`. Proof establishes that a finding is real and may be a trace,
 invariant violation, calculation, or test. A runnable PoC is a reporting gate
@@ -244,7 +270,8 @@ one; `High` and `Critical` findings require a completed, lineage-bound
 `poc-evidence` artifact. The controller records the reproduction command but
 does not execute arbitrary commands during `status` or ordinary reporting.
 
-When severity is current, controller output exposes the policy projection:
+When severity is current, controller output exposes the policy projection and,
+when validation is incomplete, stable per-ID `poc_errors` reason codes:
 
 ```json
 {
@@ -252,7 +279,8 @@ When severity is current, controller output exposes the policy projection:
     "minimum_severity": "High",
     "required_count": 1,
     "skipped_below_high_count": 2,
-    "required_ids": ["EVM-..."]
+    "required_ids": ["EVM-..."],
+    "poc_errors": [{"canonical_id": "EVM-...", "code": "POC_SOURCE_MISSING"}]
   }
 }
 ```
@@ -349,7 +377,10 @@ The report-bundle v3 marker hashes those snapshots and adds
 `poc_evidence_sha256`. Clean reports set all three reporting-input hashes to
 `null`. A report with only sub-High findings hashes severity and finding details
 but leaves `poc_evidence_sha256` as `null`. A High/Critical report stores the
-exact validated PoC bytes in the immutable generation. Previous generations
+exact validated PoC bytes in the immutable generation and copies each
+referenced source into `poc-sources/<sha256>.<extension>`. Historical
+generation checks use those snapshots and do not require live PoC source files.
+Previous generations
 remain available for reproducibility; operators may remove unreferenced
 generations only under an explicit retention policy after preserving any
 required audit evidence.

@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,33 @@ ABSENCE_EVIDENCE_KINDS = {
     "environment",
     "compiler-ast",
 }
+POC_ERROR_CODES = {
+    "POC_METADATA_MISSING",
+    "POC_TEMPLATE_INCOMPLETE",
+    "POC_SOURCE_MISSING",
+    "POC_SOURCE_HASH_MISMATCH",
+    "POC_SEVERITY_STALE",
+    "POC_PATH_INVALID",
+    "POC_VERIFICATION_FAILED",
+}
+
+
+def poc_error_code(error: BaseException | str) -> str:
+    """Map a PoC validation failure to a stable, user-facing reason code."""
+    message = str(error).lower()
+    if "template" in message:
+        return "POC_TEMPLATE_INCOMPLETE"
+    if "source is missing" in message or "missing source" in message:
+        return "POC_SOURCE_MISSING"
+    if "source hash" in message or "changed while capturing" in message:
+        return "POC_SOURCE_HASH_MISMATCH"
+    if "path" in message or "escape" in message:
+        return "POC_PATH_INVALID"
+    if "severity" in message or "review_state" in message or "snapshot" in message:
+        return "POC_SEVERITY_STALE"
+    if "runner" in message or "verification" in message:
+        return "POC_VERIFICATION_FAILED"
+    return "POC_METADATA_MISSING"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -59,6 +87,29 @@ def sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+@dataclass(frozen=True)
+class FileSnapshot:
+    existed: bool
+    content: bytes | None
+
+
+def snapshot_file(path: Path) -> FileSnapshot:
+    if not path.exists():
+        return FileSnapshot(False, None)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"snapshot target is not a regular file: {path}")
+    return FileSnapshot(True, path.read_bytes())
+
+
+def restore_file(path: Path, snapshot: FileSnapshot) -> None:
+    if snapshot.existed:
+        if snapshot.content is None:
+            raise ValueError(f"snapshot has no content for existing file: {path}")
+        atomic_write_bytes(path, snapshot.content)
+    else:
+        path.unlink(missing_ok=True)
+
+
 def reporting_inputs_digest(
     *,
     severity_bytes: bytes | None,
@@ -66,19 +117,38 @@ def reporting_inputs_digest(
     poc_evidence_bytes: bytes | None,
 ) -> str | None:
     """Hash the exact current reporting-input bytes with stable field names."""
-    if severity_bytes is None and finding_details_bytes is None and poc_evidence_bytes is None:
+    return reporting_inputs_digest_from_hashes(
+        severity_decisions_sha256=(sha256_bytes(severity_bytes) if severity_bytes is not None else None),
+        finding_details_sha256=(sha256_bytes(finding_details_bytes) if finding_details_bytes is not None else None),
+        poc_evidence_sha256=(sha256_bytes(poc_evidence_bytes) if poc_evidence_bytes is not None else None),
+    )
+
+
+def reporting_inputs_digest_from_hashes(
+    *,
+    severity_decisions_sha256: str | None,
+    finding_details_sha256: str | None,
+    poc_evidence_sha256: str | None,
+) -> str | None:
+    """Hash already-derived reporting input identities without reading files."""
+    for label, value in (
+        ("severity_decisions_sha256", severity_decisions_sha256),
+        ("finding_details_sha256", finding_details_sha256),
+        ("poc_evidence_sha256", poc_evidence_sha256),
+    ):
+        if value is not None and (not isinstance(value, str) or not SHA256_RE.fullmatch(value)):
+            raise ValueError(f"{label} must be a SHA-256 hex digest")
+    if severity_decisions_sha256 is None and finding_details_sha256 is None and poc_evidence_sha256 is None:
         return None
-    if severity_bytes is None or finding_details_bytes is None:
+    if severity_decisions_sha256 is None or finding_details_sha256 is None:
         raise ValueError("finding reports require severity and finding-details bytes")
     return canonical_sha256(
         {
             "artifact_type": "reporting-inputs",
             "schema_version": 1,
-            "severity_decisions_sha256": sha256_bytes(severity_bytes),
-            "finding_details_sha256": sha256_bytes(finding_details_bytes),
-            "poc_evidence_sha256": (
-                sha256_bytes(poc_evidence_bytes) if poc_evidence_bytes is not None else None
-            ),
+            "severity_decisions_sha256": severity_decisions_sha256,
+            "finding_details_sha256": finding_details_sha256,
+            "poc_evidence_sha256": poc_evidence_sha256,
         }
     )
 
@@ -93,6 +163,21 @@ def require_distinct_paths(*paths: tuple[str, Path | None]) -> None:
         if previous is not None:
             raise ValueError(f"output paths for {previous} and {label} must be distinct: {resolved}")
         seen[resolved] = label
+
+
+def validate_generated_artifact_path(
+    path: Path,
+    *,
+    audit_root: Path,
+    build_root: Path,
+    label: str,
+) -> None:
+    """Keep security-sensitive generated artifacts outside authoritative trees."""
+    resolved = path.resolve()
+    for root_label, root in (("audit_root", audit_root), ("build_root", build_root)):
+        resolved_root = root.resolve()
+        if resolved == resolved_root or resolved_root in resolved.parents:
+            raise ValueError(f"{label} must be outside {root_label}: {resolved}")
 
 
 def json_text(value: Any) -> str:
@@ -327,6 +412,29 @@ def validate_review_state_binding(value: dict[str, Any], digest: str | None) -> 
         raise ValueError("artifact has mismatched review_state_digest")
 
 
+def fsync_parent_directory(path: Path) -> bool:
+    """Fsync a parent directory, tolerating only unsupported operations."""
+    if os.name == "nt":
+        return False
+    unsupported = {errno.EINVAL, errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}
+    try:
+        descriptor = os.open(path.parent, os.O_RDONLY)
+    except OSError as error:
+        if error.errno in unsupported:
+            return False
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as error:
+            if error.errno in unsupported:
+                return False
+            raise
+    finally:
+        os.close(descriptor)
+    return True
+
+
 def atomic_write_bytes(path: Path, content: bytes) -> None:
     """Replace a file atomically, leaving no stale partial output."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -339,14 +447,7 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
             os.fsync(output.fileno())
         os.replace(temporary, path)
         temporary = None
-        try:
-            descriptor = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-        except OSError:
-            pass
+        fsync_parent_directory(path)
     finally:
         if temporary is not None:
             try:
@@ -366,24 +467,7 @@ def atomic_write_json(path: Path, value: Any) -> None:
 def durable_replace_directory(source: Path, destination: Path) -> bool:
     """Rename a generation and fsync its parent when the platform supports it."""
     source.replace(destination)
-    if os.name == "nt":
-        return False
-    try:
-        descriptor = os.open(destination.parent, os.O_RDONLY)
-    except OSError as error:
-        if error.errno in {errno.EINVAL, errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}:
-            return False
-        raise
-    try:
-        try:
-            os.fsync(descriptor)
-        except OSError as error:
-            if error.errno in {errno.EINVAL, errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}:
-                return False
-            raise
-    finally:
-        os.close(descriptor)
-    return True
+    return fsync_parent_directory(destination)
 
 
 def invalidate_final_outputs(*paths: Path) -> None:
@@ -592,6 +676,13 @@ def _resolve_poc_source(path: str, manifest: dict[str, Any], run_dir: Path | Non
     raise ValueError(f"PoC source is missing: {path}")
 
 
+def poc_source_snapshot_name(source: dict[str, Any]) -> str:
+    suffix = Path(source["path"]).suffix
+    if not suffix or not re.fullmatch(r"\.[A-Za-z0-9_-]+", suffix):
+        suffix = ".source"
+    return f"{source['sha256']}{suffix}"
+
+
 def validate_poc_evidence(
     root: Path,
     manifest: dict[str, Any],
@@ -601,6 +692,7 @@ def validate_poc_evidence(
     poc_evidence: dict[str, Any],
     *,
     run_dir: Path | None = None,
+    source_dir: Path | None = None,
 ) -> list[str]:
     """Validate completed, lineage-bound runnable PoC evidence."""
     if not isinstance(severity_decisions_bytes, bytes):
@@ -659,10 +751,22 @@ def validate_poc_evidence(
         if not isinstance(sources, list) or not sources:
             raise ValueError(f"poc-evidence has no source: {canonical_id}")
         for source in sources:
-            source_path = _resolve_poc_source(source["path"], manifest, run_dir)
             if not SHA256_RE.fullmatch(source["sha256"]):
                 raise ValueError(f"poc-evidence source has a bad SHA-256: {source['path']}")
-            if sha256_bytes(source_path.read_bytes()) != source["sha256"]:
+            if source_dir is None:
+                source_path = _resolve_poc_source(source["path"], manifest, run_dir)
+                source_bytes = source_path.read_bytes()
+            else:
+                snapshot_name = poc_source_snapshot_name(source)
+                source_path = source_dir / snapshot_name
+                if (
+                    source_path.parent.resolve() != source_dir.resolve()
+                    or source_path.is_symlink()
+                    or not source_path.is_file()
+                ):
+                    raise ValueError(f"poc-evidence source snapshot is missing: {source['path']}")
+                source_bytes = source_path.read_bytes()
+            if sha256_bytes(source_bytes) != source["sha256"]:
                 raise ValueError(f"poc-evidence source hash does not match: {source['path']}")
     return required
 
