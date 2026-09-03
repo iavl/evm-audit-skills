@@ -7,6 +7,7 @@ import json
 import hashlib
 import multiprocessing
 import queue
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -536,6 +537,35 @@ class AuditRunTests(unittest.TestCase):
             self.assertFalse(staging.exists())
             self.assertTrue(unknown.exists())
             self.assertTrue((values["report_generations"] / current).exists())
+
+    def test_reports_gc_refuses_when_current_pointer_cannot_be_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory) / "run"
+            self.prepare_clean_run(run_dir)
+            audit_controller.report_run(ROOT, run_dir)
+            values = audit_controller.paths(run_dir)
+            generations = values["report_generations"]
+            pointer_path = values["report_current"]
+            protected = self.read(pointer_path)["generation"]
+            original_pointer = pointer_path.read_bytes()
+            # A corrupted pointer must never let GC delete every verified generation.
+            pointer_path.write_text("{not valid json\n", encoding="utf-8")
+            before = sorted(path.name for path in generations.iterdir())
+            with self.assertRaisesRegex(ValueError, "refusing report GC"):
+                audit_controller.reports_run(ROOT, run_dir, gc=True, apply=True)
+            self.assertEqual(sorted(path.name for path in generations.iterdir()), before)
+            self.assertTrue((generations / protected).is_dir())
+            # A valid pointer whose current generation directory is missing must also refuse GC.
+            pointer_path.write_bytes(original_pointer)
+            shutil.rmtree(generations / protected)
+            with self.assertRaisesRegex(ValueError, "refusing report GC"):
+                audit_controller.reports_run(ROOT, run_dir, gc=True, apply=True)
+            # The dry-run preview is equally protected.
+            with self.assertRaisesRegex(ValueError, "refusing report GC"):
+                audit_controller.reports_run(ROOT, run_dir, gc=True, dry_run=True)
+            # Listing remains a diagnostic command and does not raise.
+            listed = audit_controller.reports_run(ROOT, run_dir, list_only=True)
+            self.assertEqual(listed["stage"], "REPORTS")
 
     def test_legacy_top_level_outputs_require_explicit_republication(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

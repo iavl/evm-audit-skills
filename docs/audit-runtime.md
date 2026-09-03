@@ -305,9 +305,12 @@ python3 scripts/audit_run.py reports --run-dir <run-dir> --gc --apply
 ```
 
 Cleanup protects the current generation, ignores unknown directories, and only
-removes stale staging directories or verified orphan generations. A generation
-does not yet contain a hashed `audit-state.json` snapshot; its historical state
-is reconstructed from the immutable run inputs and ledger.
+removes stale staging directories or verified orphan generations. If the
+current report pointer cannot be validated (unreadable pointer, or its
+generation directory is missing or corrupt), report GC fails closed and
+removes nothing; use `--list` to inspect the run before repairing it. A
+generation does not yet contain a hashed `audit-state.json` snapshot; its
+historical state is reconstructed from the immutable run inputs and ledger.
 
 The low-level `synthesize_report.py --audit-state` argument is an optional
 derived cache for compatibility; synthesis re-derives the current state from

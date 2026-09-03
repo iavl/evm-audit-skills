@@ -1222,14 +1222,6 @@ def _report_generation_status(values: dict[str, Any], bundle_status: dict[str, A
     return result
 
 
-def _pointer_generation_name(path: Path) -> str | None:
-    try:
-        generation = load_json(path).get("generation")
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
-    return generation if isinstance(generation, str) and re.fullmatch(r"generation-[0-9a-f]+", generation) else None
-
-
 def _validate_generation_snapshot(root: Path, generation: Path) -> dict[str, Any]:
     if generation.is_symlink() or not generation.is_dir():
         raise ValueError(f"generation is not a regular directory: {generation}")
@@ -1303,14 +1295,25 @@ def reports_run(
     if report_generations.is_symlink() or (report_generations.exists() and not report_generations.is_dir()):
         raise ValueError(f"report-generations is not a regular directory: {report_generations}")
     with _report_publication_lock(values["manifest"].parent.parent):
-        current_generation = _pointer_generation_name(values["report_current"])
+        current_generation: str | None = None
         try:
             current = _current_report_generation(root, values)
+            if current is not None:
+                current_generation = current[1]["generation"]
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             warning(f"current report pointer is not valid: {exc}")
-            current = None
-        if current is not None:
-            current_generation = current[1]["generation"]
+        if gc and current_generation is None:
+            # Fail closed: without a validated current generation, every verified
+            # generation looks like an orphan and GC would destroy the last
+            # committed deliverable. Only allow GC when nothing was ever published.
+            has_generations = report_generations.exists() and any(
+                entry.name.startswith("generation-") for entry in report_generations.iterdir()
+            )
+            if values["report_current"].exists() or has_generations:
+                raise ValueError(
+                    "refusing report GC because the current report generation cannot be validated; "
+                    "inspect or repair the run with `reports --list` before collecting old generations"
+                )
         inventory = _report_generation_inventory(values, current_generation)
         generation_records: list[dict[str, Any]] = []
         by_bundle: dict[str, list[dict[str, Any]]] = {}
