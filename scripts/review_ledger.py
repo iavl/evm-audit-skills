@@ -30,6 +30,7 @@ try:
         atomic_write_text,
         check_body_hash,
         derive_review_snapshot_id,
+        fsync_parent_directory,
         has_unresolved_marker,
         load_json,
         require_distinct_paths,
@@ -48,6 +49,7 @@ except ImportError:  # pragma: no cover
         atomic_write_text,
         check_body_hash,
         derive_review_snapshot_id,
+        fsync_parent_directory,
         has_unresolved_marker,
         load_json,
         require_distinct_paths,
@@ -471,10 +473,21 @@ def append(
         if not records:
             lines.append(json.dumps(identity, ensure_ascii=False, sort_keys=True) + "\n")
         lines.append(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-        with path.open("a", encoding="utf-8") as output:
-            output.write("".join(lines))
-            output.flush()
-            os.fsync(output.fileno())
+        # Append the complete record set with unbuffered binary writes so a crash can
+        # never leave a partially written JSON line that bricks the whole ledger.
+        created = not path.exists()
+        payload = "".join(lines).encode("utf-8")
+        descriptor = os.open(path, os.O_APPEND | os.O_WRONLY | os.O_CREAT, 0o644)
+        try:
+            remaining = payload
+            while remaining:
+                written = os.write(descriptor, remaining)
+                remaining = remaining[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        if created:
+            fsync_parent_directory(path)
 
 
 def pending(

@@ -694,7 +694,13 @@ class AuditRunTests(unittest.TestCase):
             self.assertNotIn("stdout", receipt)
             call = runner.call_args
             self.assertFalse(call.kwargs["shell"])
-            self.assertEqual(call.kwargs["cwd"], Path(self.read(run_dir / "routing/manifest.json")["feature_map"]["recon_context"]["build_root"]))
+            # Recorded commands run inside a disposable copy of the build tree, never in the audited tree.
+            build_root = Path(self.read(run_dir / "routing/manifest.json")["feature_map"]["recon_context"]["build_root"])
+            workspace = Path(call.kwargs["cwd"])
+            self.assertNotEqual(workspace, build_root, "verify-poc must not run inside the authoritative build root")
+            self.assertTrue(workspace.parent.name.startswith(".verify-poc-"), str(workspace))
+            self.assertEqual(workspace.name, "project")
+            self.assertFalse(workspace.exists(), "isolated PoC workspace must be removed after verification")
 
     def test_reports_cli_defaults_gc_to_dry_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

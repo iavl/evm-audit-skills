@@ -265,7 +265,9 @@ incomplete. `status` reports a historical generation as stale when current
 reporting inputs differ or a newly-required High/Critical PoC is pending. It
 never trusts a previous `audit-state.json`. `verify-poc` is explicit and
 non-gating; supported Foundry/Hardhat commands use structured argv and
-`shell=False`, while default output records hashes rather than command output.
+`shell=False` and run inside a disposable copy of the build tree (volatile
+`out/`/`cache/`/`artifacts/` output stays outside the audited tree), while
+default output records hashes rather than command output.
 
 `Proof != PoC`: Vulnerability Validation establishes that a finding is real and
 may be a trace, invariant violation, calculation, or test. A runnable PoC is a reporting gate

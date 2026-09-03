@@ -2511,6 +2511,44 @@ def _output_bytes(value: Any) -> bytes:
     return str(value or "").encode("utf-8")
 
 
+# Volatile build outputs and dependency trees are never copied into the
+# disposable PoC workspace; dependency trees are re-linked read-only.
+_POC_WORKSPACE_EXCLUDED_DIRS = {
+    "node_modules", "lib", "out", "cache", "artifacts",
+    "broadcast", "coverage", "typechain-types", ".git",
+}
+_POC_WORKSPACE_LINKED_DIRS = ("node_modules", "lib")
+
+
+def _verify_poc_ignore(directory: str, names: list[str]) -> set[str]:
+    del directory
+    return {name for name in names if name in _POC_WORKSPACE_EXCLUDED_DIRS}
+
+
+def _isolated_poc_workspace(build_root: Path, run_dir: Path) -> Path:
+    """Create a disposable copy of the build tree for recorded PoC commands.
+
+    Recorded commands must never mutate the authoritative target/build tree;
+    tool default artifact outputs (out/, cache/, artifacts/) land in the copy.
+    """
+    parent = Path(tempfile.mkdtemp(prefix=".verify-poc-", dir=str(run_dir.parent)))
+    try:
+        project = parent / "project"
+        shutil.copytree(build_root, project, copy_function=shutil.copy2, ignore=_verify_poc_ignore)
+        for name in _POC_WORKSPACE_LINKED_DIRS:
+            source = build_root / name
+            target = project / name
+            if source.is_dir() and not target.exists():
+                try:
+                    os.symlink(source, target)
+                except OSError:  # pragma: no cover - Windows without symlink privilege
+                    shutil.copytree(source, target, copy_function=shutil.copy2)
+    except BaseException:
+        shutil.rmtree(parent, ignore_errors=True)
+        raise
+    return project
+
+
 def verify_poc(
     root: Path,
     run_dir: Path,
@@ -2539,57 +2577,64 @@ def verify_poc(
     if not build_root.is_dir():
         raise ValueError(f"PoC verification build workspace is not a directory: {build_root}")
     results: list[dict[str, Any]] = []
-    for finding in inputs.poc_evidence.get("findings", []):
-        runner = finding["runner"]
-        source_manifest_hash = _poc_source_manifest_sha256(finding)
-        result: dict[str, Any] = {
-            "canonical_id": finding["canonical_id"],
-            "state": "UNVERIFIED",
-            "runner": runner,
-            "normalized_argv": ["<unparsed>"],
-            "source_manifest_sha256": source_manifest_hash,
-            "exit_code": None,
-            "stdout_sha256": hashlib.sha256(b"").hexdigest(),
-            "stderr_sha256": hashlib.sha256(b"").hexdigest(),
-        }
-        try:
-            argv = _poc_command_argv(runner, finding["command"])
-            result["normalized_argv"] = argv
-        except ValueError as error:
-            result["reason"] = str(error)
-            result["error_code"] = "POC_VERIFICATION_FAILED"
-            results.append(result)
-            continue
-        if runner == "custom":
-            result["reason"] = "custom PoC runners are not executed automatically"
-            result["error_code"] = "POC_VERIFICATION_FAILED"
-            results.append(result)
-            continue
-        try:
-            completed = subprocess.run(
-                argv,
-                shell=False,
-                cwd=build_root,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
-            )
-            stdout = _output_bytes(completed.stdout)
-            stderr = _output_bytes(completed.stderr)
-            result.update(
-                state="PASSED" if completed.returncode == 0 else "FAILED",
-                exit_code=completed.returncode,
-                stdout_sha256=hashlib.sha256(stdout).hexdigest(),
-                stderr_sha256=hashlib.sha256(stderr).hexdigest(),
-            )
-            if completed.returncode != 0:
-                result["reason"] = "PoC runner exited non-zero"
+    workspace: Path | None = None
+    try:
+        for finding in inputs.poc_evidence.get("findings", []):
+            runner = finding["runner"]
+            source_manifest_hash = _poc_source_manifest_sha256(finding)
+            result: dict[str, Any] = {
+                "canonical_id": finding["canonical_id"],
+                "state": "UNVERIFIED",
+                "runner": runner,
+                "normalized_argv": ["<unparsed>"],
+                "source_manifest_sha256": source_manifest_hash,
+                "exit_code": None,
+                "stdout_sha256": hashlib.sha256(b"").hexdigest(),
+                "stderr_sha256": hashlib.sha256(b"").hexdigest(),
+            }
+            try:
+                argv = _poc_command_argv(runner, finding["command"])
+                result["normalized_argv"] = argv
+            except ValueError as error:
+                result["reason"] = str(error)
                 result["error_code"] = "POC_VERIFICATION_FAILED"
-        except subprocess.TimeoutExpired as error:
-            result.update(state="FAILED", reason="PoC runner timed out")
-            result["error_code"] = "POC_VERIFICATION_FAILED"
-            result["stderr_sha256"] = hashlib.sha256(_output_bytes(error.stderr)).hexdigest()
-        results.append(result)
+                results.append(result)
+                continue
+            if runner == "custom":
+                result["reason"] = "custom PoC runners are not executed automatically"
+                result["error_code"] = "POC_VERIFICATION_FAILED"
+                results.append(result)
+                continue
+            try:
+                if workspace is None:
+                    workspace = _isolated_poc_workspace(build_root, run_dir)
+                completed = subprocess.run(
+                    argv,
+                    shell=False,
+                    cwd=str(workspace),
+                    capture_output=True,
+                    timeout=timeout,
+                    check=False,
+                )
+                stdout = _output_bytes(completed.stdout)
+                stderr = _output_bytes(completed.stderr)
+                result.update(
+                    state="PASSED" if completed.returncode == 0 else "FAILED",
+                    exit_code=completed.returncode,
+                    stdout_sha256=hashlib.sha256(stdout).hexdigest(),
+                    stderr_sha256=hashlib.sha256(stderr).hexdigest(),
+                )
+                if completed.returncode != 0:
+                    result["reason"] = "PoC runner exited non-zero"
+                    result["error_code"] = "POC_VERIFICATION_FAILED"
+            except subprocess.TimeoutExpired as error:
+                result.update(state="FAILED", reason="PoC runner timed out")
+                result["error_code"] = "POC_VERIFICATION_FAILED"
+                result["stderr_sha256"] = hashlib.sha256(_output_bytes(error.stderr)).hexdigest()
+            results.append(result)
+    finally:
+        if workspace is not None:
+            shutil.rmtree(workspace.parent, ignore_errors=True)
     overall = (
         "UNVERIFIED" if any(item["state"] == "UNVERIFIED" for item in results)
         else "FAILED" if any(item["state"] == "FAILED" for item in results)

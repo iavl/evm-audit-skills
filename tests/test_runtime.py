@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,7 @@ from scripts.audit_artifacts import (
     validate_domain_resolution,
 )
 from scripts.render_runtime import domain_context_template, domain_resolution_template, render, screen_results_template, validate_manifest, validate_screen_results
+from scripts import review_ledger
 from scripts.review_ledger import _ledger_lock, append, check_body_hash, checkpoint, collect_review_history, collect_review_records, load, render_markdown, validate_record, validate_records, write_ledger
 from scripts.scope_context import find_suite_root
 from scripts.select_checks import audit_context, load_domains, normalize_feature_map, select
@@ -674,6 +676,60 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue(validate_records(load(path), changed, registry, {check["canonical_id"]}))
             with self.assertRaisesRegex(ValueError, "record_type=review"):
                 append(path, manifest, {key: value for key, value in record.items() if key != "record_type"}, domain_context=domain_context, screen_results=screen)
+
+    def test_jsonl_append_writes_complete_records_with_single_unbuffered_write(self) -> None:
+        registry, _, _, manifest = build_manifest()
+        entry = manifest["selected"][0]
+        check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
+        screen, domain_context, snapshot = review_inputs(manifest)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "review.jsonl"
+            payload = "x" * 200_000
+            record = {
+                "record_type": "review",
+                "schema_version": 7,
+                "canonical_id": check["canonical_id"],
+                "owner_domain": entry["owner_domain"],
+                "routing_snapshot_id": manifest["routing_snapshot_id"],
+                "check_body_hash": check_body_hash(check),
+                "review_stage": "DEEP_REVIEW",
+                "status": "REVIEWED_SAFE",
+                "applicability": "APPLICABLE - fixture",
+                "code_path": "fixture entry" + payload,
+                "preconditions": "fixture state",
+                "exploitability": "blocked by fixture guard",
+                "impact": "N/A - invariant holds",
+                "proof": "fixture invariant",
+                "preserved_invariant": "fixture invariant",
+                "evidence": [{"kind": "test", "location": "fixture", "reason": "test evidence"}],
+            }
+            record["review_snapshot_id"] = snapshot
+            written_calls: list[bytes] = []
+            original_write = os.write
+
+            def recording_write(fd: int, data: bytes) -> int:
+                written_calls.append(bytes(data))
+                return original_write(fd, data)
+
+            with patch.object(os, "write", side_effect=recording_write), patch.object(
+                review_ledger, "fsync_parent_directory", wraps=review_ledger.fsync_parent_directory
+            ) as fsync_dir:
+                append(path, manifest, record, domain_context=domain_context, screen_results=screen)
+            # A record larger than any internal buffer must still be written as whole JSON lines.
+            lines = path.read_bytes().splitlines()
+            self.assertEqual(len(lines), 2)
+            values = [json.loads(line) for line in lines]
+            self.assertEqual(values[1]["status"], "REVIEWED_SAFE")
+            self.assertEqual(values[1]["code_path"], "fixture entry" + payload)
+            self.assertEqual(
+                validate_records(load(path), manifest, registry, {check["canonical_id"]}, review_snapshot_id=snapshot),
+                [],
+            )
+            # The complete checkpoint+record payload must be produced by a single write, never a
+            # buffered multi-syscall stream that can tear a JSON line on crash.
+            self.assertEqual(len(written_calls), 1, "append must write the full record with one unbuffered syscall")
+            self.assertEqual(b"".join(written_calls), path.read_bytes())
+            self.assertTrue(fsync_dir.called, "new ledger files must fsync their parent directory")
 
     def test_review_revisions_preserve_history_and_derive_latest_state(self) -> None:
         registry, _, _, manifest = build_manifest()
