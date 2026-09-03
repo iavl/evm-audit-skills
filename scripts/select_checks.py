@@ -534,20 +534,45 @@ def check_predicate(check: dict[str, Any], names: set[str]) -> dict[str, list[st
     return normalized
 
 
-def evaluate_check(check: dict[str, Any], feature_map: dict[str, dict[str, Any]], names: set[str]) -> dict[str, Any]:
+def evaluate_check(
+    check: dict[str, Any],
+    feature_map: dict[str, dict[str, Any]],
+    names: set[str],
+    *,
+    dependency_presence_sufficient: bool = False,
+    require_scope_origin: bool = True,
+) -> dict[str, Any]:
     if check.get("always_screen") is True:
         return {
             "result": "TRUE", "predicate_result": "TRUE", "predicate_source": check.get("predicate_source", "curated"),
             "predicate": {key: [] for key in PREDICATE_KEYS}, "matched_features": [], "unknown_features": [], "basis": ["always_screen=true"],
         }
     predicate = check_predicate(check, names)
-    groups = {key: evaluate_group(predicate[key], key, feature_map) for key in PREDICATE_KEYS}
+    groups = {
+        key: evaluate_group(
+            predicate[key],
+            key,
+            feature_map,
+            dependency_presence_sufficient=dependency_presence_sufficient,
+            require_scope_origin=require_scope_origin,
+        )
+        for key in PREDICATE_KEYS
+    }
     predicate_result = "FALSE" if "FALSE" in groups.values() else "TRUE" if all(value == "TRUE" for value in groups.values()) else "UNKNOWN"
     predicate_source = check.get("predicate_source", "inferred")
     result = "UNKNOWN" if predicate_result == "FALSE" and predicate_source != "curated" else predicate_result
     referenced = {feature for values in predicate.values() for feature in values}
-    matched = sorted(feature for feature in referenced if status_for(feature, feature_map) == "PRESENT")
-    unknown = sorted(feature for feature in referenced if status_for(feature, feature_map) == "UNKNOWN")
+
+    def state(feature: str) -> str:
+        return status_for(
+            feature,
+            feature_map,
+            dependency_presence_sufficient=dependency_presence_sufficient,
+            require_scope_origin=require_scope_origin,
+        )
+
+    matched = sorted(feature for feature in referenced if state(feature) == "PRESENT")
+    unknown = sorted(feature for feature in referenced if state(feature) == "UNKNOWN")
     basis = [f"{key}={value}" for key, value in groups.items() if predicate[key]]
     if matched:
         basis.append("present=" + ",".join(matched))
@@ -721,7 +746,14 @@ def select(
             (deferred if deferred_for_check else filtered).append(route_entry)
             continue
         environment_result, environment_basis = evaluate_environment(check, environment)
-        feature = evaluate_check(check, feature_map, names)
+        owner_config = (domain_configs or {}).get(check.get("primary_domain") or "", {})
+        feature = evaluate_check(
+            check,
+            feature_map,
+            names,
+            dependency_presence_sufficient=owner_config.get("dependency_presence_sufficient", False),
+            require_scope_origin=True,
+        )
         if owner_domain not in active_domains:
             owner_domain = active_domains[0]
         if environment_result == "FALSE":

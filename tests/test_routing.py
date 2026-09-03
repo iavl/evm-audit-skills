@@ -96,6 +96,69 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual([entry["canonical_id"] for entry in manifest["selected"]], ["TEST-INFERRED-001"])
         self.assertEqual([entry["canonical_id"] for entry in manifest["filtered"]], ["TEST-CURATED-001"])
 
+    def test_check_predicates_inherit_domain_dependency_policy(self) -> None:
+        """Dependency-only feature evidence must not prove first-party applicability at check level."""
+        feature_map = {
+            "feature-dep": {
+                "status": "PRESENT",
+                "evidence": [
+                    {"kind": "slither-ast", "location": "lib/Dep.sol:1", "reason": "dependency match", "scope_origin": "DEPENDENCY"},
+                ],
+            },
+        }
+        registry = {
+            "checks": [
+                {
+                    "canonical_id": "TEST-DEP-NONE-001",
+                    "title": "dependency-only none_of",
+                    "domains": ["evm-audit-general"],
+                    "primary_domain": "evm-audit-general",
+                    "predicate": {"all_of": [], "any_of": [], "none_of": ["feature-dep"]},
+                    "predicate_source": "curated",
+                },
+                {
+                    "canonical_id": "TEST-DEP-ANY-001",
+                    "title": "dependency-only any_of",
+                    "domains": ["evm-audit-general"],
+                    "primary_domain": "evm-audit-general",
+                    "predicate": {"all_of": [], "any_of": ["feature-dep"], "none_of": []},
+                    "predicate_source": "curated",
+                },
+            ]
+        }
+        manifest, _ = select(registry, feature_map, {"feature-dep"}, None, None, load_domains(ROOT), {}, None)
+        selected = {entry["canonical_id"] for entry in manifest["selected"]}
+        self.assertIn("TEST-DEP-NONE-001", selected, "dependency-only evidence must never filter a curated check")
+        self.assertIn("TEST-DEP-ANY-001", selected)
+        self.assertEqual(manifest["filtered"], [])
+        any_entry = next(item for item in manifest["selected"] if item["canonical_id"] == "TEST-DEP-ANY-001")
+        self.assertEqual(any_entry["matched_features"], [], "dependency-only features must not be reported as matched")
+        self.assertEqual(any_entry["unknown_features"], ["feature-dep"])
+        self.assertEqual(any_entry["feature_evaluation"], "UNKNOWN")
+
+    def test_evaluate_check_honors_scope_origin_policy(self) -> None:
+        feature_map = {
+            "dep-only": {
+                "status": "PRESENT",
+                "evidence": [{"kind": "source", "location": "lib:1", "reason": "dependency", "scope_origin": "DEPENDENCY"}],
+            },
+            "own-only": {
+                "status": "PRESENT",
+                "evidence": [{"kind": "source", "location": "src:1", "reason": "first party", "scope_origin": "AUDIT_SCOPE"}],
+            },
+        }
+        names = set(feature_map)
+        any_check = {"canonical_id": "T1", "predicate": {"all_of": [], "any_of": ["dep-only"], "none_of": []}, "predicate_source": "curated"}
+        self.assertEqual(evaluate_check(any_check, feature_map, names)["result"], "UNKNOWN")
+        self.assertEqual(evaluate_check(any_check, feature_map, names)["matched_features"], [])
+        self.assertEqual(evaluate_check(any_check, feature_map, names)["unknown_features"], ["dep-only"])
+        none_check = {"canonical_id": "T2", "predicate": {"all_of": [], "any_of": [], "none_of": ["dep-only"]}, "predicate_source": "curated"}
+        self.assertEqual(evaluate_check(none_check, feature_map, names)["result"], "UNKNOWN")
+        allowed = evaluate_check(any_check, feature_map, names, dependency_presence_sufficient=True)
+        self.assertEqual(allowed["result"], "TRUE")
+        own_check = {"canonical_id": "T3", "predicate": {"all_of": ["own-only"], "any_of": [], "none_of": []}, "predicate_source": "curated"}
+        self.assertEqual(evaluate_check(own_check, feature_map, names)["result"], "TRUE")
+
     def test_predicate_truth_table_is_conservative_for_unknown(self) -> None:
         feature_map = {
             "a": {"status": "PRESENT", "evidence": []},
