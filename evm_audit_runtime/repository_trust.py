@@ -193,31 +193,39 @@ def prepare_repository(
     build_root: Path,
     *,
     source_trust: str | None = None,
+    acquisition_root: Path | None = None,
     snapshot_destination: Path | None = None,
 ) -> PreparedRepository:
     """Return original paths or paths rooted in a verified sanitized snapshot."""
     original_target = target.resolve()
     original_audit_root = audit_root.resolve()
     original_build_root = build_root.resolve()
-    for label, path in (("target", original_target), ("audit root", original_audit_root)):
+    original_source_root = (acquisition_root or original_build_root).resolve()
+    if original_source_root.is_file():
+        original_source_root = original_source_root.parent
+    for label, path in (
+        ("target", original_target),
+        ("audit root", original_audit_root),
+        ("build root", original_build_root),
+    ):
         try:
-            path.relative_to(original_build_root)
+            path.relative_to(original_source_root)
         except ValueError as error:
-            raise ValueError(f"{label} must be inside build root before sanitization") from error
-    trust = inspect_repository(original_build_root, source_trust)
+            raise ValueError(f"{label} must be inside acquisition root before sanitization") from error
+    trust = inspect_repository(original_source_root, source_trust)
     if trust["direct_agent_open_allowed"]:
         return PreparedRepository(
             original_target, original_audit_root, original_build_root,
             original_target, original_audit_root, original_build_root,
-            {**trust, "original_root": str(original_build_root), "effective_root": str(original_build_root), "sanitized": False, "snapshot_sha256": None},
+            {**trust, "original_root": str(original_source_root), "effective_root": str(original_build_root), "sanitized": False, "snapshot_sha256": None},
         )
     if snapshot_destination is None:
         raise ValueError("repository trust gate requires an explicit sanitized snapshot destination")
-    snapshot = sanitize_snapshot(original_build_root, snapshot_destination)
+    snapshot = sanitize_snapshot(original_source_root, snapshot_destination)
     sanitized_root = Path(snapshot["snapshot_root"])
 
     def relocate(path: Path) -> Path:
-        return sanitized_root / path.relative_to(original_build_root)
+        return sanitized_root / path.relative_to(original_source_root)
 
     trust_artifact = {
         **trust,

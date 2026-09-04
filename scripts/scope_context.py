@@ -220,7 +220,12 @@ def _submodule_commits(root: Path, dependency_roots: Iterable[str]) -> str:
     return "\n".join(gitlinks) if gitlinks else "NO_GITLINKS"
 
 
-def resolve_build_root(target: Path, build_root: Path | None = None) -> Path:
+def resolve_build_root(
+    target: Path,
+    build_root: Path | None = None,
+    *,
+    boundary: Path | None = None,
+) -> Path:
     """Resolve the compilation project independently from the audit scope."""
     target = target.resolve()
     if build_root is not None:
@@ -233,7 +238,17 @@ def resolve_build_root(target: Path, build_root: Path | None = None) -> Path:
             raise ValueError("audit root must be inside build root") from error
         return resolved
     start = target if target.is_dir() else target.parent
-    for candidate in (start, *start.parents):
+    limit = (boundary or start).resolve()
+    if limit.is_file():
+        limit = limit.parent
+    if not limit.is_dir():
+        raise ValueError(f"acquisition boundary must be a directory: {limit}")
+    try:
+        start.relative_to(limit)
+    except ValueError as error:
+        raise ValueError("acquisition boundary must contain the audit target") from error
+    candidate = start
+    while True:
         if (
             (candidate / "foundry.toml").is_file()
             or (candidate / "package.json").is_file()
@@ -241,6 +256,9 @@ def resolve_build_root(target: Path, build_root: Path | None = None) -> Path:
             or any(candidate.glob("hardhat.config.*"))
         ):
             return candidate
+        if candidate == limit or candidate.parent == candidate:
+            break
+        candidate = candidate.parent
     # No marker means the scope itself (or a standalone file's parent) is the conservative fallback.
     return start
 
@@ -254,11 +272,12 @@ def compilation_digests(
     dependency_roots: Iterable[str] = DEFAULT_DEPENDENCY_ROOTS,
     compilation_files: Iterable[str] | None = None,
     compiler_versions: Iterable[str] | None = None,
+    boundary: Path | None = None,
 ) -> dict[str, str]:
     """Fingerprint audit scope and the complete selected compilation context separately."""
     source_files = tuple(source_files)
     audit_root = root.resolve()
-    compilation_root = resolve_build_root(audit_root, build_root)
+    compilation_root = resolve_build_root(audit_root, build_root, boundary=boundary)
     try:
         audit_root.relative_to(compilation_root)
     except ValueError as error:
@@ -313,10 +332,11 @@ def conservative_input_snapshot(
     exclusions: Iterable[str] = (),
     include_patterns: Iterable[str] = (),
     dependency_roots: Iterable[str] = DEFAULT_DEPENDENCY_ROOTS,
+    boundary: Path | None = None,
 ) -> str:
     """Hash the conservative source/build state independently of the compiler."""
     audit_root = audit_root.resolve()
-    build_root = resolve_build_root(audit_root, build_root)
+    build_root = resolve_build_root(audit_root, build_root, boundary=boundary)
     scope_files, excluded = scope_inventory(
         audit_root,
         exclusions,

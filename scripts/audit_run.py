@@ -677,7 +677,8 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     run_dir = args.run_dir.resolve()
     original_target = args.target.resolve()
     original_audit_root = (args.audit_root or original_target).resolve()
-    original_build_root = resolve_build_root(original_audit_root, args.build_root)
+    acquisition_root = (getattr(args, "acquisition_root", None) or original_audit_root).resolve()
+    original_build_root = resolve_build_root(original_audit_root, args.build_root, boundary=acquisition_root)
     validate_run_dir_isolation(run_dir, audit_root=original_audit_root, build_root=original_build_root)
     if run_dir.exists():
         if not run_dir.is_dir() or any(run_dir.iterdir()):
@@ -688,6 +689,7 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         original_audit_root,
         original_build_root,
         source_trust=getattr(args, "source_trust", "UNKNOWN"),
+        acquisition_root=acquisition_root,
         snapshot_destination=run_dir.parent / f".{run_dir.name}.sanitized-source",
     )
     target, audit_root, build_root = prepared.target, prepared.audit_root, prepared.build_root
@@ -717,6 +719,8 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
             recon_args.extend(["--audit-root", str(audit_root)])
         if args.build_root or prepared.trust["sanitized"]:
             recon_args.extend(["--build-root", str(build_root)])
+        elif getattr(args, "acquisition_root", None):
+            recon_args.extend(["--acquisition-root", str(acquisition_root)])
         for exclusion in args.exclude:
             recon_args.extend(["--exclude", exclusion])
         for include in args.include:
@@ -746,6 +750,8 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
             selector_args.extend(["--exclude", exclusion])
         if args.build_root or prepared.trust["sanitized"]:
             selector_args.extend(["--build-root", str(build_root)])
+        elif getattr(args, "acquisition_root", None):
+            selector_args.extend(["--acquisition-root", str(acquisition_root)])
         for include in args.include:
             selector_args.extend(["--include", include])
         for dependency_root in args.dependency_root or []:
@@ -3013,6 +3019,7 @@ def main(argv: list[str] | None = None) -> int:
     init.add_argument("--run-dir", type=Path, required=True)
     init.add_argument("--audit-root", type=Path)
     init.add_argument("--build-root", type=Path)
+    init.add_argument("--acquisition-root", type=Path, help="stop automatic build-root discovery above this source boundary")
     init.add_argument("--source-trust", type=str.upper, choices=("TRUSTED", "UNTRUSTED", "UNKNOWN"), default="UNKNOWN")
     init.add_argument("--root", type=Path, default=ROOT)
     init.add_argument("--solc")

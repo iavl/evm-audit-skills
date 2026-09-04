@@ -58,10 +58,13 @@ evidence-backed environment facts. It also snapshots immutable required-context
 definitions; resolution state lives in `domain-context.json`. `fork_block` is
 reproducibility metadata, not hardfork inference.
 
-For a file audit, `--build-root` defaults to the nearest recognized project
-root (or a conservative parent context). The audit scope can remain one file,
-but the compilation fingerprint includes Solidity sources and build/remapping
-configuration from that build root. Generated directories remain excluded;
+Automatic build-root discovery stops at the acquisition boundary: the audit
+root for standalone calls, or an explicit `--acquisition-root`. A wider
+compilation context must be supplied explicitly with `--build-root`; this
+prevents an ambient parent project or HOME-level `package.json` from silently
+changing the compilation fingerprint. The audit scope can remain one file, but
+the compilation fingerprint includes Solidity sources and build/remapping
+configuration from the selected build root. Generated directories remain excluded;
 top-level dependency roots default to `lib` and `node_modules`, while
 `src/lib/` remains first-party. Use `--include lib/MyProtocol.sol` to audit an
 explicit first-party path under a default dependency root, and repeat

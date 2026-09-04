@@ -369,13 +369,14 @@ def build_feature_map(
     dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
     code_index_out: Path | None = None,
     feature_map_out: Path | None = None,
+    acquisition_root: Path | None = None,
 ) -> dict[str, Any]:
     feature_data = json.loads((root / "data" / "features.json").read_text(encoding="utf-8"))
     feature_names = sorted(feature_data["features"])
     detector_config = load_detector_config(root, set(feature_names))
     scope_root = resolve_scope_root(target, audit_root)
-    compilation_root = resolve_build_root(scope_root, build_root)
-    trust = inspect_repository(compilation_root, source_trust)
+    compilation_root = resolve_build_root(scope_root, build_root, boundary=acquisition_root or scope_root)
+    trust = inspect_repository(acquisition_root or compilation_root, source_trust)
     if not trust["direct_agent_open_allowed"]:
         raise ValueError(
             "repository trust gate blocked the original source; create a sanitized snapshot "
@@ -403,6 +404,7 @@ def build_feature_map(
         exclusions=exclusions,
         include_patterns=include_patterns,
         dependency_roots=dependency_roots,
+        boundary=acquisition_root or scope_root,
     )
     Slither = ensure_slither_import()
     kwargs: dict[str, Any] = {}
@@ -449,6 +451,7 @@ def build_feature_map(
         solc_version,
         build_root=compilation_root,
         dependency_roots=dependency_roots,
+        boundary=acquisition_root or scope_root,
         compilation_files=closure_files,
         compiler_versions=compiler_versions,
     )
@@ -505,6 +508,7 @@ def build_feature_map(
         exclusions=exclusions,
         include_patterns=include_patterns,
         dependency_roots=dependency_roots,
+        boundary=acquisition_root or scope_root,
     )
     if pre_snapshot != post_snapshot:
         raise ValueError("source/build inputs changed during Recon; retry from a stable checkout")
@@ -530,6 +534,7 @@ def build_feature_map(
             exclusions=exclusions,
             include_patterns=include_patterns,
             dependency_roots=dependency_roots,
+            boundary=acquisition_root or scope_root,
         ) != pre_snapshot:
             raise ValueError("source/build inputs changed during Recon; retry from a stable checkout")
     except Exception:
@@ -547,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--audit-root", type=Path, help="complete audit scope; defaults to the Slither target")
     parser.add_argument("--build-root", type=Path, help="compilation/build project root; inferred for file targets")
     parser.add_argument("--source-trust", type=str.upper, choices=("TRUSTED", "UNTRUSTED", "UNKNOWN"), default="UNKNOWN")
+    parser.add_argument("--acquisition-root", type=Path, help="stop automatic build-root discovery above this source boundary")
     parser.add_argument("--exclude", action="append", default=[], help="additional audit-scope glob to exclude; repeatable")
     parser.add_argument("--include", action="append", default=[], help="include a normally dependency-only audit path; repeatable")
     parser.add_argument("--dependency-root", action="append", default=None, help="top-level dependency root; repeatable")
@@ -576,6 +582,7 @@ def main(argv: list[str] | None = None) -> int:
             tuple(args.dependency_root) if args.dependency_root is not None else tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
             args.code_index_out,
             args.output,
+            acquisition_root=args.acquisition_root,
         )
         rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         if not args.output:

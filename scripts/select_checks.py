@@ -258,6 +258,7 @@ def validate_recon_context(
     exclusions: tuple[str, ...],
     *,
     build_root: Path | None = None,
+    acquisition_root: Path | None = None,
     include_patterns: tuple[str, ...] = (),
     dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
     require_complete: bool = False,
@@ -352,7 +353,7 @@ def validate_recon_context(
     if target_root is None:
         raise SelectionInputError("Feature Map v4 selection requires --target-root")
     resolved = resolve_scope_root(target_root)
-    resolved_build_root = resolve_build_root(resolved, build_root)
+    resolved_build_root = resolve_build_root(resolved, build_root, boundary=acquisition_root or resolved)
     files, excluded = scope_inventory(resolved, exclusions, include_values, dependency_values)
     scope_files = set(files)
     actual_digest = source_digest(resolved, files)
@@ -366,6 +367,7 @@ def validate_recon_context(
         dependency_roots=dependency_values,
         compilation_files=compilation_values,
         compiler_versions=compiler_values,
+        boundary=acquisition_root or resolved,
     )
     for key, value in actual_digests.items():
         if raw[key] != value:
@@ -419,6 +421,7 @@ def normalize_feature_map(
     exclusions: tuple[str, ...] = (),
     *,
     build_root: Path | None = None,
+    acquisition_root: Path | None = None,
     include_patterns: tuple[str, ...] = (),
     dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
     require_complete: bool = False,
@@ -430,6 +433,7 @@ def normalize_feature_map(
         target_root,
         exclusions,
         build_root=build_root,
+        acquisition_root=acquisition_root,
         include_patterns=include_patterns,
         dependency_roots=dependency_roots,
         require_complete=require_complete,
@@ -859,6 +863,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--feature-map", type=Path, required=True, help="scope-bound Feature Map v4")
     parser.add_argument("--target-root", type=Path, required=True, help="current audit scope used to verify recon source_digest")
     parser.add_argument("--build-root", type=Path, help="compilation/build project root; must match Recon")
+    parser.add_argument("--acquisition-root", type=Path, help="stop automatic build-root discovery above this source boundary")
     parser.add_argument("--exclude", action="append", default=[], help="additional audit-scope glob; must match Recon")
     parser.add_argument("--include", action="append", default=[], help="include a normally dependency-only audit path; must match Recon")
     parser.add_argument("--dependency-root", action="append", default=None, help="top-level dependency root; must match Recon")
@@ -894,7 +899,11 @@ def main(argv: list[str] | None = None) -> int:
         exclusions = tuple(args.exclude)
         include_patterns = tuple(args.include)
         dependency_roots = tuple(args.dependency_root) if args.dependency_root is not None else tuple(sorted(DEFAULT_DEPENDENCY_ROOTS))
-        resolved_build_root = resolve_build_root(args.target_root, args.build_root)
+        resolved_build_root = resolve_build_root(
+            args.target_root,
+            args.build_root,
+            boundary=args.acquisition_root or args.target_root,
+        )
         require_distinct_paths(
             ("feature-map", args.feature_map),
             ("environment-context", args.environment_context),
@@ -921,6 +930,7 @@ def main(argv: list[str] | None = None) -> int:
             args.target_root,
             exclusions,
             build_root=resolved_build_root,
+            acquisition_root=args.acquisition_root,
             include_patterns=include_patterns,
             dependency_roots=dependency_roots,
             require_complete=args.require_complete_compilation,
@@ -930,6 +940,7 @@ def main(argv: list[str] | None = None) -> int:
             args.target_root,
             exclusions,
             build_root=resolved_build_root,
+            acquisition_root=args.acquisition_root,
             include_patterns=include_patterns,
             dependency_roots=dependency_roots,
             require_complete=args.require_complete_compilation,

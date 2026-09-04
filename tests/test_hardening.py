@@ -552,14 +552,14 @@ class HardeningTests(unittest.TestCase):
             (source / "Helper.sol").write_text("pragma solidity ^0.8.24; contract Helper {}", encoding="utf-8")
             dependency.write_text("pragma solidity ^0.8.24; contract Dependency {}", encoding="utf-8")
 
-            self.assertEqual(resolve_build_root(source), project.resolve())
+            self.assertEqual(resolve_build_root(source, boundary=project), project.resolve())
             files, _ = scope_inventory(source)
-            before = compilation_digests(source, files, "0.8.24")
+            before = compilation_digests(source, files, "0.8.24", boundary=project)
             (project / "foundry.toml").write_text('[profile.default]\nsrc = "contracts"\n', encoding="utf-8")
-            after_config = compilation_digests(source, files, "0.8.24")
+            after_config = compilation_digests(source, files, "0.8.24", boundary=project)
             self.assertNotEqual(before["compilation_input_digest"], after_config["compilation_input_digest"])
             dependency.write_text("pragma solidity ^0.8.24; contract Dependency { uint256 changed; }", encoding="utf-8")
-            after_dependency = compilation_digests(source, files, "0.8.24")
+            after_dependency = compilation_digests(source, files, "0.8.24", boundary=project)
             self.assertNotEqual(after_config["compilation_input_digest"], after_dependency["compilation_input_digest"])
 
             repo = root / "repo"
@@ -570,7 +570,7 @@ class HardeningTests(unittest.TestCase):
             (protocol / "foundry.toml").write_text("[profile.default]\n", encoding="utf-8")
             nested_source = protocol / "src"
             nested_source.mkdir()
-            self.assertEqual(resolve_build_root(nested_source), protocol.resolve())
+            self.assertEqual(resolve_build_root(nested_source, boundary=repo), protocol.resolve())
 
             override = root
             self.assertEqual(resolve_build_root(source, override), override.resolve())
@@ -578,6 +578,18 @@ class HardeningTests(unittest.TestCase):
             outside.mkdir()
             with self.assertRaisesRegex(ValueError, "inside build root"):
                 resolve_build_root(source, outside)
+
+    def test_build_root_inference_does_not_escape_acquisition_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            acquisition = root / "acquisition"
+            source = acquisition / "src"
+            source.mkdir(parents=True)
+            (source / "Target.sol").write_text("pragma solidity ^0.8.0; contract Target {}", encoding="utf-8")
+            (root / "foundry.toml").write_text("[profile.default]\n", encoding="utf-8")
+            self.assertEqual(resolve_build_root(source, boundary=acquisition), source.resolve())
+            with self.assertRaisesRegex(ValueError, "acquisition boundary"):
+                resolve_build_root(source, boundary=root / "missing")
 
     def test_reporting_templates_refresh_and_preserve_completed_artifacts(self) -> None:
         _, _, _, manifest = build_manifest()
@@ -678,6 +690,7 @@ class HardeningTests(unittest.TestCase):
             records = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
             records[-1]["proof"] = "changed current proof"
             ledger.write_text("".join(json.dumps(record, sort_keys=True) + "\n" for record in records), encoding="utf-8")
+            Path(f"{ledger}.commit.json").unlink()
             with self.assertRaisesRegex(ValueError, "mismatched review_state_digest"):
                 synthesize(ROOT, manifest, registry, state, [ledger], severity, finding_details=details, screen_results=screen, domain_context=domain_context, context=context)
 
