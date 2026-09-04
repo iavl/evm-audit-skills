@@ -97,6 +97,8 @@ class ReconTests(unittest.TestCase):
                 ROOT / "tests/fixtures/recon/Empty.sol",
                 "--audit-root",
                 ".",
+                "--source-trust",
+                "TRUSTED",
                 "--output",
                 str(feature_path),
             )

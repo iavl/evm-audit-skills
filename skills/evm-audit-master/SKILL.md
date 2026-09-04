@@ -21,6 +21,27 @@ Load this Skill first. Resolve `<suite-root>` as the nearest ancestor containing
 - Solidity POC source is user-owned evidence: archive audit-created or modified tests, helpers, and mocks under `<run-dir>/poc/` before proof, record the durable path in `proof` or `evidence.location`, and never delete or overwrite them after `PROOF` or report generation. Do not add new PoC files to the audited target after routing.
 - Keep `<run-dir>` as an external sibling of both the audit and build roots. The controller rejects equal or descendant paths, and pipeline outputs cannot overwrite authoritative source/build inputs.
 
+## Repository Trust Gate
+
+Before opening an original target to an agent or analyzer, inspect its source
+trust and `.git` entry with filesystem-only operations. `UNKNOWN` trust counts
+as untrusted. When `.git` exists as a directory, file, symlink, or unexpected
+object, use a verified `.git`-free snapshot outside the original; do not run
+Git, Slither, build/test/package-manager, or target-controlled commands against
+the blocked original. Use `scripts/repository_preflight.py` for manual
+preflight and sanitization. This boundary is not a lifecycle phase.
+
+```text
+Repository Trust Gate
+        ↓
+Project Analysis
+→ Context Analysis
+→ Initial Review
+→ Deep Audit
+→ Vulnerability Validation
+→ Final Report
+```
+
 ## Audit lifecycle
 
 ```text

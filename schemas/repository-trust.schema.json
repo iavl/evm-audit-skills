@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:repository-trust:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "source_trust", "git_metadata", "git_metadata_kind",
+    "direct_agent_open_allowed", "required_action", "original_root", "effective_root",
+    "sanitized", "snapshot_sha256"
+  ],
+  "properties": {
+    "artifact_type": {"const": "repository-trust"},
+    "schema_version": {"const": 1},
+    "source_trust": {"enum": ["TRUSTED", "UNTRUSTED", "UNKNOWN"]},
+    "git_metadata": {"enum": ["ABSENT", "PRESENT"]},
+    "git_metadata_kind": {"enum": ["ABSENT", "DIRECTORY", "FILE", "SYMLINK", "OTHER"]},
+    "direct_agent_open_allowed": {"type": "boolean"},
+    "required_action": {"enum": ["OPEN", "SANITIZE"]},
+    "original_root": {"type": "string", "minLength": 1},
+    "effective_root": {"type": "string", "minLength": 1},
+    "sanitized": {"type": "boolean"},
+    "snapshot_sha256": {"anyOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]}
+  },
+  "$defs": {"hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

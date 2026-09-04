@@ -60,6 +60,16 @@ Only explicitly trusted absence evidence may produce `ABSENT_CONFIRMED` or equiv
 
 ## 2.2 Incomplete compilation is fail-closed
 
+At the repository execution boundary, preserve this conservative rule:
+
+```text
+UNTRUSTED_SOURCE && HAS_DOT_GIT => POTENTIALLY_EXECUTABLE
+```
+
+Unknown source trust counts as untrusted for this decision. This does not claim
+that `.git` is malware; it defines when an original repository must be
+sanitized before agent or analyzer execution.
+
 If the complete audit scope cannot be reliably compiled or analyzed:
 
 - do not claim trusted absence from incomplete traversal;

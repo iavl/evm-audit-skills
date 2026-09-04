@@ -25,6 +25,7 @@ SCHEMA_VERSIONS = {
     "routing-manifest": 7,
     "report-bundle": 3,
     "report-current": 3,
+    "repository-trust": 1,
     "runtime-metadata": 1,
     "screen-results": 2,
     "severity-decisions": 2,
@@ -49,6 +50,7 @@ REVIEW_RECORD_VERSION = SCHEMA_VERSIONS["review-record"]
 ROUTING_MANIFEST_VERSION = SCHEMA_VERSIONS["routing-manifest"]
 REPORT_BUNDLE_VERSION = SCHEMA_VERSIONS["report-bundle"]
 REPORT_CURRENT_VERSION = SCHEMA_VERSIONS["report-current"]
+REPOSITORY_TRUST_VERSION = SCHEMA_VERSIONS["repository-trust"]
 RUNTIME_METADATA_VERSION = SCHEMA_VERSIONS["runtime-metadata"]
 SCREEN_RESULTS_VERSION = SCHEMA_VERSIONS["screen-results"]
 SEVERITY_DECISIONS_VERSION = SCHEMA_VERSIONS["severity-decisions"]

@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover - supports importing from another cwd
     from scripts.runtime_log import configure, error, info, stage, success
 
 from evm_audit_runtime.versions import FEATURE_MAP_VERSION
+from evm_audit_runtime.repository_trust import inspect_repository
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -363,6 +364,7 @@ def build_feature_map(
     audit_root: Path | None = None,
     exclusions: tuple[str, ...] = (),
     build_root: Path | None = None,
+    source_trust: str | None = None,
     include_patterns: tuple[str, ...] = (),
     dependency_roots: tuple[str, ...] = tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
     code_index_out: Path | None = None,
@@ -373,6 +375,12 @@ def build_feature_map(
     detector_config = load_detector_config(root, set(feature_names))
     scope_root = resolve_scope_root(target, audit_root)
     compilation_root = resolve_build_root(scope_root, build_root)
+    trust = inspect_repository(compilation_root, source_trust)
+    if not trust["direct_agent_open_allowed"]:
+        raise ValueError(
+            "repository trust gate blocked the original source; create a sanitized snapshot "
+            "with scripts/repository_preflight.py before Recon"
+        )
     scope_files, excluded_paths = scope_inventory(scope_root, exclusions, include_patterns, dependency_roots)
     validate_output_targets(
         scope_root,
@@ -538,6 +546,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--solc", help="solc executable forwarded to Slither")
     parser.add_argument("--audit-root", type=Path, help="complete audit scope; defaults to the Slither target")
     parser.add_argument("--build-root", type=Path, help="compilation/build project root; inferred for file targets")
+    parser.add_argument("--source-trust", type=str.upper, choices=("TRUSTED", "UNTRUSTED", "UNKNOWN"), default="UNKNOWN")
     parser.add_argument("--exclude", action="append", default=[], help="additional audit-scope glob to exclude; repeatable")
     parser.add_argument("--include", action="append", default=[], help="include a normally dependency-only audit path; repeatable")
     parser.add_argument("--dependency-root", action="append", default=None, help="top-level dependency root; repeatable")
@@ -562,6 +571,7 @@ def main(argv: list[str] | None = None) -> int:
             args.audit_root,
             tuple(args.exclude),
             args.build_root,
+            args.source_trust,
             tuple(args.include),
             tuple(args.dependency_root) if args.dependency_root is not None else tuple(sorted(DEFAULT_DEPENDENCY_ROOTS)),
             args.code_index_out,

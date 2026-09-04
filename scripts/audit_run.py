@@ -20,8 +20,9 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from evm_audit_runtime.versions import POC_EVIDENCE_VERSION, POC_VERIFICATION_VERSION, REPORT_CURRENT_VERSION, REPORTING_VERSION
+from evm_audit_runtime.versions import POC_EVIDENCE_VERSION, POC_VERIFICATION_VERSION, REPORT_CURRENT_VERSION, REPORTING_VERSION, REPOSITORY_TRUST_VERSION
 from evm_audit_runtime.reporting import derive_poc_required_ids
+from evm_audit_runtime.repository_trust import prepare_repository
 from evm_audit_runtime.controller_state import STAGE_PROGRESS, display_stage as _display_stage, progress_metadata
 
 try:
@@ -194,6 +195,7 @@ def paths(run_dir: Path) -> dict[str, Any]:
         "poc_evidence": run_dir / "reviews/poc-evidence.json",
         "poc_verification": run_dir / "reviews/poc-verification.json",
         "model_profile": run_dir / "config/codex-model-profile.json",
+        "repository_trust": run_dir / "config/repository-trust.json",
     }
 
 
@@ -660,29 +662,48 @@ def _relocate_paths(value: Any, source: Path, target: Path) -> Any:
 
 def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     run_dir = args.run_dir.resolve()
-    target = args.target.resolve()
-    audit_root = (args.audit_root or target).resolve()
-    build_root = resolve_build_root(audit_root, args.build_root)
-    validate_run_dir_isolation(run_dir, audit_root=audit_root, build_root=build_root)
+    original_target = args.target.resolve()
+    original_audit_root = (args.audit_root or original_target).resolve()
+    original_build_root = resolve_build_root(original_audit_root, args.build_root)
+    validate_run_dir_isolation(run_dir, audit_root=original_audit_root, build_root=original_build_root)
     if run_dir.exists():
         if not run_dir.is_dir() or any(run_dir.iterdir()):
             raise ValueError(f"refusing to initialize non-empty run directory: {run_dir}")
+    sanitized_source: Path | None = None
+    prepared = prepare_repository(
+        original_target,
+        original_audit_root,
+        original_build_root,
+        source_trust=getattr(args, "source_trust", "UNKNOWN"),
+        snapshot_destination=run_dir.parent / f".{run_dir.name}.sanitized-source",
+    )
+    target, audit_root, build_root = prepared.target, prepared.audit_root, prepared.build_root
+    if prepared.trust["sanitized"]:
+        sanitized_source = build_root
     run_dir.parent.mkdir(parents=True, exist_ok=True)
     staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{run_dir.name}.init-", dir=run_dir.parent))
     try:
         assert staging is not None
         _init_model_profile(args, staging)
         values = paths(staging)
+        trust_artifact = {
+            "artifact_type": "repository-trust",
+            "schema_version": REPOSITORY_TRUST_VERSION,
+            **prepared.trust,
+        }
+        validate_schema(root, "repository-trust.schema.json", trust_artifact)
+        atomic_write_json(values["repository_trust"], trust_artifact)
         values["feature_map"].parent.mkdir(parents=True, exist_ok=True)
         values["manifest"].parent.mkdir(parents=True, exist_ok=True)
         recon_args = [str(target), "--root", str(root), "--output", str(values["feature_map"])]
+        recon_args.extend(["--source-trust", getattr(args, "source_trust", "UNKNOWN")])
         if args.solc:
             recon_args.extend(["--solc", args.solc])
         recon_args.extend(["--code-index-out", str(values["code_index"])])
         if args.audit_root:
             recon_args.extend(["--audit-root", str(audit_root)])
-        if args.build_root:
-            recon_args.extend(["--build-root", str(args.build_root.resolve())])
+        if args.build_root or prepared.trust["sanitized"]:
+            recon_args.extend(["--build-root", str(build_root)])
         for exclusion in args.exclude:
             recon_args.extend(["--exclude", exclusion])
         for include in args.include:
@@ -710,8 +731,8 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
         ]
         for exclusion in args.exclude:
             selector_args.extend(["--exclude", exclusion])
-        if args.build_root:
-            selector_args.extend(["--build-root", str(args.build_root.resolve())])
+        if args.build_root or prepared.trust["sanitized"]:
+            selector_args.extend(["--build-root", str(build_root)])
         for include in args.include:
             selector_args.extend(["--include", include])
         for dependency_root in args.dependency_root or []:
@@ -778,6 +799,8 @@ def init_run(root: Path, args: argparse.Namespace) -> dict[str, Any]:
     finally:
         if staging is not None and staging.exists():
             shutil.rmtree(staging)
+        if sanitized_source is not None and staging is not None and sanitized_source.exists():
+            shutil.rmtree(sanitized_source, ignore_errors=True)
 
 
 def _optional_code_index_status(
@@ -2681,6 +2704,7 @@ def main(argv: list[str] | None = None) -> int:
     init.add_argument("--run-dir", type=Path, required=True)
     init.add_argument("--audit-root", type=Path)
     init.add_argument("--build-root", type=Path)
+    init.add_argument("--source-trust", type=str.upper, choices=("TRUSTED", "UNTRUSTED", "UNKNOWN"), default="UNKNOWN")
     init.add_argument("--root", type=Path, default=ROOT)
     init.add_argument("--solc")
     init.add_argument("--present-only", action="store_true")
