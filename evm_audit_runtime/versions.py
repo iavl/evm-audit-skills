@@ -22,6 +22,7 @@ SCHEMA_VERSIONS = {
     "poc-evidence": 1,
     "poc-verification": 2,
     "review-record": 7,
+    "review-ledger-commit": 1,
     "routing-manifest": 7,
     "report-bundle": 3,
     "report-current": 3,
@@ -47,6 +48,7 @@ KNOWLEDGE_METRICS_VERSION = SCHEMA_VERSIONS["knowledge-metrics"]
 POC_EVIDENCE_VERSION = SCHEMA_VERSIONS["poc-evidence"]
 POC_VERIFICATION_VERSION = SCHEMA_VERSIONS["poc-verification"]
 REVIEW_RECORD_VERSION = SCHEMA_VERSIONS["review-record"]
+REVIEW_LEDGER_COMMIT_VERSION = SCHEMA_VERSIONS["review-ledger-commit"]
 ROUTING_MANIFEST_VERSION = SCHEMA_VERSIONS["routing-manifest"]
 REPORT_BUNDLE_VERSION = SCHEMA_VERSIONS["report-bundle"]
 REPORT_CURRENT_VERSION = SCHEMA_VERSIONS["report-current"]

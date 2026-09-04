@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from evm_audit_runtime.versions import REVIEW_RECORD_VERSION
+from evm_audit_runtime.versions import REVIEW_LEDGER_COMMIT_VERSION, REVIEW_RECORD_VERSION
 from evm_audit_runtime.state import review_lifecycle_errors
 
 try:
@@ -109,10 +110,23 @@ def _ledger_lock(path: Path, *, shared: bool):
 
 
 def _load_unlocked(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
+    raw, committed = _authoritative_bytes(path)
+    records = _parse_records(raw, path)
+    if committed is not None:
+        commit = _load_commit_unlocked(path)
+        if commit["record_count"] != len(records):
+            raise ValueError(f"{_commit_path(path)} record_count does not match the committed prefix")
+        revisions = [record.get("revision", 0) for record in records if record.get("record_type") == "review"]
+        if commit["last_revision"] != max(revisions, default=0):
+            raise ValueError(f"{_commit_path(path)} last_revision does not match the committed prefix")
+    return records
+
+
+def _parse_records(raw: bytes, path: Path) -> list[dict[str, Any]]:
+    if not raw:
         return []
     records: list[dict[str, Any]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for number, line in enumerate(raw.decode("utf-8").splitlines(), 1):
         if not line.strip():
             continue
         value = json.loads(line)
@@ -120,6 +134,63 @@ def _load_unlocked(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"{path}:{number} must contain an object")
         records.append(value)
     return records
+
+
+def _commit_path(path: Path) -> Path:
+    return path.with_name(f"{path.name}.commit.json")
+
+
+def _load_commit_unlocked(path: Path) -> dict[str, Any]:
+    commit_path = _commit_path(path)
+    try:
+        value = json.loads(commit_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid review ledger commit sidecar: {commit_path}: {error}") from error
+    if not isinstance(value, dict):
+        raise ValueError(f"review ledger commit sidecar must be an object: {commit_path}")
+    validate_schema(ROOT, "review-ledger-commit.schema.json", value)
+    return value
+
+
+def _authoritative_bytes(path: Path) -> tuple[bytes, dict[str, Any] | None]:
+    if not path.exists():
+        if _commit_path(path).exists():
+            raise ValueError(f"review ledger is missing but its commit sidecar exists: {path}")
+        return b"", None
+    raw = path.read_bytes()
+    commit_path = _commit_path(path)
+    if not commit_path.exists():
+        return raw, None
+    commit = _load_commit_unlocked(path)
+    committed_bytes = commit["committed_bytes"]
+    if committed_bytes > len(raw):
+        raise ValueError(f"review ledger is shorter than its committed prefix: {path}")
+    prefix = raw[:committed_bytes]
+    if committed_bytes and not prefix.endswith(b"\n"):
+        raise ValueError(f"review ledger committed prefix does not end at a complete JSONL record: {path}")
+    if hashlib.sha256(prefix).hexdigest() != commit["prefix_sha256"]:
+        raise ValueError(f"review ledger committed prefix hash mismatch: {path}")
+    if len(raw) > committed_bytes:
+        warning(f"{path}: ignoring {len(raw) - committed_bytes} uncommitted tail bytes")
+    return prefix, commit
+
+
+def _commit_metadata(prefix: bytes, records: list[dict[str, Any]]) -> dict[str, Any]:
+    revisions = [record.get("revision", 0) for record in records if record.get("record_type") == "review"]
+    return {
+        "artifact_type": "review-ledger-commit",
+        "schema_version": REVIEW_LEDGER_COMMIT_VERSION,
+        "committed_bytes": len(prefix),
+        "prefix_sha256": hashlib.sha256(prefix).hexdigest(),
+        "record_count": len(records),
+        "last_revision": max(revisions, default=0),
+    }
+
+
+def _publish_commit(path: Path, prefix: bytes, records: list[dict[str, Any]]) -> None:
+    metadata = _commit_metadata(prefix, records)
+    validate_schema(ROOT, "review-ledger-commit.schema.json", metadata)
+    atomic_write_text(_commit_path(path), json.dumps(metadata, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -473,8 +544,15 @@ def append(
         if not records:
             lines.append(json.dumps(identity, ensure_ascii=False, sort_keys=True) + "\n")
         lines.append(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-        # Append the complete record set with unbuffered binary writes so a crash can
-        # never leave a partially written JSON line that bricks the whole ledger.
+        prefix, commit = _authoritative_bytes(path)
+        records = _parse_records(prefix, path)
+        if commit is None:
+            # Establish the prior prefix before this append can become visible.
+            _publish_commit(path, prefix, records)
+            commit = _load_commit_unlocked(path)
+        if commit is not None and path.exists() and len(path.read_bytes()) > len(prefix):
+            # An explicit append is also the recovery point for a non-authoritative tail.
+            atomic_write_text(path, prefix.decode("utf-8"))
         created = not path.exists()
         payload = "".join(lines).encode("utf-8")
         descriptor = os.open(path, os.O_APPEND | os.O_WRONLY | os.O_CREAT, 0o644)
@@ -482,10 +560,15 @@ def append(
             remaining = payload
             while remaining:
                 written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError("review ledger append made no progress")
                 remaining = remaining[written:]
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
+        committed_prefix = path.read_bytes()
+        committed_records = _parse_records(committed_prefix, path)
+        _publish_commit(path, committed_prefix, committed_records)
         if created:
             fsync_parent_directory(path)
 
@@ -588,7 +671,7 @@ def write_ledger(
     )
     with _writer_lock(path):
         validate_target_snapshot(manifest)
-        if path.exists():
+        if path.exists() or _commit_path(path).exists():
             raise ValueError(f"refusing to overwrite existing ledger: {path}")
         prepared: list[dict[str, Any]] = []
         next_revision: dict[str, int] = {}
@@ -613,10 +696,13 @@ def write_ledger(
         )
         if errors:
             raise ValueError("; ".join(errors))
+        _publish_commit(path, b"", [])
         atomic_write_text(
             path,
             "".join(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n" for value in values),
         )
+        prefix = path.read_bytes()
+        _publish_commit(path, prefix, values)
 
 
 def main(argv: list[str] | None = None) -> int:

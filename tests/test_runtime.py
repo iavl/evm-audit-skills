@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import multiprocessing
 import os
 import subprocess
@@ -677,7 +678,7 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "record_type=review"):
                 append(path, manifest, {key: value for key, value in record.items() if key != "record_type"}, domain_context=domain_context, screen_results=screen)
 
-    def test_jsonl_append_writes_complete_records_with_single_unbuffered_write(self) -> None:
+    def test_jsonl_append_publishes_a_committed_prefix(self) -> None:
         registry, _, _, manifest = build_manifest()
         entry = manifest["selected"][0]
         check = next(item for item in registry["checks"] if item["canonical_id"] == entry["canonical_id"])
@@ -725,11 +726,13 @@ class RuntimeTests(unittest.TestCase):
                 validate_records(load(path), manifest, registry, {check["canonical_id"]}, review_snapshot_id=snapshot),
                 [],
             )
-            # The complete checkpoint+record payload must be produced by a single write, never a
-            # buffered multi-syscall stream that can tear a JSON line on crash.
-            self.assertEqual(len(written_calls), 1, "append must write the full record with one unbuffered syscall")
+            # The syscall count is an implementation check; the sidecar, not syscall size, is the crash boundary.
+            self.assertEqual(len(written_calls), 1, "append payload should use one unbuffered syscall in this fixture")
             self.assertEqual(b"".join(written_calls), path.read_bytes())
             self.assertTrue(fsync_dir.called, "new ledger files must fsync their parent directory")
+            metadata = json.loads(Path(f"{path}.commit.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["committed_bytes"], len(path.read_bytes()))
+            self.assertEqual(metadata["prefix_sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
 
     def test_review_revisions_preserve_history_and_derive_latest_state(self) -> None:
         registry, _, _, manifest = build_manifest()

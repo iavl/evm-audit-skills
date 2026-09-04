@@ -15,6 +15,11 @@ Standalone runs use an external run directory and run Project Analysis once.
 Orchestrated Domain agents consume the shared context, immutable manifest,
 Initial Review results, and rendered runtime file without rerunning routing.
 
+Automatic build-root discovery is bounded to the acquisition root. Use
+`--acquisition-root` for a trusted source boundary or pass `--build-root`
+explicitly when compilation needs a wider context; unrelated ambient parent
+projects are never inferred.
+
 Place the run directory outside the target and build roots, preferably as an
 external sibling such as `../protocol-audit-run/`. Resolved equal or descendant
 paths are rejected, and generated pipeline artifacts are forbidden from writing
@@ -48,7 +53,7 @@ audit artifacts.
 | Project Analysis routing manifest (`ROUTING`) | yes | `routing_snapshot_id` | invalid snapshot |
 | Context Analysis artifacts (`DOMAIN_RESOLUTION`, `DOMAIN_CONTEXT`) | yes | routing/review snapshot | block downstream |
 | Initial Review results (`SCREEN`) | yes | review inputs | block downstream |
-| Review JSONL | yes | checkpoint + review snapshot/state digest | block completion |
+| Review JSONL + commit sidecar | yes | checkpoint + committed byte-prefix hash + review snapshot/state digest | block completion |
 | runtime Markdown | no, generated view | sidecar identity + body SHA-256 | regenerate |
 | code-index | no, navigation hint | Project Analysis `navigation_artifacts.code_index.sha256` plus current target snapshot | disable navigation |
 | severity/finding details | reporting input | review-state digest | report admission error |

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:evm-audit-skills:review-ledger-commit:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_type", "schema_version", "committed_bytes", "prefix_sha256", "record_count", "last_revision"],
+  "properties": {
+    "artifact_type": {"const": "review-ledger-commit"},
+    "schema_version": {"const": 1},
+    "committed_bytes": {"type": "integer", "minimum": 0},
+    "prefix_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "record_count": {"type": "integer", "minimum": 0},
+    "last_revision": {"type": "integer", "minimum": 0}
+  }
+}

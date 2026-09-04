@@ -2,9 +2,11 @@
 
 Use `scripts/review_ledger.py` with the immutable manifest, Initial Review
 (`screen-results.json`), and canonical registry. JSONL records are append-only.
-An interrupted audit
-continues by loading the existing ledger, validating its checkpoint against the
-same manifest, and appending the next validated revision.
+The adjacent `<ledger>.commit.json` records the committed byte prefix and its
+hash. An interrupted audit continues by loading only that prefix, validating
+its checkpoint against the same manifest, and appending the next validated
+revision. Extra tail bytes are reported as recovery diagnostics and remain
+non-authoritative; a truncated or mismatched committed prefix fails closed.
 
 | Change | Continue the same ledger? |
 |---|---:|
