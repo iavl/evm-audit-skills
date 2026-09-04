@@ -99,9 +99,12 @@ inputs still match the current run-directory artifacts.
 
 `verify-poc` is the only command that executes recorded Foundry or Hardhat
 commands. It uses a controlled build workspace, structured argv, and
-`shell=False`, and writes a non-gating `poc-verification` receipt containing
-only execution status and output hashes. `status`, `next`, and `report` never
-execute PoC commands.
+`shell=False`, and writes a non-gating v2 `poc-verification` receipt containing
+the trusted executable identity, normalized argv, staged source hashes,
+workspace/environment policy versions, and output hashes. Dependencies are
+copied into the disposable workspace; external symlinks and package-installing
+runner forms are rejected, and the child receives no parent credentials.
+`status`, `next`, and `report` never execute PoC commands.
 
 For `report` and `status` results, consume the paths under
 `report_generation` (and the report result's `report`, `issue_candidates`, and

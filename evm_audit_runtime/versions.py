@@ -20,7 +20,7 @@ SCHEMA_VERSIONS = {
     "issue-candidates": 2,
     "knowledge-metrics": 1,
     "poc-evidence": 1,
-    "poc-verification": 1,
+    "poc-verification": 2,
     "review-record": 7,
     "routing-manifest": 7,
     "report-bundle": 3,

@@ -16,7 +16,9 @@ The authority boundary is explicit: the target/build tree is immutable audit
 input, an external sibling `<run-dir>` is mutable authoring state, and
 `report-generations/` contains immutable derived outputs. High/Critical PoC
 sources are copied into the generation; recorded commands execute only through
-the explicit `verify-poc` command.
+the explicit `verify-poc` command. Verification copies dependencies into a
+disposable workspace, stages the exact validated PoC bytes, rejects external
+symlinks and package-installing runner forms, and scrubs parent credentials.
 
 User-facing Skill packages live under `skills/`; runtime assets remain in
 `data/`, `domains/`, `scripts/`, and the small pure-decision package
@@ -36,5 +38,5 @@ instead of trusting an upstream completion flag. Strong proof establishes
 `CONFIRMED`; a runnable PoC is separate reporting evidence required only for
 confirmed `High` and `Critical` findings. The PoC artifact is lineage-bound to
 severity-decision bytes and source hashes, and is snapshotted in report-bundle
-v3 without changing the review lifecycle. A separate v1 `poc-verification`
+v3 without changing the review lifecycle. A separate v2 `poc-verification`
 receipt is optional and non-gating.

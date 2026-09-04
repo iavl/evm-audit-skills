@@ -1,15 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:evm-audit-skills:poc-verification:v1",
+  "$id": "urn:evm-audit-skills:poc-verification:v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "artifact_type", "schema_version", "state", "routing_snapshot_id", "review_snapshot_id",
-    "review_state_digest", "severity_decisions_sha256", "poc_evidence_sha256", "results"
+    "review_state_digest", "severity_decisions_sha256", "poc_evidence_sha256", "workspace_policy_version",
+    "environment_policy_version", "network_policy", "ffi_policy", "results"
   ],
   "properties": {
     "artifact_type": {"const": "poc-verification"},
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "state": {"enum": ["UNVERIFIED", "PASSED", "FAILED"]},
     "routing_snapshot_id": {"$ref": "#/$defs/hash"},
     "review_snapshot_id": {"$ref": "#/$defs/hash"},
@@ -18,11 +19,19 @@
     "poc_evidence_sha256": {"$ref": "#/$defs/hash"},
     "runner": {"enum": ["foundry", "hardhat", "custom"]},
     "normalized_argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "entrypoint": {"type": "string", "minLength": 1},
+    "executable": {"type": "string", "minLength": 1},
+    "executable_sha256": {"$ref": "#/$defs/hash"},
     "source_manifest_sha256": {"$ref": "#/$defs/hash"},
+    "staged_sources": {"type": "array", "items": {"$ref": "#/$defs/staged_source"}},
     "exit_code": {"type": ["integer", "null"]},
     "stdout_sha256": {"$ref": "#/$defs/hash"},
     "stderr_sha256": {"$ref": "#/$defs/hash"},
-    "results": {"type": "array", "items": {"$ref": "#/$defs/result"}}
+    "workspace_policy_version": {"type": "string", "minLength": 1},
+    "environment_policy_version": {"type": "string", "minLength": 1},
+    "network_policy": {"const": "NO_RPC_CREDENTIALS_OS_NETWORK_UNRESTRICTED"},
+    "ffi_policy": {"const": "DISABLED"},
+    "results": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/result"}}
   },
   "$defs": {
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -30,15 +39,31 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "canonical_id", "state", "runner", "normalized_argv", "source_manifest_sha256",
-        "exit_code", "stdout_sha256", "stderr_sha256"
+        "canonical_id", "state", "runner", "normalized_argv", "entrypoint", "executable",
+        "executable_sha256", "source_manifest_sha256", "staged_sources", "exit_code", "stdout_sha256", "stderr_sha256"
       ],
       "properties": {
         "canonical_id": {"type": "string", "minLength": 1},
         "state": {"enum": ["UNVERIFIED", "PASSED", "FAILED"]},
         "runner": {"enum": ["foundry", "hardhat", "custom"]},
         "normalized_argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "entrypoint": {"type": "string", "minLength": 1},
+        "executable": {"type": "string", "minLength": 1},
+        "executable_sha256": {"$ref": "#/$defs/hash"},
         "source_manifest_sha256": {"$ref": "#/$defs/hash"},
+        "staged_sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "staged_path", "sha256"],
+            "properties": {
+              "path": {"type": "string", "minLength": 1},
+              "staged_path": {"type": "string", "minLength": 1},
+              "sha256": {"$ref": "#/$defs/hash"}
+            }
+          }
+        },
         "exit_code": {"type": ["integer", "null"]},
         "stdout_sha256": {"$ref": "#/$defs/hash"},
         "stderr_sha256": {"$ref": "#/$defs/hash"},
@@ -48,6 +73,16 @@
           "POC_SOURCE_HASH_MISMATCH", "POC_SEVERITY_STALE", "POC_PATH_INVALID",
           "POC_VERIFICATION_FAILED"
         ]}
+      }
+    },
+    "staged_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "staged_path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "staged_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/hash"}
       }
     }
   }

@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -22,7 +23,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from evm_audit_runtime.versions import POC_EVIDENCE_VERSION, POC_VERIFICATION_VERSION, REPORT_CURRENT_VERSION, REPORTING_VERSION, REPOSITORY_TRUST_VERSION
 from evm_audit_runtime.reporting import derive_poc_required_ids
-from evm_audit_runtime.repository_trust import prepare_repository
+from evm_audit_runtime.repository_trust import copy_tree, prepare_repository
 from evm_audit_runtime.controller_state import STAGE_PROGRESS, display_stage as _display_stage, progress_metadata
 
 try:
@@ -136,6 +137,10 @@ REPORTING_IDENTITY_KEYS = (
     "registry_sha256", "source_digest", "compilation_input_digest",
 )
 POC_IDENTITY_KEYS = REPORTING_IDENTITY_KEYS + ("severity_decisions_sha256",)
+POC_WORKSPACE_POLICY_VERSION = "2"
+POC_ENVIRONMENT_POLICY_VERSION = "1"
+POC_NETWORK_POLICY = "NO_RPC_CREDENTIALS_OS_NETWORK_UNRESTRICTED"
+POC_FFI_POLICY = "DISABLED"
 
 
 @dataclass(frozen=True)
@@ -148,6 +153,14 @@ class CurrentReportingInputs:
     poc_evidence_bytes: bytes | None
     required_poc_ids: tuple[str, ...]
     digest: str | None
+
+
+@dataclass(frozen=True)
+class ResolvedPocCommand:
+    runner: str
+    executable: Path
+    argv: tuple[str, ...]
+    entrypoint: str
 
 
 @dataclass(frozen=True)
@@ -926,9 +939,12 @@ def _poc_source_path(run_dir: Path, source_path: str) -> Path:
     candidate_path = Path(source_path)
     if candidate_path.is_absolute() or not candidate_path.parts or ".." in candidate_path.parts:
         raise ValueError(f"PoC source path is not relative to run-dir/poc: {source_path}")
+    raw = run_dir / candidate_path
+    if raw.is_symlink():
+        raise ValueError(f"PoC source must be a regular file: {source_path}")
     poc_root = (run_dir / "poc").resolve()
-    candidate = (run_dir / candidate_path).resolve(strict=False)
-    if candidate_path.parts[0] != "poc" or poc_root not in candidate.parents or not candidate.is_file():
+    candidate = raw.resolve(strict=False)
+    if candidate_path.parts[0] != "poc" or poc_root not in candidate.parents or candidate.is_symlink() or not candidate.is_file():
         raise ValueError(f"PoC source is not under run-dir/poc: {source_path}")
     return candidate
 
@@ -2494,25 +2510,190 @@ def report_run(
     return commit_report_publication(root, run_dir, prepared)
 
 
+def _trusted_executable(names: tuple[str, ...]) -> Path:
+    for name in names:
+        candidate = shutil.which(name)
+        if candidate:
+            executable = Path(candidate).resolve()
+            if executable.is_file() and os.access(executable, os.X_OK):
+                return executable
+    raise ValueError(f"trusted executable is unavailable: {'/'.join(names)}")
+
+
+def _bare_runner(value: str, names: set[str], label: str) -> None:
+    if value.lower() not in names or "/" in value or "\\" in value:
+        raise ValueError(f"{label} PoC command must use the bare trusted runner name")
+
+
+def _option_values(arguments: list[str], option: str) -> list[str]:
+    values: list[str] = []
+    for index, token in enumerate(arguments):
+        if token == option:
+            if index + 1 >= len(arguments) or arguments[index + 1].startswith("-"):
+                raise ValueError(f"PoC command option {option} requires a value")
+            values.append(arguments[index + 1])
+        elif token.startswith(f"{option}="):
+            value = token.removeprefix(f"{option}=")
+            if not value:
+                raise ValueError(f"PoC command option {option} requires a value")
+            values.append(value)
+    return values
+
+
+def _reject_poc_options(arguments: list[str], unsafe: set[str]) -> None:
+    for token in arguments:
+        if token in unsafe or any(token.startswith(f"{option}=") for option in unsafe):
+            raise ValueError(f"PoC command option is not permitted: {token}")
+
+
+def _hardhat_local_executable(workspace: Path) -> Path:
+    workspace = workspace.resolve()
+    for name in ("hardhat", "hardhat.cmd", "hardhat.exe"):
+        candidate = workspace / "node_modules" / ".bin" / name
+        if not os.path.lexists(candidate):
+            continue
+        try:
+            resolved = candidate.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise ValueError(f"local Hardhat executable is invalid: {candidate}") from error
+        if resolved != workspace and workspace not in resolved.parents:
+            raise ValueError(f"local Hardhat executable escapes verification workspace: {candidate}")
+        if resolved.is_file() and os.access(resolved, os.X_OK):
+            return resolved
+    raise ValueError("local Hardhat executable is unavailable in the copied dependency snapshot")
+
+
+def _staged_entrypoint(finding: dict[str, Any], staged_sources: list[dict[str, str]]) -> dict[str, str]:
+    entrypoint = finding.get("entrypoint")
+    if not isinstance(entrypoint, str) or not entrypoint.strip():
+        raise ValueError("PoC entrypoint is empty")
+    for source, staged in zip(finding.get("sources", []), staged_sources):
+        path = source["path"]
+        relative = path.removeprefix("poc/")
+        if entrypoint in {path, relative}:
+            return staged
+    raise ValueError(f"PoC entrypoint is not one of the validated sources: {entrypoint}")
+
+
+def _resolve_poc_command(
+    finding: dict[str, Any],
+    workspace: Path,
+    staged_sources: list[dict[str, str]],
+) -> ResolvedPocCommand:
+    runner = finding["runner"]
+    command = finding["command"]
+    try:
+        raw = shlex.split(command, posix=os.name != "nt")
+    except ValueError as error:
+        raise ValueError(f"PoC command cannot be parsed: {error}") from error
+    if not raw:
+        raise ValueError("PoC command is empty")
+    if any(any(character in token for character in ";|><`\n\r") for token in raw):
+        raise ValueError("PoC command contains shell syntax")
+    if runner == "foundry":
+        if not staged_sources:
+            raise ValueError("foundry PoC has no staged source")
+        ordered_sources = sorted(staged_sources, key=lambda item: item["staged_path"])
+        staged = next(
+            (item for item in ordered_sources if item["staged_path"].lower().endswith(".t.sol")),
+            ordered_sources[0],
+        )
+        _bare_runner(raw[0], {"forge", "forge.exe"}, "foundry")
+        if len(raw) < 2 or raw[1].lower() != "test":
+            raise ValueError("foundry PoC command must invoke forge test")
+        arguments = raw[2:]
+        _reject_poc_options(
+            arguments,
+            {
+                "--allow-failure", "--rerun", "--ffi", "--fork-url", "--rpc-url", "--root",
+                "--config-path", "--match-path", "--no-match-path", "--no-match-test",
+            },
+        )
+        match_tests = _option_values(arguments, "--match-test")
+        if len(match_tests) > 1:
+            raise ValueError("foundry PoC command may specify only one --match-test")
+        entrypoint = finding["entrypoint"]
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", entrypoint):
+            raise ValueError("foundry PoC entrypoint must be an exact test name")
+        if match_tests and match_tests[0] != entrypoint:
+            raise ValueError("foundry PoC --match-test does not match entrypoint")
+        executable = _trusted_executable(("forge", "forge.exe"))
+        normalized = [str(executable), "test", *arguments]
+        if not match_tests:
+            normalized.extend(["--match-test", entrypoint])
+        normalized.extend(["--match-path", staged["staged_path"]])
+        return ResolvedPocCommand(
+            runner="foundry",
+            executable=executable,
+            argv=tuple(normalized),
+            entrypoint=f"{staged['staged_path']}::{entrypoint}",
+        )
+
+    if runner != "hardhat":
+        raise ValueError(f"unsupported PoC runner: {runner}")
+    staged = _staged_entrypoint(finding, staged_sources)
+    if raw[0].lower() in {"hardhat", "hardhat.cmd", "hardhat.exe"}:
+        _bare_runner(raw[0], {"hardhat", "hardhat.cmd", "hardhat.exe"}, "hardhat")
+        executable = _hardhat_local_executable(workspace)
+        prefix: list[str] = []
+        arguments = raw[1:]
+    elif raw[0].lower() in {"npx", "npx.cmd", "npx.exe"}:
+        _bare_runner(raw[0], {"npx", "npx.cmd", "npx.exe"}, "Hardhat npx")
+        if len(raw) < 3 or raw[1] != "--no-install" or raw[2].lower() not in {"hardhat", "hardhat.cmd", "hardhat.exe"}:
+            raise ValueError("Hardhat npx command must be exactly npx --no-install hardhat")
+        executable = _trusted_executable(("npx", "npx.cmd", "npx.exe"))
+        _hardhat_local_executable(workspace)
+        prefix = ["--no-install", "hardhat"]
+        arguments = raw[3:]
+    else:
+        raise ValueError("hardhat PoC command must use hardhat or npx --no-install hardhat")
+    _reject_poc_options(
+        arguments,
+        {"-p", "--package", "--yes", "--install", "--config", "--network", "--no-install"},
+    )
+    if any("@" in token and not token.startswith("@") for token in arguments):
+        raise ValueError("Hardhat PoC command cannot select a package version")
+    entrypoint = finding["entrypoint"]
+    if Path(entrypoint).is_absolute() or ".." in Path(entrypoint).parts:
+        raise ValueError("Hardhat PoC entrypoint must be a relative validated source path")
+    original_path = next(
+        source["path"]
+        for source, source_staged in zip(finding["sources"], staged_sources)
+        if source_staged == staged
+    )
+    aliases = {entrypoint, original_path, original_path.removeprefix("poc/")}
+    matches = [index for index, token in enumerate(arguments) if token in aliases]
+    if len(matches) != 1:
+        raise ValueError("Hardhat PoC command must name its exact validated entrypoint path")
+    arguments[matches[0]] = staged["staged_path"]
+    for token in arguments:
+        if token.endswith((".js", ".cjs", ".mjs", ".ts")) and token != staged["staged_path"]:
+            raise ValueError("Hardhat PoC command contains an unrelated script path")
+    return ResolvedPocCommand(
+        runner="hardhat",
+        executable=executable,
+        argv=tuple([str(executable), *prefix, *arguments]),
+        entrypoint=staged["staged_path"],
+    )
+
+
 def _poc_command_argv(runner: str, command: str) -> list[str]:
+    """Retain the old parser entry point while rejecting untrusted paths."""
     try:
         argv = shlex.split(command, posix=os.name != "nt")
     except ValueError as error:
         raise ValueError(f"PoC command cannot be parsed: {error}") from error
     if not argv:
         raise ValueError("PoC command is empty")
-    executable = Path(argv[0]).name.lower()
-    if runner == "foundry" and executable not in {"forge", "forge.exe"}:
-        raise ValueError("foundry PoC command must invoke forge")
-    if runner == "hardhat":
-        hardhat = executable in {"hardhat", "hardhat.cmd", "hardhat.exe"}
-        npx_hardhat = executable in {"npx", "npx.cmd", "npx.exe"} and any(
-            Path(value).name.lower() in {"hardhat", "hardhat.cmd", "hardhat.exe"}
-            for value in argv[1:]
-        )
-        if not hardhat and not npx_hardhat:
-            raise ValueError("hardhat PoC command must invoke hardhat")
-    if any(token in {";", "&&", "||", "|", ">", "<", "`"} for token in argv):
+    if runner == "foundry":
+        _bare_runner(argv[0], {"forge", "forge.exe"}, "foundry")
+    elif runner == "hardhat":
+        _bare_runner(argv[0], {"hardhat", "hardhat.cmd", "hardhat.exe", "npx", "npx.cmd", "npx.exe"}, "hardhat")
+        if Path(argv[0]).name.lower().startswith("npx") and (len(argv) < 3 or argv[1] != "--no-install"):
+            raise ValueError("Hardhat npx command must use --no-install")
+    else:
+        raise ValueError(f"unsupported PoC runner: {runner}")
+    if any(any(character in token for character in ";|><`\n\r") for token in argv):
         raise ValueError("PoC command contains shell syntax")
     return argv
 
@@ -2534,18 +2715,10 @@ def _output_bytes(value: Any) -> bytes:
     return str(value or "").encode("utf-8")
 
 
-# Volatile build outputs and dependency trees are never copied into the
-# disposable PoC workspace; dependency trees are re-linked read-only.
+# Volatile build outputs are never copied into the disposable PoC workspace.
 _POC_WORKSPACE_EXCLUDED_DIRS = {
-    "node_modules", "lib", "out", "cache", "artifacts",
-    "broadcast", "coverage", "typechain-types", ".git",
+    "out", "cache", "artifacts", "broadcast", "coverage", "typechain-types", ".git", "poc-evidence",
 }
-_POC_WORKSPACE_LINKED_DIRS = ("node_modules", "lib")
-
-
-def _verify_poc_ignore(directory: str, names: list[str]) -> set[str]:
-    del directory
-    return {name for name in names if name in _POC_WORKSPACE_EXCLUDED_DIRS}
 
 
 def _isolated_poc_workspace(build_root: Path, run_dir: Path) -> Path:
@@ -2557,19 +2730,124 @@ def _isolated_poc_workspace(build_root: Path, run_dir: Path) -> Path:
     parent = Path(tempfile.mkdtemp(prefix=".verify-poc-", dir=str(run_dir.parent)))
     try:
         project = parent / "project"
-        shutil.copytree(build_root, project, copy_function=shutil.copy2, ignore=_verify_poc_ignore)
-        for name in _POC_WORKSPACE_LINKED_DIRS:
-            source = build_root / name
-            target = project / name
-            if source.is_dir() and not target.exists():
-                try:
-                    os.symlink(source, target)
-                except OSError:  # pragma: no cover - Windows without symlink privilege
-                    shutil.copytree(source, target, copy_function=shutil.copy2)
+        copy_tree(
+            build_root,
+            project,
+            excluded_names=_POC_WORKSPACE_EXCLUDED_DIRS,
+            allow_internal_symlinks=True,
+        )
     except BaseException:
         shutil.rmtree(parent, ignore_errors=True)
         raise
     return project
+
+
+def _stage_poc_sources(workspace: Path, finding: dict[str, Any], run_dir: Path) -> list[dict[str, str]]:
+    staged: list[dict[str, str]] = []
+    for source in finding.get("sources", []):
+        source_path = _poc_source_path(run_dir, source["path"])
+        content = source_path.read_bytes()
+        if hashlib.sha256(content).hexdigest() != source["sha256"]:
+            raise ValueError(f"PoC source changed while staging: {source['path']}")
+        relative = Path(*Path(source["path"]).parts[1:])
+        target = workspace / "poc-evidence" / relative
+        if target.exists() or target.is_symlink():
+            raise ValueError(f"duplicate staged PoC source path: {source['path']}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        if target.read_bytes() != content or hashlib.sha256(target.read_bytes()).hexdigest() != source["sha256"]:
+            raise ValueError(f"staged PoC source hash mismatch: {source['path']}")
+        staged.append({
+            "path": source["path"],
+            "staged_path": target.relative_to(workspace).as_posix(),
+            "sha256": source["sha256"],
+        })
+    return staged
+
+
+def _validate_workspace_links(workspace: Path) -> None:
+    for directory, names, files in os.walk(workspace, followlinks=False):
+        for name in (*names, *files):
+            path = Path(directory) / name
+            if not path.is_symlink():
+                continue
+            try:
+                resolved = path.resolve(strict=True)
+            except (OSError, RuntimeError) as error:
+                raise ValueError(f"verification workspace contains an invalid symlink: {path}") from error
+            if resolved != workspace and workspace not in resolved.parents:
+                raise ValueError(f"verification workspace symlink escapes workspace: {path}")
+
+
+def _validate_poc_capabilities(workspace: Path) -> None:
+    for config in workspace.rglob("foundry.toml"):
+        if config.is_symlink():
+            raise ValueError(f"verification workspace config is a symlink: {config}")
+        if re.search(r"(?im)^\s*ffi\s*=\s*true\b", config.read_text(encoding="utf-8")):
+            raise ValueError("Foundry FFI is not permitted during PoC verification")
+
+
+def _poc_environment(
+    workspace: Path,
+    executable: Path,
+    compiler_version: str | None = None,
+) -> dict[str, str]:
+    directories = {
+        "HOME": workspace / ".poc-home",
+        "TMPDIR": workspace / ".poc-tmp",
+        "TMP": workspace / ".poc-tmp",
+        "TEMP": workspace / ".poc-tmp",
+        "XDG_CACHE_HOME": workspace / ".poc-cache",
+        "XDG_CONFIG_HOME": workspace / ".poc-config",
+        "XDG_DATA_HOME": workspace / ".poc-data",
+        "FOUNDRY_HOME": workspace / ".poc-foundry",
+        "NPM_CONFIG_CACHE": workspace / ".poc-npm",
+        "npm_config_cache": workspace / ".poc-npm",
+    }
+    for directory in directories.values():
+        directory.mkdir(parents=True, exist_ok=True)
+    path_entries = [workspace / "node_modules" / ".bin", executable.parent]
+    node = shutil.which("node")
+    if node:
+        path_entries.append(Path(node).resolve().parent)
+    solc = shutil.which("solc")
+    if solc:
+        path_entries.append(Path(solc).resolve().parent)
+    path_entries.extend(Path(item) for item in os.defpath.split(os.pathsep) if item)
+    path_value = os.pathsep.join(dict.fromkeys(str(path) for path in path_entries if path.is_dir()))
+    environment = {"PATH": path_value, **{key: str(value) for key, value in directories.items()}}
+    environment.update({key: os.environ[key] for key in ("LANG", "LC_ALL", "TZ") if key in os.environ})
+    if os.name == "nt":
+        for key in ("SystemRoot", "PATHEXT"):
+            if key in os.environ:
+                environment[key] = os.environ[key]
+        environment["USERPROFILE"] = environment["HOME"]
+    environment.update({
+        "CI": "1",
+        "NO_COLOR": "1",
+        "FOUNDRY_OFFLINE": "true",
+        "FOUNDRY_FFI": "false",
+        "NPM_CONFIG_OFFLINE": "true",
+        "npm_config_offline": "true",
+    })
+    return environment
+
+
+def _stage_solc(workspace: Path, compiler_version: str | None) -> Path | None:
+    if not compiler_version:
+        return None
+    version = compiler_version.removeprefix("v")
+    for candidate in (
+        Path.home() / ".solc-select" / "artifacts" / f"solc-{version}" / f"solc-{version}",
+        Path.home() / ".svm" / version / f"solc-{version}",
+    ):
+        if candidate.is_file() and not candidate.is_symlink():
+            selected = workspace / ".poc-tools" / f"solc-{version}"
+            selected.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(candidate, selected)
+            os.chmod(selected, stat.S_IMODE(candidate.stat().st_mode))
+            return selected
+    return None
 
 
 def verify_poc(
@@ -2600,64 +2878,87 @@ def verify_poc(
     if not build_root.is_dir():
         raise ValueError(f"PoC verification build workspace is not a directory: {build_root}")
     results: list[dict[str, Any]] = []
-    workspace: Path | None = None
-    try:
-        for finding in inputs.poc_evidence.get("findings", []):
-            runner = finding["runner"]
-            source_manifest_hash = _poc_source_manifest_sha256(finding)
-            result: dict[str, Any] = {
-                "canonical_id": finding["canonical_id"],
-                "state": "UNVERIFIED",
-                "runner": runner,
-                "normalized_argv": ["<unparsed>"],
-                "source_manifest_sha256": source_manifest_hash,
-                "exit_code": None,
-                "stdout_sha256": hashlib.sha256(b"").hexdigest(),
-                "stderr_sha256": hashlib.sha256(b"").hexdigest(),
-            }
-            try:
-                argv = _poc_command_argv(runner, finding["command"])
-                result["normalized_argv"] = argv
-            except ValueError as error:
-                result["reason"] = str(error)
-                result["error_code"] = "POC_VERIFICATION_FAILED"
-                results.append(result)
-                continue
+    empty_hash = hashlib.sha256(b"").hexdigest()
+    for finding in inputs.poc_evidence.get("findings", []):
+        runner = finding["runner"]
+        result: dict[str, Any] = {
+            "canonical_id": finding["canonical_id"],
+            "state": "UNVERIFIED",
+            "runner": runner,
+            "normalized_argv": ["<unparsed>"],
+            "entrypoint": str(finding.get("entrypoint", "<missing>")),
+            "executable": "<unresolved>",
+            "executable_sha256": empty_hash,
+            "source_manifest_sha256": _poc_source_manifest_sha256(finding),
+            "staged_sources": [],
+            "exit_code": None,
+            "stdout_sha256": empty_hash,
+            "stderr_sha256": empty_hash,
+        }
+        workspace: Path | None = None
+        try:
+            workspace = _isolated_poc_workspace(build_root, run_dir)
+            _validate_workspace_links(workspace)
+            _validate_poc_capabilities(workspace)
+            staged_sources = _stage_poc_sources(workspace, finding, run_dir)
+            result["staged_sources"] = staged_sources
             if runner == "custom":
                 result["reason"] = "custom PoC runners are not executed automatically"
                 result["error_code"] = "POC_VERIFICATION_FAILED"
-                results.append(result)
                 continue
-            try:
-                if workspace is None:
-                    workspace = _isolated_poc_workspace(build_root, run_dir)
-                completed = subprocess.run(
-                    argv,
-                    shell=False,
-                    cwd=str(workspace),
-                    capture_output=True,
-                    timeout=timeout,
-                    check=False,
+            resolved = _resolve_poc_command(finding, workspace, staged_sources)
+            staged_solc = _stage_solc(
+                workspace,
+                manifest.get("feature_map", {}).get("recon_context", {}).get("solc_version"),
+            )
+            if staged_solc is not None and resolved.runner == "foundry":
+                resolved = ResolvedPocCommand(
+                    runner=resolved.runner,
+                    executable=resolved.executable,
+                    argv=(*resolved.argv, "--use", str(staged_solc)),
+                    entrypoint=resolved.entrypoint,
                 )
-                stdout = _output_bytes(completed.stdout)
-                stderr = _output_bytes(completed.stderr)
-                result.update(
-                    state="PASSED" if completed.returncode == 0 else "FAILED",
-                    exit_code=completed.returncode,
-                    stdout_sha256=hashlib.sha256(stdout).hexdigest(),
-                    stderr_sha256=hashlib.sha256(stderr).hexdigest(),
-                )
-                if completed.returncode != 0:
-                    result["reason"] = "PoC runner exited non-zero"
-                    result["error_code"] = "POC_VERIFICATION_FAILED"
-            except subprocess.TimeoutExpired as error:
-                result.update(state="FAILED", reason="PoC runner timed out")
+            result.update(
+                normalized_argv=list(resolved.argv),
+                entrypoint=resolved.entrypoint,
+                executable=str(resolved.executable),
+                executable_sha256=hashlib.sha256(resolved.executable.read_bytes()).hexdigest(),
+            )
+            completed = subprocess.run(
+                list(resolved.argv),
+                shell=False,
+                cwd=str(workspace),
+                env=_poc_environment(
+                    workspace,
+                    resolved.executable,
+                    manifest.get("feature_map", {}).get("recon_context", {}).get("solc_version"),
+                ),
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+            stdout = _output_bytes(completed.stdout)
+            stderr = _output_bytes(completed.stderr)
+            result.update(
+                state="PASSED" if completed.returncode == 0 else "FAILED",
+                exit_code=completed.returncode,
+                stdout_sha256=hashlib.sha256(stdout).hexdigest(),
+                stderr_sha256=hashlib.sha256(stderr).hexdigest(),
+            )
+            if completed.returncode != 0:
+                result["reason"] = "PoC runner exited non-zero"
                 result["error_code"] = "POC_VERIFICATION_FAILED"
-                result["stderr_sha256"] = hashlib.sha256(_output_bytes(error.stderr)).hexdigest()
-            results.append(result)
-    finally:
-        if workspace is not None:
-            shutil.rmtree(workspace.parent, ignore_errors=True)
+        except subprocess.TimeoutExpired as error:
+            result.update(state="FAILED", reason="PoC runner timed out")
+            result["error_code"] = "POC_VERIFICATION_FAILED"
+            result["stderr_sha256"] = hashlib.sha256(_output_bytes(error.stderr)).hexdigest()
+        except (OSError, ValueError) as error:
+            result["reason"] = str(error)
+            result["error_code"] = "POC_VERIFICATION_FAILED"
+        finally:
+            if workspace is not None:
+                shutil.rmtree(workspace.parent, ignore_errors=True)
+        results.append(result)
     overall = (
         "UNVERIFIED" if any(item["state"] == "UNVERIFIED" for item in results)
         else "FAILED" if any(item["state"] == "FAILED" for item in results)
@@ -2668,13 +2969,21 @@ def verify_poc(
         "state": overall,
         "severity_decisions_sha256": hashlib.sha256(inputs.severity_bytes or b"").hexdigest(),
         "poc_evidence_sha256": poc_hash,
+        "workspace_policy_version": POC_WORKSPACE_POLICY_VERSION,
+        "environment_policy_version": POC_ENVIRONMENT_POLICY_VERSION,
+        "network_policy": POC_NETWORK_POLICY,
+        "ffi_policy": POC_FFI_POLICY,
         "results": results,
     }
     if len(results) == 1:
         receipt.update(
             runner=results[0]["runner"],
             normalized_argv=results[0]["normalized_argv"],
+            entrypoint=results[0]["entrypoint"],
+            executable=results[0]["executable"],
+            executable_sha256=results[0]["executable_sha256"],
             source_manifest_sha256=results[0]["source_manifest_sha256"],
+            staged_sources=results[0]["staged_sources"],
             exit_code=results[0]["exit_code"],
             stdout_sha256=results[0]["stdout_sha256"],
             stderr_sha256=results[0]["stderr_sha256"],

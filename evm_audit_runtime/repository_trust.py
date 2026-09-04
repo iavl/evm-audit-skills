@@ -113,6 +113,52 @@ def _tree_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
+def copy_tree(
+    source: Path,
+    destination: Path,
+    *,
+    excluded_names: set[str] | frozenset[str] = frozenset(),
+    allow_internal_symlinks: bool = False,
+) -> None:
+    """Copy regular files without following external links or special files."""
+    source = source.resolve()
+    destination = destination.resolve(strict=False)
+    if not source.is_dir():
+        raise ValueError(f"copy source must be a directory: {source}")
+    if destination == source or source in destination.parents:
+        raise ValueError("copy destination must be outside the source")
+    excluded = {".git", *excluded_names}
+    destination.mkdir(parents=True, exist_ok=False)
+
+    def visit(current: Path, output: Path) -> None:
+        for entry in sorted(os.scandir(current), key=lambda item: item.name):
+            if entry.name in excluded:
+                continue
+            path = Path(entry.path)
+            target = output / entry.name
+            mode = os.lstat(path).st_mode
+            if stat.S_ISDIR(mode):
+                target.mkdir()
+                visit(path, target)
+            elif stat.S_ISREG(mode):
+                target.write_bytes(_read_regular_file(path))
+                os.chmod(target, stat.S_IMODE(mode))
+            elif stat.S_ISLNK(mode):
+                if not allow_internal_symlinks:
+                    raise ValueError(f"repository snapshot rejects symlink: {path}")
+                try:
+                    resolved = path.resolve(strict=True)
+                    relative = resolved.relative_to(source)
+                except (OSError, RuntimeError, ValueError) as error:
+                    raise ValueError(f"repository snapshot rejects escaping or looping symlink: {path}") from error
+                link_target = os.path.relpath(destination / relative, target.parent)
+                os.symlink(link_target, target, target_is_directory=resolved.is_dir())
+            else:
+                raise ValueError(f"repository snapshot rejects special file: {path}")
+
+    visit(source, destination)
+
+
 def sanitize_snapshot(source: Path, destination: Path) -> dict[str, str]:
     """Copy a source tree without Git metadata, symlinks, or special files."""
     source = source.resolve()
@@ -127,26 +173,7 @@ def sanitize_snapshot(source: Path, destination: Path) -> dict[str, str]:
     before = _tree_digest(source)
     temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=str(destination.parent)))
     try:
-        def copy_tree(current: Path, output: Path, prefix: Path) -> None:
-            for entry in sorted(os.scandir(current), key=lambda item: item.name):
-                if entry.name == ".git":
-                    continue
-                path = Path(entry.path)
-                mode = os.lstat(path).st_mode
-                target = output / entry.name
-                relative = prefix / entry.name
-                if stat.S_ISDIR(mode):
-                    target.mkdir()
-                    copy_tree(path, target, relative)
-                elif stat.S_ISREG(mode):
-                    data = _read_regular_file(path)
-                    target.write_bytes(data)
-                elif stat.S_ISLNK(mode):
-                    raise ValueError(f"repository snapshot rejects symlink: {path}")
-                else:
-                    raise ValueError(f"repository snapshot rejects special file: {path}")
-
-        copy_tree(source, temporary, Path())
+        copy_tree(source, temporary)
         after = _tree_digest(source)
         if before != after:
             raise ValueError("source changed while creating sanitized snapshot")

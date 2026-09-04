@@ -56,6 +56,7 @@ CONTROLLER_MODULES = (
     "test_hardening",
     "test_lifecycle",
     "test_observability",
+    "test_poc_verification",
     "test_runtime",
 )
 
