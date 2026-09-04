@@ -1144,7 +1144,8 @@ class AuditRunTests(unittest.TestCase):
             details_path.write_text(json.dumps({**identity, "findings": [{
                 "canonical_id": candidate_id, "location": "Fixture.sol:1", "description": "fixture finding", "recommendation": "fix fixture",
             }]}) + "\n", encoding="utf-8")
-            audit_controller.report_run(ROOT, run_dir, severity_path, details_path)
+            prepared = audit_controller.prepare_report_publication(ROOT, run_dir, severity_path, details_path)
+            audit_controller.commit_report_publication(ROOT, run_dir, prepared)
 
             def snapshot() -> tuple[bytes, dict[Path, bytes]]:
                 pointer = values["report_current"].read_bytes()
@@ -1194,11 +1195,10 @@ class AuditRunTests(unittest.TestCase):
                         context_manager = patch.object(audit_controller, "atomic_write_json", side_effect=fail)
                     with context_manager:
                         with self.assertRaisesRegex(OSError, f"{name} write failure"):
-                            audit_controller.report_run(ROOT, run_dir, severity_path, details_path)
+                            audit_controller.commit_report_publication(ROOT, run_dir, prepared)
                     self.assertEqual(values["report_current"].read_bytes(), original_pointer)
                     self.assertEqual(snapshot()[1], original_generation)
                     self.assertTrue(audit_controller._report_bundle_status(ROOT, values, manifest, state)["current"])
-                    audit_controller.report_run(ROOT, run_dir, severity_path, details_path)
 
     def test_report_rederives_state_after_current_ledger_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -59,6 +59,16 @@ CONTROLLER_MODULES = (
     "test_poc_verification",
     "test_runtime",
 )
+CONTROLLER_REPORTING_MODULES = ("test_audit_run", "test_hardening")
+CONTROLLER_LIFECYCLE_MODULES = (
+    "test_codex_model_profile",
+    "test_lifecycle",
+    "test_observability",
+    "test_poc_verification",
+    "test_repository_trust",
+    "test_review_ledger_commit",
+    "test_runtime",
+)
 
 SLITHER_MODULES = (
     "test_code_context",
@@ -146,10 +156,16 @@ def run_fast() -> int:
     )
 
 
-def run_controller() -> int:
+def run_controller(shard: str | None = None) -> int:
+    if shard == "reporting":
+        modules = CONTROLLER_REPORTING_MODULES
+    elif shard == "lifecycle":
+        modules = CONTROLLER_LIFECYCLE_MODULES
+    else:
+        modules = CONTROLLER_MODULES
     return run_suite(
-        "controller-integration",
-        CONTROLLER_MODULES,
+        f"controller-{shard or 'integration'}",
+        modules,
         include=None,
         exclude=_runtime_fast_tests() | PLATFORM_TESTS,
         budget=180,

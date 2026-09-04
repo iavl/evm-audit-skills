@@ -42,7 +42,7 @@ The normal PR workflow runs independent test layers in parallel. The layer
 boundaries are explicit in [`scripts/run_test_suite.py`](../scripts/run_test_suite.py):
 
 - `fast-unit` covers pure routing, state, schema, reporting, generation, and knowledge checks.
-- `controller-integration` covers real run directories, report publication, rollback, lifecycle, and CLI behavior.
+- `controller-reporting` covers real run directories, report publication, rollback, and CLI behavior; `controller-lifecycle` covers lifecycle, observation, PoC, ledger, and trust boundaries.
 - `slither-integration` covers real Slither/compiler, Recon, code-index, closure, and packaging compatibility.
 - `platform-concurrency` covers cross-process locking and publication; Windows runs only this focused layer.
 
@@ -51,6 +51,8 @@ Run one layer locally with:
 ```bash
 python3 scripts/run_fast_tests.py
 python3 scripts/run_controller_tests.py
+python3 scripts/run_controller_tests.py --shard reporting
+python3 scripts/run_controller_tests.py --shard lifecycle
 python3 scripts/run_slither_tests.py
 python3 scripts/run_platform_tests.py
 ```

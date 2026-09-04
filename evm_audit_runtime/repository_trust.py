@@ -128,7 +128,11 @@ def copy_tree(
     if destination == source or source in destination.parents:
         raise ValueError("copy destination must be outside the source")
     excluded = {".git", *excluded_names}
-    destination.mkdir(parents=True, exist_ok=False)
+    if destination.exists():
+        if not destination.is_dir() or any(destination.iterdir()):
+            raise ValueError(f"copy destination must be a missing or empty directory: {destination}")
+    else:
+        destination.mkdir(parents=True, exist_ok=False)
 
     def visit(current: Path, output: Path) -> None:
         for entry in sorted(os.scandir(current), key=lambda item: item.name):

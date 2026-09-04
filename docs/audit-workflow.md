@@ -55,10 +55,11 @@ dependencies. Recon keeps those two boundaries distinct so the audit does not
 silently omit code needed to understand the target.
 
 Keep mutable run artifacts in an external sibling directory such as
-`../protocol-audit-run/`; the target and build trees remain read-only
-authoritative inputs. Recon rejects source/build changes observed during its
-analysis window and publishes no Feature Map or code index from an unstable
-snapshot.
+`../protocol-audit-run/`; the target and build trees are authoritative inputs.
+Recon rejects source/build changes observed during its analysis window, and
+PoC verification works from a disposable copy so it cannot mutate those inputs
+through the verification workspace. Recon publishes no Feature Map or code
+index from an unstable snapshot.
 
 Recon is conservative when traversal or compilation is incomplete. Presence
 evidence can still identify code that was seen, but missing evidence is not
