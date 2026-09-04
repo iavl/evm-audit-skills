@@ -670,7 +670,7 @@ def _resolve_poc_source(path: str, manifest: dict[str, Any], run_dir: Path | Non
         raise ValueError(f"PoC source escapes allowed roots: {path}")
     raw = run_dir / candidate_path
     if raw.is_symlink():
-        raise ValueError(f"PoC source must be a regular file: {path}")
+        raise ValueError(f"PoC source escapes allowed roots or is not a regular file: {path}")
     candidate = raw.resolve(strict=False)
     if candidate != poc_root and poc_root not in candidate.parents:
         raise ValueError(f"PoC source escapes allowed roots: {path}")
