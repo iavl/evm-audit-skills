@@ -23,6 +23,7 @@
     "executable": {"type": "string", "minLength": 1},
     "executable_sha256": {"$ref": "#/$defs/hash"},
     "source_manifest_sha256": {"$ref": "#/$defs/hash"},
+    "staged_manifest_sha256": {"$ref": "#/$defs/hash"},
     "staged_sources": {"type": "array", "items": {"$ref": "#/$defs/staged_source"}},
     "exit_code": {"type": ["integer", "null"]},
     "stdout_sha256": {"$ref": "#/$defs/hash"},
@@ -40,7 +41,7 @@
       "additionalProperties": false,
       "required": [
         "canonical_id", "state", "runner", "normalized_argv", "entrypoint", "executable",
-        "executable_sha256", "source_manifest_sha256", "staged_sources", "exit_code", "stdout_sha256", "stderr_sha256"
+        "executable_sha256", "source_manifest_sha256", "staged_manifest_sha256", "staged_sources", "exit_code", "stdout_sha256", "stderr_sha256"
       ],
       "properties": {
         "canonical_id": {"type": "string", "minLength": 1},
@@ -51,19 +52,8 @@
         "executable": {"type": "string", "minLength": 1},
         "executable_sha256": {"$ref": "#/$defs/hash"},
         "source_manifest_sha256": {"$ref": "#/$defs/hash"},
-        "staged_sources": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["path", "staged_path", "sha256"],
-            "properties": {
-              "path": {"type": "string", "minLength": 1},
-              "staged_path": {"type": "string", "minLength": 1},
-              "sha256": {"$ref": "#/$defs/hash"}
-            }
-          }
-        },
+        "staged_manifest_sha256": {"$ref": "#/$defs/hash"},
+        "staged_sources": {"type": "array", "items": {"$ref": "#/$defs/staged_source"}},
         "exit_code": {"type": ["integer", "null"]},
         "stdout_sha256": {"$ref": "#/$defs/hash"},
         "stderr_sha256": {"$ref": "#/$defs/hash"},

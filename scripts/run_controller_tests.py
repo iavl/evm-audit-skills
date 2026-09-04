@@ -9,5 +9,8 @@ from scripts.run_test_suite import run_controller
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--shard", choices=("lifecycle", "reporting"))
+    parser.add_argument(
+        "--shard",
+        choices=("lifecycle", "reporting", "reporting-publication", "reporting-authoring"),
+    )
     raise SystemExit(run_controller(parser.parse_args().shard))

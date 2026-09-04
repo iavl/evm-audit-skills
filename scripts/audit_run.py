@@ -2552,6 +2552,22 @@ def _reject_poc_options(arguments: list[str], unsafe: set[str]) -> None:
             raise ValueError(f"PoC command option is not permitted: {token}")
 
 
+def _reject_unexpected_positionals(arguments: list[str], value_options: set[str]) -> None:
+    skip_value = False
+    for token in arguments:
+        if skip_value:
+            skip_value = False
+            continue
+        if token in value_options:
+            skip_value = True
+        elif token.startswith("-"):
+            continue
+        else:
+            raise ValueError(f"PoC command contains an unbound positional argument: {token}")
+    if skip_value:
+        raise ValueError("PoC command option requires a value")
+
+
 def _hardhat_local_executable(workspace: Path) -> Path:
     workspace = workspace.resolve()
     for name in ("hardhat", "hardhat.cmd", "hardhat.exe"):
@@ -2600,10 +2616,10 @@ def _resolve_poc_command(
         if not staged_sources:
             raise ValueError("foundry PoC has no staged source")
         ordered_sources = sorted(staged_sources, key=lambda item: item["staged_path"])
-        staged = next(
-            (item for item in ordered_sources if item["staged_path"].lower().endswith(".t.sol")),
-            ordered_sources[0],
-        )
+        test_sources = [item for item in ordered_sources if item["staged_path"].lower().endswith(".t.sol")]
+        if len(test_sources) > 1:
+            raise ValueError("Foundry PoC must identify exactly one staged test source")
+        staged = test_sources[0] if test_sources else ordered_sources[0]
         _bare_runner(raw[0], {"forge", "forge.exe"}, "foundry")
         if len(raw) < 2 or raw[1].lower() != "test":
             raise ValueError("foundry PoC command must invoke forge test")
@@ -2613,6 +2629,15 @@ def _resolve_poc_command(
             {
                 "--allow-failure", "--rerun", "--ffi", "--fork-url", "--rpc-url", "--root",
                 "--config-path", "--match-path", "--no-match-path", "--no-match-test",
+            },
+        )
+        _reject_unexpected_positionals(
+            arguments,
+            {
+                "--match-test", "--match-contract", "--no-match-contract", "--color", "--threads", "--jobs",
+                "--fuzz-seed", "--fuzz-runs", "--fuzz-timeout", "--gas-snapshot-check", "--gas-snapshot-emit",
+                "--etherscan-api-key", "--dump", "--fork-block-number", "--code-size-limit", "--sender",
+                "--initial-balance", "--evm-version",
             },
         )
         match_tests = _option_values(arguments, "--match-test")
@@ -2713,6 +2738,10 @@ def _poc_source_manifest_sha256(finding: dict[str, Any]) -> str:
             ]
         }
     )
+
+
+def _staged_source_manifest_sha256(staged_sources: list[dict[str, str]]) -> str:
+    return canonical_sha256({"sources": staged_sources})
 
 
 def _output_bytes(value: Any) -> bytes:
@@ -2896,6 +2925,7 @@ def verify_poc(
             "executable": "<unresolved>",
             "executable_sha256": empty_hash,
             "source_manifest_sha256": _poc_source_manifest_sha256(finding),
+            "staged_manifest_sha256": empty_hash,
             "staged_sources": [],
             "exit_code": None,
             "stdout_sha256": empty_hash,
@@ -2908,6 +2938,7 @@ def verify_poc(
             _validate_poc_capabilities(workspace)
             staged_sources = _stage_poc_sources(workspace, finding, run_dir)
             result["staged_sources"] = staged_sources
+            result["staged_manifest_sha256"] = _staged_source_manifest_sha256(staged_sources)
             if runner == "custom":
                 result["reason"] = "custom PoC runners are not executed automatically"
                 result["error_code"] = "POC_VERIFICATION_FAILED"
@@ -2989,6 +3020,7 @@ def verify_poc(
             executable=results[0]["executable"],
             executable_sha256=results[0]["executable_sha256"],
             source_manifest_sha256=results[0]["source_manifest_sha256"],
+            staged_manifest_sha256=results[0]["staged_manifest_sha256"],
             staged_sources=results[0]["staged_sources"],
             exit_code=results[0]["exit_code"],
             stdout_sha256=results[0]["stdout_sha256"],

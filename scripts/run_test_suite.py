@@ -60,6 +60,39 @@ CONTROLLER_MODULES = (
     "test_runtime",
 )
 CONTROLLER_REPORTING_MODULES = ("test_audit_run", "test_hardening")
+CONTROLLER_REPORTING_PUBLICATION_NAMES = frozenset(
+    {
+        "test_bundle_rederivation_accepts_official_report",
+        "test_bundle_rejects_coordinated_report_and_marker_edit",
+        "test_changed_report_inputs_create_new_generation",
+        "test_complete_report_cannot_return_success_with_stale_bundle",
+        "test_convenience_copy_failure_returns_authoritative_generation",
+        "test_e2e_clean_audit",
+        "test_e2e_confirmed_high_with_poc",
+        "test_e2e_confirmed_medium_audit",
+        "test_e2e_recon_to_report",
+        "test_existing_content_address_with_mismatched_contents_fails_closed",
+        "test_failed_finding_report_preserves_previous_current_generation",
+        "test_finding_report_snapshots_inputs_and_requires_both_for_current_bundle",
+        "test_first_report_failure_does_not_create_fake_current_generation",
+        "test_generation_rename_is_durable_before_pointer_commit",
+        "test_identical_report_reuses_generation",
+        "test_init_failures_leave_no_partial_run_and_allow_safe_retry",
+        "test_orphan_generation_is_reported_but_not_current",
+        "test_pointer_write_failure_after_rename_is_retryable",
+        "test_post_pointer_failure_removes_first_report_pointer",
+        "test_post_pointer_poc_source_change_rolls_back_previous_current_pointer",
+        "test_report_aborts_if_review_state_changes_before_pointer_commit",
+        "test_report_bundle_write_failures_never_commit_mixed_outputs",
+        "test_report_rederives_state_after_current_ledger_is_removed",
+        "test_report_result_points_to_current_generation",
+        "test_reports_cli_defaults_gc_to_dry_run",
+        "test_reports_gc_dry_run_and_apply_preserve_current_and_unknown",
+        "test_reports_gc_refuses_when_current_pointer_cannot_be_validated",
+        "test_reports_list_diagnoses_staging_and_orphans",
+        "test_tmp_generation_without_pointer_is_ignored_as_uncommitted",
+    }
+)
 CONTROLLER_LIFECYCLE_MODULES = (
     "test_codex_model_profile",
     "test_lifecycle",
@@ -117,6 +150,14 @@ def _runtime_fast_tests() -> frozenset[str]:
     )
 
 
+def _named_tests(modules: Iterable[str], names: frozenset[str]) -> frozenset[str]:
+    return frozenset(
+        test.id()
+        for test in _tests(_load(modules))
+        if test.id().rsplit(".", 1)[-1] in names
+    )
+
+
 def _write_summary(name: str, result: object, elapsed: float, budget: float | None) -> None:
     timings = sorted(getattr(result, "timings", []), key=lambda item: item["seconds"], reverse=True)
     lines = [f"{name}: {getattr(result, 'testsRun', 0)} tests in {elapsed:.3f}s"]
@@ -157,17 +198,28 @@ def run_fast() -> int:
 
 
 def run_controller(shard: str | None = None) -> int:
+    excluded = _runtime_fast_tests() | PLATFORM_TESTS
     if shard == "reporting":
         modules = CONTROLLER_REPORTING_MODULES
+        include = None
+    elif shard == "reporting-publication":
+        modules = CONTROLLER_REPORTING_MODULES
+        include = _named_tests(modules, CONTROLLER_REPORTING_PUBLICATION_NAMES)
+    elif shard == "reporting-authoring":
+        modules = CONTROLLER_REPORTING_MODULES
+        excluded |= _named_tests(modules, CONTROLLER_REPORTING_PUBLICATION_NAMES)
+        include = None
     elif shard == "lifecycle":
         modules = CONTROLLER_LIFECYCLE_MODULES
+        include = None
     else:
         modules = CONTROLLER_MODULES
+        include = None
     return run_suite(
         f"controller-{shard or 'integration'}",
         modules,
-        include=None,
-        exclude=_runtime_fast_tests() | PLATFORM_TESTS,
+        include=include,
+        exclude=excluded,
         budget=180,
     )
 

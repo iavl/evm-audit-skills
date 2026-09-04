@@ -119,18 +119,22 @@ def copy_tree(
     *,
     excluded_names: set[str] | frozenset[str] = frozenset(),
     allow_internal_symlinks: bool = False,
+    allow_existing_empty: bool = False,
 ) -> None:
     """Copy regular files without following external links or special files."""
     source = source.resolve()
-    destination = destination.resolve(strict=False)
+    requested_destination = Path(destination)
+    if requested_destination.is_symlink():
+        raise ValueError(f"copy destination must not be a symlink: {requested_destination}")
+    destination = requested_destination.resolve(strict=False)
     if not source.is_dir():
         raise ValueError(f"copy source must be a directory: {source}")
     if destination == source or source in destination.parents:
         raise ValueError("copy destination must be outside the source")
     excluded = {".git", *excluded_names}
     if destination.exists():
-        if not destination.is_dir() or any(destination.iterdir()):
-            raise ValueError(f"copy destination must be a missing or empty directory: {destination}")
+        if not allow_existing_empty or not destination.is_dir() or any(destination.iterdir()):
+            raise ValueError(f"copy destination must be a missing directory: {destination}")
     else:
         destination.mkdir(parents=True, exist_ok=False)
 
@@ -166,7 +170,10 @@ def copy_tree(
 def sanitize_snapshot(source: Path, destination: Path) -> dict[str, str]:
     """Copy a source tree without Git metadata, symlinks, or special files."""
     source = source.resolve()
-    destination = destination.resolve(strict=False)
+    requested_destination = Path(destination)
+    if requested_destination.is_symlink():
+        raise ValueError(f"sanitized source destination must not be a symlink: {requested_destination}")
+    destination = requested_destination.resolve(strict=False)
     if not source.is_dir():
         raise ValueError(f"sanitized source must be a directory: {source}")
     if destination == source or source in destination.parents:
@@ -177,7 +184,7 @@ def sanitize_snapshot(source: Path, destination: Path) -> dict[str, str]:
     before = _tree_digest(source)
     temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=str(destination.parent)))
     try:
-        copy_tree(source, temporary)
+        copy_tree(source, temporary, allow_existing_empty=True)
         after = _tree_digest(source)
         if before != after:
             raise ValueError("source changed while creating sanitized snapshot")

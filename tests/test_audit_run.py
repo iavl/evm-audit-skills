@@ -8,6 +8,7 @@ import hashlib
 import multiprocessing
 import queue
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -676,17 +677,22 @@ class AuditRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory) / "run"
             self.prepare_finding_run(run_dir, ["High"])
+            trusted_forge = Path(directory) / "trusted-forge"
+            trusted_forge.write_bytes(b"trusted forge")
+            trusted_forge.chmod(trusted_forge.stat().st_mode | stat.S_IXUSR)
             completed = subprocess.CompletedProcess(
                 ["forge", "test"], 0, stdout=b"passed", stderr=b""
             )
             real_run = audit_controller.subprocess.run
 
             def run_command(command, **kwargs):
-                if command and Path(command[0]).name == "forge":
+                if command and Path(command[0]) == trusted_forge:
                     return completed
                 return real_run(command, **kwargs)
 
-            with patch.object(audit_controller.subprocess, "run", side_effect=run_command) as runner:
+            with patch.object(audit_controller, "_trusted_executable", return_value=trusted_forge), patch.object(
+                audit_controller.subprocess, "run", side_effect=run_command
+            ) as runner:
                 result = audit_controller.verify_poc(ROOT, run_dir)
             self.assertEqual(result["state"], "PASSED")
             receipt = self.read(run_dir / "reviews/poc-verification.json")
